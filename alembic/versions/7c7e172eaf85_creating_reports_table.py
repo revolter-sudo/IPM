@@ -21,30 +21,13 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         'reports',
-        sa.Column(
-            'id',
-            sa.UUID(as_uuid=True),
-            primary_key=True,
-            default=uuid.uuid4
-        ),
-        sa.Column(
-            'report_type',
-            sa.String(length=20),
-            nullable=False
-        ),
+        sa.Column('id', sa.Integer(), sa.Identity(always=False, start=1, increment=1), primary_key=True, nullable=False),
+        sa.Column('uuid', sa.UUID(as_uuid=True), default=uuid.uuid4, nullable=False, unique=True),
+        sa.Column('report_type', sa.String(length=20), nullable=False),
         sa.Column('filters', sa.JSON(), nullable=True),
-        sa.Column(
-            'generated_by',
-            sa.UUID(as_uuid=True),
-            sa.ForeignKey('users.id'),
-            nullable=False
-        ),
-        sa.Column(
-            'generated_at',
-            sa.TIMESTAMP(),
-            server_default=sa.func.now(),
-            nullable=False
-        ),
+        sa.Column('generated_by', sa.UUID(as_uuid=True), nullable=False),
+        sa.Column('generated_at', sa.TIMESTAMP(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+        sa.ForeignKeyConstraint(['generated_by'], ['users.uuid'])
     )
 
 

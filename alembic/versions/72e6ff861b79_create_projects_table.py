@@ -21,15 +21,11 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.create_table(
         'projects',
-        sa.Column(
-            'id',
-            sa.UUID(as_uuid=True),
-            primary_key=True,
-            default=uuid.uuid4
-        ),
+        sa.Column('id', sa.Integer(), sa.Identity(always=False, start=1, increment=1), primary_key=True, nullable=False),
+        sa.Column('uuid', sa.UUID(as_uuid=True), default=uuid.uuid4, nullable=False, unique=True),
         sa.Column('name', sa.String(length=255), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('location', sa.Text(), nullable=True),
+        sa.Column('location', sa.Text(), nullable=True)
     )
 
 
