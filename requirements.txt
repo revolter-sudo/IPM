@@ -7,3 +7,5 @@ fastapi-sqlalchemy
 pydantic-settings
 pydantic
 alembic
+passlib
+python-jose
