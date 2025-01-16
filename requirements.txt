@@ -9,3 +9,4 @@ pydantic
 alembic
 passlib
 python-jose
+python-multipart

@@ -1,10 +1,12 @@
-from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.orm import Session
-from passlib.context import CryptContext
+from fastapi import APIRouter, Depends, HTTPException
 from jose import JWTError, jwt
+from passlib.context import CryptContext
+from sqlalchemy.orm import Session
+from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordRequestForm
 from src.app.database.database import get_db
 from src.app.database.models import User
-from src.app.schemas.auth_service_schamas import UserCreate, UserLogin, Token
+from src.app.schemas.auth_service_schamas import Token, UserCreate
 
 # Router Setup
 auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -20,6 +22,9 @@ pwd_context = CryptContext(
 SECRET_KEY = "supersecretkey"
 ALGORITHM = "HS256"
 
+# OAuth2 scheme for Bearer token
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
 
 # Utility Functions
 def get_password_hash(password):
@@ -32,7 +37,7 @@ def create_access_token(data: dict):
     return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
 
 # Dependency for Role-based Access
-def get_current_user(db: Session = Depends(get_db), token: str = Depends(lambda: "")):
+def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user = db.query(User).filter(User.uuid == payload.get("sub")).first()
@@ -66,14 +71,19 @@ def register_user(user: UserCreate, db: Session = Depends(get_db), current_user:
     access_token = create_access_token(data={"sub": str(new_user.uuid)})
     return {"access_token": access_token, "token_type": "bearer"}
 
+# @auth_router.post("/login", response_model=Token)
+# def login(user: UserLogin, db: Session = Depends(get_db)):
+#     db_user = db.query(User).filter(User.phone == user.phone).first()
+#     if not db_user or not verify_password(user.password, db_user.password_hash):
+#         raise HTTPException(status_code=400, detail="Incorrect phone or password")
+#     access_token = create_access_token(data={"sub": str(db_user.uuid)})
+#     return {"access_token": access_token, "token_type": "bearer"}
+
 @auth_router.post("/login", response_model=Token)
-def login(user: UserLogin, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.phone == user.phone).first()
-    print(f"Entered Password: {user.password}")
-    print(f"Stored Hash: {db_user.password_hash}")
-    verified = verify_password(user.password, db_user.password_hash)
-    print(f"Password Verified: {verified}")  
-    if not db_user or not verify_password(user.password, db_user.password_hash):
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.phone == int(form_data.username)).first()
+    if not db_user or not verify_password(form_data.password, db_user.password_hash):
         raise HTTPException(status_code=400, detail="Incorrect phone or password")
+    
     access_token = create_access_token(data={"sub": str(db_user.uuid)})
     return {"access_token": access_token, "token_type": "bearer"}
