@@ -8,6 +8,7 @@ from src.app.database.database import get_db
 from src.app.database.models import User
 from src.app.schemas.auth_service_schamas import Token, UserCreate
 from uuid import UUID
+from sqlalchemy import and_
 
 # Router Setup
 auth_router = APIRouter(prefix="/auth")
@@ -45,12 +46,19 @@ def get_current_user(
     ):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user = db.query(User).filter(User.uuid == payload.get("sub")).first()
+        user = db.query(User).filter(
+            and_(
+                User.uuid == payload.get("sub"),
+                User.is_deleted.is_(False),
+                User.is_active.is_(True)
+            )
+        ).first()
         if not user:
             raise HTTPException(status_code=401, detail="Invalid authentication")
         return user
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid authentication")
+
 
 def superadmin_required(current_user: User = Depends(get_current_user)):
     if current_user.role != "SuperAdmin":
@@ -64,7 +72,13 @@ def superadmin_required(current_user: User = Depends(get_current_user)):
         tags=["Users"]
     )
 def register_user(user: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(superadmin_required)):
-    db_user = db.query(User).filter(User.phone == user.phone).first()
+    db_user = db.query(User).filter(
+        and_(
+            User.phone == user.phone,
+            User.is_deleted.is_(False),
+            User.is_active.is_(True)
+        )
+    ).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Phone already registered")
     hashed_password = get_password_hash(user.password)
@@ -89,7 +103,13 @@ def register_user(user: UserCreate, db: Session = Depends(get_db), current_user:
         tags=["Users"]
     )
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.phone == int(form_data.username)).first()
+    db_user = db.query(User).filter(
+        and_(
+            User.phone == int(form_data.username),
+            User.is_deleted.is_(False),
+            User.is_active.is_(True)
+        )
+    ).first()
     if not db_user or not verify_password(form_data.password, db_user.password_hash):
         raise HTTPException(status_code=400, detail="Incorrect phone or password")
 
@@ -107,7 +127,13 @@ def delete_user(
     current_user: User = Depends(superadmin_required)
 ):
     try:
-        user_data = db.query(User).filter(User.uuid == user_uuid).first()
+        user_data = db.query(User).filter(
+            and_(
+                User.uuid == user_uuid,
+                User.is_deleted.is_(False),
+                User.is_active.is_(True)
+            )
+        ).first()
         if not user_data:
             raise HTTPException(
                 status_code=404,
@@ -141,7 +167,13 @@ def deactivate_user(
     current_user: User = Depends(superadmin_required)
 ):
     try:
-        user_data = db.query(User).filter(User.uuid == user_uuid).first()
+        user_data = db.query(User).filter(
+            and_(
+                User.uuid == user_uuid,
+                User.is_deleted.is_(False),
+                User.is_active.is_(True)
+            )
+        ).first()
         if not user_data:
             raise HTTPException(
                 status_code=404,
@@ -151,7 +183,7 @@ def deactivate_user(
         if user_data.role == 'SuperAdmin':
             raise HTTPException(
                 status_code=403,
-                detail="SuperAdmin user cannot be deleted."
+                detail="SuperAdmin user cannot be deactivated."
             )
 
         user_data.is_active = False
@@ -161,4 +193,43 @@ def deactivate_user(
         return {"result": "User successfully deactivated."}
     except Exception as e:
         print(f"Error in deactivate_user API: {str(e)}")
+        raise e
+
+
+@auth_router.put(
+    "/activate/{user_uuid}",
+    tags=["Users"]
+)
+def activate_user(
+    user_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_required)
+):
+    try:
+        user_data = db.query(User).filter(
+            and_(
+                User.uuid == user_uuid,
+                User.is_deleted.is_(False),
+                User.is_active.is_(True)
+            )
+        ).first()
+        if not user_data:
+            raise HTTPException(
+                status_code=404,
+                detail="User does not exist"
+            )
+
+        if user_data.role == 'SuperAdmin':
+            raise HTTPException(
+                status_code=403,
+                detail="SuperAdmin user cannot be activated."
+            )
+
+        user_data.is_active = True
+        db.commit()
+        db.refresh(user_data)
+
+        return {"result": "User successfully activated."}
+    except Exception as e:
+        print(f"Error in activate_user API: {str(e)}")
         raise e
