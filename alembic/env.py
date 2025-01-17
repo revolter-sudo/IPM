@@ -5,7 +5,7 @@ from sqlalchemy import pool
 
 from alembic import context
 from src.app.main import settings  # Import the settings from FastAPI
-from src.app.main import Base  # Import your SQLAlchemy Base
+from src.app.database.database import Base  # Import your SQLAlchemy Base
 
 config = context.config
 config.set_main_option('sqlalchemy.url', settings.DATABASE_URL)

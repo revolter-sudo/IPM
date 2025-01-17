@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import BigInteger, Column, Integer, String
+from sqlalchemy import BigInteger, Boolean, Column, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 
 from src.app.database.database import Base
@@ -20,3 +20,5 @@ class User(Base):
     phone = Column(BigInteger, unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(30), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    is_active = Column(Boolean, nullable=False, default=True)

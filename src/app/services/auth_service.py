@@ -7,9 +7,10 @@ from fastapi.security import OAuth2PasswordRequestForm
 from src.app.database.database import get_db
 from src.app.database.models import User
 from src.app.schemas.auth_service_schamas import Token, UserCreate
+from uuid import UUID
 
 # Router Setup
-auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
+auth_router = APIRouter(prefix="/auth")
 
 # Password Hashing
 pwd_context = CryptContext(
@@ -17,6 +18,7 @@ pwd_context = CryptContext(
     bcrypt__default_rounds=12,
     deprecated="auto"
 )
+
 
 # JWT Configuration
 SECRET_KEY = "supersecretkey"
@@ -37,7 +39,10 @@ def create_access_token(data: dict):
     return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
 
 # Dependency for Role-based Access
-def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+def get_current_user(
+        db: Session = Depends(get_db),
+        token: str = Depends(oauth2_scheme)
+    ):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user = db.query(User).filter(User.uuid == payload.get("sub")).first()
@@ -53,7 +58,11 @@ def superadmin_required(current_user: User = Depends(get_current_user)):
     return current_user
 
 # Routes
-@auth_router.post("/register", response_model=Token)
+@auth_router.post(
+        "/register",
+        response_model=Token,
+        tags=["Users"]
+    )
 def register_user(user: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(superadmin_required)):
     db_user = db.query(User).filter(User.phone == user.phone).first()
     if db_user:
@@ -63,7 +72,9 @@ def register_user(user: UserCreate, db: Session = Depends(get_db), current_user:
         name=user.name,
         phone=user.phone,
         password_hash=hashed_password,
-        role=user.role
+        role=user.role,
+        is_deleted=False,
+        is_active=True
     )
     db.add(new_user)
     db.commit()
@@ -71,19 +82,83 @@ def register_user(user: UserCreate, db: Session = Depends(get_db), current_user:
     access_token = create_access_token(data={"sub": str(new_user.uuid)})
     return {"access_token": access_token, "token_type": "bearer"}
 
-# @auth_router.post("/login", response_model=Token)
-# def login(user: UserLogin, db: Session = Depends(get_db)):
-#     db_user = db.query(User).filter(User.phone == user.phone).first()
-#     if not db_user or not verify_password(user.password, db_user.password_hash):
-#         raise HTTPException(status_code=400, detail="Incorrect phone or password")
-#     access_token = create_access_token(data={"sub": str(db_user.uuid)})
-#     return {"access_token": access_token, "token_type": "bearer"}
 
-@auth_router.post("/login", response_model=Token)
+@auth_router.post(
+        "/login",
+        response_model=Token,
+        tags=["Users"]
+    )
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.phone == int(form_data.username)).first()
     if not db_user or not verify_password(form_data.password, db_user.password_hash):
         raise HTTPException(status_code=400, detail="Incorrect phone or password")
-    
+
     access_token = create_access_token(data={"sub": str(db_user.uuid)})
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@auth_router.put(
+        "/delete/{user_uuid}",
+        tags=["Users"]
+    )
+def delete_user(
+    user_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_required)
+):
+    try:
+        user_data = db.query(User).filter(User.uuid == user_uuid).first()
+        if not user_data:
+            raise HTTPException(
+                status_code=404,
+                detail="User does not exist"
+            )
+
+        if user_data.role == 'SuperAdmin':
+            raise HTTPException(
+                status_code=403,
+                detail="SuperAdmin user cannot be deleted."
+            )
+
+        user_data.is_deleted = True
+        db.commit()
+        db.refresh(user_data)
+
+        return {"result": "User successfully deleted."}
+
+    except Exception as e:
+        print(f"Error in delete_user API: {str(e)}")
+        raise e
+
+
+@auth_router.put(
+    "/deactivate/{user_uuid}",
+    tags=["Users"]
+)
+def deactivate_user(
+    user_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_required)
+):
+    try:
+        user_data = db.query(User).filter(User.uuid == user_uuid).first()
+        if not user_data:
+            raise HTTPException(
+                status_code=404,
+                detail="User does not exist"
+            )
+
+        if user_data.role == 'SuperAdmin':
+            raise HTTPException(
+                status_code=403,
+                detail="SuperAdmin user cannot be deleted."
+            )
+
+        user_data.is_active = False
+        db.commit()
+        db.refresh(user_data)
+
+        return {"result": "User successfully deactivated."}
+    except Exception as e:
+        print(f"Error in deactivate_user API: {str(e)}")
+        raise e

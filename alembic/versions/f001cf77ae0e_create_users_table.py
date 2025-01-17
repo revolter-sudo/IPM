@@ -26,7 +26,9 @@ def upgrade() -> None:
         sa.Column('name', sa.String(length=255), nullable=False),
         sa.Column('phone', sa.BigInteger(), nullable=False, unique=True),
         sa.Column('password_hash', sa.String(length=255), nullable=False),
-        sa.Column('role', sa.String(length=30), nullable=False)
+        sa.Column('role', sa.String(length=30), nullable=False),
+        sa.Column('is_deleted', sa.Boolean(), nullable=False, default=False),
+        sa.Column('is_active', sa.Boolean(), nullable=False, default=True)
     )
 
 
