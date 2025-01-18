@@ -29,7 +29,8 @@ def upgrade() -> None:
         sa.Column('status', sa.String(length=20), nullable=False),
         sa.Column('remarks', sa.Text(), nullable=True),
         sa.ForeignKeyConstraint(['payment_id'], ['payments.uuid']),
-        sa.ForeignKeyConstraint(['approver_id'], ['users.uuid'])
+        sa.ForeignKeyConstraint(['approver_id'], ['users.uuid']),
+        sa.Column('is_deleted', sa.Boolean(), nullable=False, default=False)
     )
 
 

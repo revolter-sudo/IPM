@@ -27,7 +27,8 @@ def upgrade() -> None:
         sa.Column('filters', sa.JSON(), nullable=True),
         sa.Column('generated_by', sa.UUID(as_uuid=True), nullable=False),
         sa.Column('generated_at', sa.TIMESTAMP(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
-        sa.ForeignKeyConstraint(['generated_by'], ['users.uuid'])
+        sa.ForeignKeyConstraint(['generated_by'], ['users.uuid']),
+        sa.Column('is_deleted', sa.Boolean(), nullable=False, default=False)
     )
 
 

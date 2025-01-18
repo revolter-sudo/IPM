@@ -28,7 +28,8 @@ def upgrade() -> None:
         sa.Column('entity_id', sa.UUID(as_uuid=True), nullable=False),
         sa.Column('performed_by', sa.UUID(as_uuid=True), nullable=False),
         sa.Column('timestamp', sa.TIMESTAMP(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
-        sa.ForeignKeyConstraint(['performed_by'], ['users.uuid'])
+        sa.ForeignKeyConstraint(['performed_by'], ['users.uuid']),
+        sa.Column('is_deleted', sa.Boolean(), nullable=False, default=False)
     )
 
 

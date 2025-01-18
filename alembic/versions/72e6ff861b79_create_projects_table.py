@@ -25,7 +25,8 @@ def upgrade() -> None:
         sa.Column('uuid', sa.UUID(as_uuid=True), default=uuid.uuid4, nullable=False, unique=True),
         sa.Column('name', sa.String(length=255), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('location', sa.Text(), nullable=True)
+        sa.Column('location', sa.Text(), nullable=True),
+        sa.Column('is_deleted', sa.Boolean(), nullable=False, default=False)
     )
 
 
