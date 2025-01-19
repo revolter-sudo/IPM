@@ -1,6 +1,7 @@
-from pydantic import BaseModel, field_validator
-from uuid import UUID
 from enum import Enum
+from uuid import UUID
+
+from pydantic import BaseModel, field_validator
 
 
 class UserRole(str, Enum):
