@@ -1,5 +1,5 @@
 import uuid
-
+from sqlalchemy.sql import func
 from sqlalchemy import (
     TIMESTAMP,
     BigInteger,
@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Text,
     text,
+    Float
 )
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -70,3 +71,28 @@ class Log(Base):
             f"<Log(id={self.id}, uuid={self.uuid}, "
             f"entity={self.entity}, action={self.action})>"
         )
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(
+        UUID(as_uuid=True),
+        unique=True,
+        nullable=False,
+        default=uuid.uuid4
+    )
+    amount = Column(Float, nullable=False)
+    description = Column(Text, nullable=True)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    status = Column(String(20), nullable=False)
+    remarks = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
+    file = Column(String(255), nullable=True)  # New column added for storing file path
+
+    def __repr__(self):
+        return f"<Payment(id={self.id}, amount={self.amount}, status={self.status})>"
