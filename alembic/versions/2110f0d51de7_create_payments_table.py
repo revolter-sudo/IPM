@@ -47,9 +47,9 @@ def upgrade() -> None:
             onupdate=sa.text('CURRENT_TIMESTAMP'),
             nullable=False
         ),
+        sa.Column('is_deleted', sa.Boolean(), nullable=False, default=False),
         sa.ForeignKeyConstraint(['project_id'], ['projects.uuid']),
-        sa.ForeignKeyConstraint(['created_by'], ['users.uuid']),
-        sa.Column('is_deleted', sa.Boolean(), nullable=False, default=False)
+        sa.ForeignKeyConstraint(['created_by'], ['users.uuid'])
     )
 
 
