@@ -96,3 +96,14 @@ class Payment(Base):
 
     def __repr__(self):
         return f"<Payment(id={self.id}, amount={self.amount}, status={self.status})>"
+
+
+class Person(Base):
+    __tablename__ = 'person'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
+    name = Column(String(25), nullable=False)
+    account_number = Column(String(17), nullable=False)
+    ifsc_code = Column(String(11), nullable=False)
+    phone_number = Column(String(10), nullable=False)

@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 import shutil
 from src.app.database.database import get_db
-from src.app.database.models import Payment, User
+from src.app.database.models import Payment, User, Person
 from src.app.schemas.payment_service_schemas import (
-    PaymentStatus
+    PaymentStatus,
+    CreatePerson
 )
 from src.app.services.auth_service import get_current_user
 import os
@@ -31,6 +32,7 @@ def create_payment(
     current_user: User = Depends(get_current_user),
     description: str = None,
     remarks: str = None,
+    person: str = None,
     file: UploadFile = File(None)
 ):
     """Create a payment request."""
@@ -140,3 +142,54 @@ def delete_payment(
     payment.is_deleted = True
     db.commit()
     return {"message": "Payment request deleted successfully"}
+
+
+@payment_router.post(
+    "/person",
+    status_code=status.HTTP_201_CREATED,
+    tags=["payments"]
+)
+def create_person(
+    request_data: CreatePerson,  # Pydantic schema for request validation
+    db: Session = Depends(get_db),  # Dependency for database session
+):
+    try:
+        # Check if a person with the same account number or phone number already exists
+        existing_person = db.query(Person).filter(
+            (Person.account_number == request_data.account_number) |
+            (Person.phone_number == request_data.phone_number)
+        ).first()
+
+        if existing_person:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=constants.PERSON_EXISTS
+            )
+
+        new_person = Person(
+            name=request_data.name,
+            account_number=request_data.account_number,
+            ifsc_code=request_data.ifsc_code,
+            phone_number=request_data.phone_number
+        )
+
+        db.add(new_person)
+        db.flush()
+
+        generated_uuid = new_person.uuid
+
+        db.commit()
+
+        return {
+            "result": str(generated_uuid)
+        }
+
+    except HTTPException as e:
+        raise e
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred: {str(e)}"
+        )
