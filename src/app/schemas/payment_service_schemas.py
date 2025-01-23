@@ -30,3 +30,15 @@ class PersonDetail(BaseModel):
     account_number: str
     ifsc_code: str
     phone_number: str
+
+
+class PaymentsResponse(BaseModel):
+    uuid: UUID
+    amount: float
+    description: Optional[str] = None
+    project_id: UUID
+    created_by: UUID
+    status: str
+    remarks: Optional[str] = None
+    person: Optional[UUID] = None
+    file: Optional[str]

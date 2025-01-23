@@ -7,6 +7,7 @@ from fastapi import (
     status as h_status,
     Query
 )
+from typing import Optional
 from sqlalchemy.orm import Session
 from uuid import UUID
 import shutil
@@ -15,7 +16,8 @@ from src.app.database.models import Payment, User, Person
 from src.app.schemas.payment_service_schemas import (
     PaymentStatus,
     CreatePerson,
-    PersonDetail
+    PersonDetail,
+    PaymentsResponse
 )
 from src.app.services.auth_service import get_current_user
 import os
@@ -92,17 +94,67 @@ def create_payment(
         )
 
 
-
 @payment_router.get(
         "/",
         tags=["Payments"],
         status_code=h_status.HTTP_200_OK
     )
 def get_all_payments(
-
+    db: Session = Depends(get_db),
+    amount: Optional[float] = Query(None, description="Filter by payment amount"),
+    description: Optional[str] = Query(None, description="Filter by description"),
+    project_id: Optional[UUID] = Query(None, description="Filter by project ID"),
+    created_by: Optional[UUID] = Query(None, description="Filter by creator"),
+    status: Optional[str] = Query(None, description="Filter by payment status"),
+    remarks: Optional[str] = Query(None, description="Filter by remarks"),
+    person: Optional[UUID] = Query(None, description="Filter by person UUID"),
 ):
     try:
-        pass
+        query = db.query(
+            Payment.uuid,
+            Payment.amount,
+            Payment.description,
+            Payment.project_id,
+            Payment.file,
+            Payment.remarks,
+            Payment.status,
+            Payment.created_by,
+            Payment.person
+        ).filter(Payment.is_deleted.is_(False))
+
+        # Apply filters dynamically based on provided query parameters
+        if amount is not None:
+            query = query.filter(Payment.amount == amount)
+        if description is not None:
+            query = query.filter(Payment.description.ilike(f"%{description}%"))
+        if project_id is not None:
+            query = query.filter(Payment.project_id == project_id)
+        if created_by is not None:
+            query = query.filter(Payment.created_by == created_by)
+        if status is not None:
+            query = query.filter(Payment.status == status)
+        if remarks is not None:
+            query = query.filter(Payment.remarks.ilike(f"%{remarks}%"))
+        if person is not None:
+            query = query.filter(Payment.person == person)
+
+        payments = query.all()
+
+        payments_data = [
+            PaymentsResponse(
+                uuid=payment.uuid,
+                amount=payment.amount,
+                description=payment.description,
+                project_id=payment.project_id,
+                file=payment.file,
+                remarks=payment.remarks,
+                status=payment.status,
+                created_by=payment.created_by,
+                person=payment.person
+            ).model_dump() for payment in payments
+        ]
+
+        return {"result": payments_data}
     except Exception as e:
         print(f"Error in get_all_payments API: {str(e)}")
         raise HTTPException(
