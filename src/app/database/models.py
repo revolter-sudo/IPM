@@ -89,6 +89,11 @@ class Payment(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     status = Column(String(20), nullable=False)
     remarks = Column(Text, nullable=True)
+    person = Column(
+        UUID(as_uuid=True),
+        ForeignKey("person.uuid"),
+        nullable=True
+    )
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
@@ -102,8 +107,14 @@ class Person(Base):
     __tablename__ = 'person'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
+    uuid = Column(
+        UUID(as_uuid=True),
+        default=uuid.uuid4,
+        unique=True,
+        nullable=False
+    )
     name = Column(String(25), nullable=False)
     account_number = Column(String(17), nullable=False)
     ifsc_code = Column(String(11), nullable=False)
     phone_number = Column(String(10), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)

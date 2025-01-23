@@ -37,7 +37,8 @@ def upgrade() -> None:
         sa.Column('name', sa.String(length=25), nullable=False),
         sa.Column('account_number', sa.String(length=17), nullable=False),
         sa.Column('ifsc_code', sa.String(length=11), nullable=False),
-        sa.Column('phone_number', sa.String(length=10), nullable=False)
+        sa.Column('phone_number', sa.String(length=10), nullable=False),
+        sa.Column('is_deleted', sa.Boolean(), nullable=False, default=False)
     )
 
 
