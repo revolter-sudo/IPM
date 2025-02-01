@@ -9,6 +9,7 @@ class ProjectResponse(BaseModel):
     name: str
     description: str = None
     location: str = None
+    balance: float
 
     def to_dict(self):
         """
@@ -19,6 +20,7 @@ class ProjectResponse(BaseModel):
             "name": self.name,
             "description": self.description,
             "location": self.location,
+            "float": self.balance
         }
 
 

@@ -118,3 +118,17 @@ class Person(Base):
     ifsc_code = Column(String(11), nullable=False)
     phone_number = Column(String(10), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
+
+
+class ProjectBalance(Base):
+    __tablename__ = "project_balances"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    adjustment = Column(Float, nullable=False)  # Positive for additions, negative for deductions
+    description = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<ProjectBalance(project_id={self.project_id}, adjustment={self.adjustment})>"

@@ -24,6 +24,8 @@ import os
 from src.app.schemas.auth_service_schamas import UserRole
 from src.app.schemas import constants
 import traceback
+from src.app.services.project_service import create_project_balance_entry
+
 
 payment_router = APIRouter(
     prefix="/payments",
@@ -32,10 +34,8 @@ payment_router = APIRouter(
 
 
 @payment_router.post(
-        "/",
-        tags=["Payments"],
-        status_code=h_status.HTTP_201_CREATED
-    )
+    "/", tags=["Payments"], status_code=h_status.HTTP_201_CREATED
+)
 def create_payment(
     amount: float,
     project_id: UUID,
@@ -45,38 +45,45 @@ def create_payment(
     description: str = None,
     remarks: str = None,
     person: UUID = None,
-    file: UploadFile = File(None)
+    file: UploadFile = File(None),
 ):
     try:
-        """Create a payment request."""
+        """Create a payment request and update project balance."""
         if file and file.filename:
             if file.content_type not in ["application/pdf"]:
                 raise HTTPException(
-                    status_code=400,
-                    detail=constants.ONLY_PDFS_ALLOWED
+                    status_code=400, detail=constants.ONLY_PDFS_ALLOWED
                 )
-        if person:
-            new_payment = Payment(
-                amount=amount,
-                description=description,
-                project_id=project_id,
-                status=status.value,
-                remarks=remarks,
-                created_by=current_user.uuid,
-                person=person
-            )
-        else:
-            new_payment = Payment(
-                amount=amount,
-                description=description,
-                project_id=project_id,
-                status=status.value,
-                remarks=remarks,
-                created_by=current_user.uuid
-            )
+
+        # Check if the project exists
+        project = db.query(Project).filter(Project.uuid == project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Create a new payment
+        new_payment = Payment(
+            amount=amount,
+            description=description,
+            project_id=project_id,
+            status=status.value,
+            remarks=remarks,
+            created_by=current_user.uuid,
+            person=person,
+        )
+
         db.add(new_payment)
         db.commit()
         db.refresh(new_payment)
+
+        # Update the project balance in the ledger
+        create_project_balance_entry(
+            db=db,
+            project_id=project_id,
+            adjustment=-amount,
+            description="Payment deduction"
+        )
+
+        # Handle file upload if present
         if file and file.filename:
             os.makedirs(constants.UPLOAD_DIR, exist_ok=True)
             file_path = f"{constants.UPLOAD_DIR}/{file.filename}"
@@ -86,11 +93,13 @@ def create_payment(
             db.commit()
 
         return new_payment
+
     except Exception as e:
+        db.rollback()
         print(f"Error in create_payment API: {str(e)}")
         raise HTTPException(
             status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}"
+            detail=f"An error occurred: {str(e)}",
         )
 
 
