@@ -19,4 +19,4 @@ fi
 
 # Start FastAPI
 echo "Starting FastAPI..."
-exec uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+exec uvicorn src.app.main:app --host 0.0.0.0 --port 8000 --workers 4
