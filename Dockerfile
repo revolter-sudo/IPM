@@ -1,6 +1,9 @@
 # Use an official Python runtime as a base image
 FROM python:3.10
 
+# Install PostgreSQL client (for pg_isready)
+RUN apt-get update && apt-get install -y postgresql-client
+
 # Set the working directory inside the container
 WORKDIR /app
 

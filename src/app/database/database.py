@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 class Settings(BaseSettings):
     DB_USERNAME: str
     DB_PASSWORD: str
-    DB_HOST: str = "localhost"
+    DB_HOST: str = "147.93.31.224"
     DB_PORT: int = 5432
     DB_NAME: str
 

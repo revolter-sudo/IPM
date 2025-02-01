@@ -26,8 +26,12 @@ services:
     restart: always
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql://myuser:200899@db:5432/ipm
     ports:
       - "8000:8000"
+    command: >
+      sh -c "/entrypoint.sh"
 
 volumes:
   postgres_data:
