@@ -24,12 +24,10 @@ services:
       db:
         condition: service_healthy
     restart: always
-    environment:
-      DATABASE_URL: postgresql://myuser:200899@db:5432/ipm
+    env_file:
+      - .env
     ports:
       - "8000:8000"
-    command: >
-      sh -c "sleep 5 && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4"
 
 volumes:
   postgres_data:
