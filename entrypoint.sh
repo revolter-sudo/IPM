@@ -2,7 +2,7 @@
 
 # Wait for PostgreSQL to be ready
 echo "Waiting for PostgreSQL to be ready..."
-until pg_isready -h db -p 5432 -U "$POSTGRES_USER"; do
+until nc -z -v -w30 147.93.31.224 5432; do
   echo "PostgreSQL is unavailable - sleeping"
   sleep 2
 done
