@@ -2,7 +2,7 @@
 FROM python:3.10
 
 # Install netcat (for checking PostgreSQL readiness)
-RUN apt-get update && apt-get install -y netcat
+RUN apt-get update
 
 # Set the working directory inside the container
 WORKDIR /app
