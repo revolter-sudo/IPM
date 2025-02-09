@@ -1,18 +1,19 @@
 import uuid
-from sqlalchemy.sql import func
+
 from sqlalchemy import (
     TIMESTAMP,
     BigInteger,
     Boolean,
     Column,
+    Float,
     ForeignKey,
     Integer,
     String,
     Text,
     text,
-    Float
 )
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.sql import func
 
 from src.app.database.database import Base
 
@@ -78,40 +79,43 @@ class Payment(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(
-        UUID(as_uuid=True),
-        unique=True,
-        nullable=False,
-        default=uuid.uuid4
+        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
     )
     amount = Column(Float, nullable=False)
     description = Column(Text, nullable=True)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    project_id = Column(
+        UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False
+    )
+    created_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False
+    )
     status = Column(String(20), nullable=False)
     remarks = Column(Text, nullable=True)
     person = Column(
-        UUID(as_uuid=True),
-        ForeignKey("person.uuid"),
-        nullable=True
+        UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True
     )
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
-    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
+    updated_at = Column(
+        TIMESTAMP,
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
     is_deleted = Column(Boolean, default=False, nullable=False)
-    file = Column(String(255), nullable=True)  # New column added for storing file path
+    file = Column(
+        String(255), nullable=True
+    )  # New column added for storing file path
 
     def __repr__(self):
         return f"<Payment(id={self.id}, amount={self.amount}, status={self.status})>"
 
 
 class Person(Base):
-    __tablename__ = 'person'
+    __tablename__ = "person"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(
-        UUID(as_uuid=True),
-        default=uuid.uuid4,
-        unique=True,
-        nullable=False
+        UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False
     )
     name = Column(String(25), nullable=False)
     account_number = Column(String(17), nullable=False)
@@ -124,9 +128,15 @@ class ProjectBalance(Base):
     __tablename__ = "project_balances"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
-    adjustment = Column(Float, nullable=False)  # Positive for additions, negative for deductions
+    uuid = Column(
+        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
+    )
+    project_id = Column(
+        UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False
+    )
+    adjustment = Column(
+        Float, nullable=False
+    )  # Positive for additions, negative for deductions
     description = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 

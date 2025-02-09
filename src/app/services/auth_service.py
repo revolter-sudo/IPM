@@ -1,8 +1,12 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi.security import (
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
+    OAuth2PasswordBearer,
+)
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy import and_
@@ -13,6 +17,7 @@ from src.app.database.models import User
 from src.app.schemas.auth_service_schamas import (
     Token,
     UserCreate,
+    UserLogin,
     UserResponse,
     UserRole,
 )
@@ -25,11 +30,11 @@ pwd_context = CryptContext(
     schemes=["bcrypt"], bcrypt__default_rounds=12, deprecated="auto"
 )
 
-
 # JWT Configuration
 SECRET_KEY = "supersecretkey"
 ALGORITHM = "HS256"
 
+bearer_scheme = HTTPBearer()
 # OAuth2 scheme for Bearer token
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -47,28 +52,37 @@ def create_access_token(data: dict):
     return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
 
 
-# Dependency for Role-based Access
 def get_current_user(
-    db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)
+    db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
 ):
+    token = credentials.credentials  # Extract token from Authorization header
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_uuid = payload.get("sub")
+
+        if not user_uuid:
+            raise HTTPException(
+                status_code=401, detail="Invalid authentication token"
+            )
+
         user = (
             db.query(User)
             .filter(
-                and_(
-                    User.uuid == payload.get("sub"),
-                    User.is_deleted.is_(False),
-                    User.is_active.is_(True),
-                )
+                User.uuid == user_uuid,
+                User.is_deleted.is_(False),
+                User.is_active.is_(True),
             )
             .first()
         )
+
         if not user:
             raise HTTPException(
                 status_code=401, detail="Invalid authentication"
             )
+
         return user
+
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid authentication")
 
@@ -123,22 +137,21 @@ def register_user(
     "/login", response_model=Token, status_code=201, tags=["Users"]
 )
 def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
+    login_data: UserLogin,
     db: Session = Depends(get_db),
 ):
     db_user = (
         db.query(User)
         .filter(
-            and_(
-                User.phone == int(form_data.username),
-                User.is_deleted.is_(False),
-                User.is_active.is_(True),
-            )
+            User.phone == login_data.phone,
+            User.is_deleted.is_(False),
+            User.is_active.is_(True),
         )
         .first()
     )
+
     if not db_user or not verify_password(
-        form_data.password, db_user.password_hash
+        login_data.password, db_user.password_hash
     ):
         raise HTTPException(
             status_code=400, detail="Incorrect phone or password"

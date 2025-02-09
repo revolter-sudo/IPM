@@ -1,36 +1,27 @@
-from fastapi import (
-    APIRouter,
-    Depends,
-    UploadFile,
-    File,
-    HTTPException,
-    status as h_status,
-    Query
-)
-from typing import Optional
-from sqlalchemy.orm import Session
-from uuid import UUID
+import os
 import shutil
+import traceback
+from typing import Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import status as h_status
+from sqlalchemy.orm import Session
+
 from src.app.database.database import get_db
-from src.app.database.models import Payment, User, Person
+from src.app.database.models import Payment, Person, User
+from src.app.schemas import constants
+from src.app.schemas.auth_service_schamas import UserRole
 from src.app.schemas.payment_service_schemas import (
-    PaymentStatus,
     CreatePerson,
+    PaymentsResponse,
+    PaymentStatus,
     PersonDetail,
-    PaymentsResponse
 )
 from src.app.services.auth_service import get_current_user
-import os
-from src.app.schemas.auth_service_schamas import UserRole
-from src.app.schemas import constants
-import traceback
 from src.app.services.project_service import create_project_balance_entry
 
-
-payment_router = APIRouter(
-    prefix="/payments",
-    tags=["Payments"]
-)
+payment_router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
 @payment_router.post(
@@ -80,7 +71,7 @@ def create_payment(
             db=db,
             project_id=project_id,
             adjustment=-amount,
-            description="Payment deduction"
+            description="Payment deduction",
         )
 
         # Handle file upload if present
@@ -103,18 +94,22 @@ def create_payment(
         )
 
 
-@payment_router.get(
-        "/",
-        tags=["Payments"],
-        status_code=h_status.HTTP_200_OK
-    )
+@payment_router.get("/", tags=["Payments"], status_code=h_status.HTTP_200_OK)
 def get_all_payments(
     db: Session = Depends(get_db),
-    amount: Optional[float] = Query(None, description="Filter by payment amount"),
-    description: Optional[str] = Query(None, description="Filter by description"),
-    project_id: Optional[UUID] = Query(None, description="Filter by project ID"),
+    amount: Optional[float] = Query(
+        None, description="Filter by payment amount"
+    ),
+    description: Optional[str] = Query(
+        None, description="Filter by description"
+    ),
+    project_id: Optional[UUID] = Query(
+        None, description="Filter by project ID"
+    ),
     created_by: Optional[UUID] = Query(None, description="Filter by creator"),
-    status: Optional[str] = Query(None, description="Filter by payment status"),
+    status: Optional[str] = Query(
+        None, description="Filter by payment status"
+    ),
     remarks: Optional[str] = Query(None, description="Filter by remarks"),
     person: Optional[UUID] = Query(None, description="Filter by person UUID"),
 ):
@@ -128,7 +123,7 @@ def get_all_payments(
             Payment.remarks,
             Payment.status,
             Payment.created_by,
-            Payment.person
+            Payment.person,
         ).filter(Payment.is_deleted.is_(False))
 
         # Apply filters dynamically based on provided query parameters
@@ -159,8 +154,9 @@ def get_all_payments(
                 remarks=payment.remarks,
                 status=payment.status,
                 created_by=payment.created_by,
-                person=payment.person
-            ).model_dump() for payment in payments
+                person=payment.person,
+            ).model_dump()
+            for payment in payments
         ]
 
         return {"result": payments_data}
@@ -168,34 +164,31 @@ def get_all_payments(
         print(f"Error in get_all_payments API: {str(e)}")
         raise HTTPException(
             status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}"
+            detail=f"An error occurred: {str(e)}",
         )
-
 
 
 @payment_router.put("/{payment_id}/approve")
 def approve_payment(
     payment_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
         """Approve a payment request."""
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
-            UserRole.PROJECT_MANAGER.value
+            UserRole.PROJECT_MANAGER.value,
         ]:
             raise HTTPException(
-                status_code=403,
-                detail=constants.CANT_APPROVE_PAYMENT
+                status_code=403, detail=constants.CANT_APPROVE_PAYMENT
             )
 
         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
         if not payment:
             raise HTTPException(
-                status_code=404,
-                detail=constants.PAYMENT_NOT_FOUND
+                status_code=404, detail=constants.PAYMENT_NOT_FOUND
             )
 
         payment.status = PaymentStatus.approved.value
@@ -205,7 +198,7 @@ def approve_payment(
         print(f"Error in approve_payment API: {str(e)}")
         raise HTTPException(
             status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}"
+            detail=f"An error occurred: {str(e)}",
         )
 
 
@@ -214,25 +207,23 @@ def decline_payment(
     payment_id: UUID,
     remarks: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
         """Decline a payment request with remarks."""
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
-            UserRole.PROJECT_MANAGER.value
+            UserRole.PROJECT_MANAGER.value,
         ]:
             raise HTTPException(
-                status_code=403,
-                detail=constants.CANT_DECLINE_PAYMENTS
+                status_code=403, detail=constants.CANT_DECLINE_PAYMENTS
             )
 
         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
         if not payment:
             raise HTTPException(
-                status_code=404,
-                detail=constants.PAYMENT_NOT_FOUND
+                status_code=404, detail=constants.PAYMENT_NOT_FOUND
             )
 
         payment.status = PaymentStatus.declined.value
@@ -243,7 +234,7 @@ def decline_payment(
         print(f"Error in decline_payment API: {str(e)}")
         raise HTTPException(
             status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}"
+            detail=f"An error occurred: {str(e)}",
         )
 
 
@@ -251,15 +242,14 @@ def decline_payment(
 def delete_payment(
     payment_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
         """Delete a payment request."""
         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
         if not payment:
             raise HTTPException(
-                status_code=404,
-                detail=constants.PAYMENT_NOT_FOUND
+                status_code=404, detail=constants.PAYMENT_NOT_FOUND
             )
 
         payment.is_deleted = True
@@ -269,37 +259,38 @@ def delete_payment(
         print(f"Error in delete_payment API: {str(e)}")
         raise HTTPException(
             status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}"
+            detail=f"An error occurred: {str(e)}",
         )
 
 
-
 @payment_router.post(
-    "/person",
-    status_code=h_status.HTTP_201_CREATED,
-    tags=["Payments"]
+    "/person", status_code=h_status.HTTP_201_CREATED, tags=["Payments"]
 )
 def create_person(
     request_data: CreatePerson,
     db: Session = Depends(get_db),
 ):
     try:
-        existing_person = db.query(Person).filter(
-            (Person.account_number == request_data.account_number) |
-            (Person.ifsc_code == request_data.ifsc_code)
-        ).first()
+        existing_person = (
+            db.query(Person)
+            .filter(
+                (Person.account_number == request_data.account_number)
+                | (Person.ifsc_code == request_data.ifsc_code)
+            )
+            .first()
+        )
 
         if existing_person:
             raise HTTPException(
                 status_code=h_status.HTTP_400_BAD_REQUEST,
-                detail=constants.PERSON_EXISTS
+                detail=constants.PERSON_EXISTS,
             )
 
         new_person = Person(
             name=request_data.name,
             account_number=request_data.account_number,
             ifsc_code=request_data.ifsc_code,
-            phone_number=request_data.phone_number
+            phone_number=request_data.phone_number,
         )
 
         db.add(new_person)
@@ -309,9 +300,7 @@ def create_person(
 
         db.commit()
 
-        return {
-            "result": str(generated_uuid)
-        }
+        return {"result": str(generated_uuid)}
 
     except HTTPException as e:
         raise e
@@ -320,21 +309,19 @@ def create_person(
         db.rollback()
         raise HTTPException(
             status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}"
+            detail=f"An error occurred: {str(e)}",
         )
 
 
 @payment_router.get(
-    "/persons",
-    status_code=h_status.HTTP_200_OK,
-    tags=["Payments"]
+    "/persons", status_code=h_status.HTTP_200_OK, tags=["Payments"]
 )
 def get_all_persons(
     name: str = Query(None),
     phone_number: str = Query(None),
     account_number: str = Query(None),
     ifsc_code: str = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     try:
         query = db.query(
@@ -342,7 +329,7 @@ def get_all_persons(
             Person.name,
             Person.account_number,
             Person.ifsc_code,
-            Person.phone_number
+            Person.phone_number,
         ).filter(Person.is_deleted.is_(False))
 
         if name:
@@ -350,9 +337,7 @@ def get_all_persons(
         if phone_number:
             query = query.filter(Person.phone_number == phone_number)
         if account_number:
-            query = query.filter(
-                Person.account_number == account_number
-            )
+            query = query.filter(Person.account_number == account_number)
         if ifsc_code:
             query = query.filter(Person.ifsc_code == ifsc_code)
 
@@ -363,8 +348,9 @@ def get_all_persons(
                 name=person.name,
                 account_number=person.account_number,
                 ifsc_code=person.ifsc_code,
-                phone_number=person.phone_number
-            ).model_dump() for person in persons
+                phone_number=person.phone_number,
+            ).model_dump()
+            for person in persons
         ]
         return {"result": persons_data}
     except Exception as e:
@@ -372,28 +358,23 @@ def get_all_persons(
         print(f"Error in get_all_persons API: {str(e)}")
         raise HTTPException(
             status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}"
+            detail=f"An error occurred: {str(e)}",
         )
 
 
 @payment_router.put(
-    '/persons/{person_id}/delete',
+    "/persons/{person_id}/delete",
     status_code=h_status.HTTP_204_NO_CONTENT,
-    tags=["Payments"]
+    tags=["Payments"],
 )
-def delete_person(
-    person_uuid: UUID,
-    db: Session = Depends(get_db)
-):
+def delete_person(person_uuid: UUID, db: Session = Depends(get_db)):
     try:
-        person = db.query(
-            Person
-        ).filter(Person.uuid == person_uuid).first()
+        person = db.query(Person).filter(Person.uuid == person_uuid).first()
 
         if not person:
             raise HTTPException(
                 status_code=h_status.HTTP_404_NOT_FOUND,
-                detail="Person Does Not Exist"
+                detail="Person Does Not Exist",
             )
         person.is_deleted = True
         db.commit()
@@ -402,5 +383,5 @@ def delete_person(
         print(f"Error in delete_person API: {str(e)}")
         raise HTTPException(
             status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}"
+            detail=f"An error occurred: {str(e)}",
         )

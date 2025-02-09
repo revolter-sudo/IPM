@@ -20,7 +20,7 @@ class ProjectResponse(BaseModel):
             "name": self.name,
             "description": self.description,
             "location": self.location,
-            "float": self.balance
+            "float": self.balance,
         }
 
 
