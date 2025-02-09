@@ -12,6 +12,7 @@ from src.app.schemas.auth_service_schamas import UserRole
 from src.app.schemas.project_service_schemas import (
     ProjectCreateRequest,
     ProjectResponse,
+    ProjectServiceResponse
 )
 from src.app.services.auth_service import get_current_user
 
@@ -29,7 +30,7 @@ def create_project_balance_entry(
     db.refresh(balance_entry)
 
 
-@project_router.put("/{project_uuid}/update-balance", tags=["Projects"])
+@project_router.put("/update-balance", tags=["Projects"])
 def update_project_balance(
     project_uuid: UUID,
     new_balance: float,
@@ -57,11 +58,10 @@ def update_project_balance(
             .filter(ProjectBalance.project_id == project_uuid)
             .scalar()
         ) or 0.0
-
-        return {
-            "message": "Project balance updated successfully",
-            "balance": total_balance,
-        }
+        return ProjectServiceResponse(
+            data=total_balance,
+            message="Project balance updated successfully"
+        ).model_dump()
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -70,7 +70,7 @@ def update_project_balance(
         )
 
 
-@project_router.get("/{project_uuid}/balance", tags=["Projects"])
+@project_router.get("/balance", tags=["Projects"])
 def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)):
     try:
         project = (
@@ -85,7 +85,11 @@ def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)):
             .scalar()
         ) or 0.0
 
-        return {"project_uuid": project_uuid, "balance": total_balance}
+        response = {"project_uuid": project_uuid, "balance": total_balance}
+        return ProjectServiceResponse(
+            data=response,
+            message="Project balance fetched successfully."
+        ).model_dump()
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -93,7 +97,7 @@ def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)):
         )
 
 
-@project_router.put("/{project_uuid}/adjust-balance", tags=["Projects"])
+@project_router.put("/adjust-balance", tags=["Projects"])
 def adjust_project_balance(
     project_uuid: UUID,
     adjustment: float,
@@ -117,8 +121,10 @@ def adjust_project_balance(
             )
 
         create_project_balance_entry(db, project_uuid, adjustment, description)
-
-        return {"message": "Project balance adjusted successfully"}
+        return ProjectServiceResponse(
+            data=None,
+            message="Project balance adjusted successfully"
+        ).model_dump()
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -179,11 +185,10 @@ def create_project(
         )
         db.add(log_entry)
         db.commit()
-
-        return {
-            "result": "Project Created Successfully",
-            "initial_balance": initial_balance,
-        }
+        return ProjectServiceResponse(
+            data=None,
+            message="Project Created Successfully"
+        ).model_dump()
     except Exception as e:
         db.rollback()
         logging.error(f"Error in create_project API: {str(e)}")
@@ -193,7 +198,7 @@ def create_project(
         )
 
 
-@project_router.get("/", status_code=status.HTTP_200_OK, tags=["Projects"])
+@project_router.get("", status_code=status.HTTP_200_OK, tags=["Projects"])
 def list_all_projects(db: Session = Depends(get_db)):
     try:
         projects_data = (
@@ -217,9 +222,10 @@ def list_all_projects(db: Session = Depends(get_db)):
                     balance=total_balance,
                 ).to_dict()
             )
-
-        return {"result": projects_response_data}
-
+        return ProjectServiceResponse(
+            data=projects_response_data,
+            message="Projects data fetched successfully."
+        ).model_dump()
     except Exception as e:
         logging.error(f"Error in list_all_projects API: {str(e)}")
         raise HTTPException(
@@ -229,7 +235,7 @@ def list_all_projects(db: Session = Depends(get_db)):
 
 
 @project_router.get(
-    "/{project_uuid}", status_code=status.HTTP_200_OK, tags=["Projects"]
+    "/project", status_code=status.HTTP_200_OK, tags=["Projects"]
 )
 def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
     try:
@@ -260,9 +266,10 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             location=project.location,
             balance=total_balance,
         ).to_dict()
-
-        return {"result": project_response_data}
-
+        return ProjectServiceResponse(
+            data=project_response_data,
+            message="Project info fetched successfully."
+        ).model_dump()
     except Exception as e:
         logging.error(f"Error in get_project_info API: {str(e)}")
         raise HTTPException(

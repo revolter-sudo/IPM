@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -28,3 +28,15 @@ class ProjectCreateRequest(BaseModel):
     name: str
     description: Optional[str] = None
     location: Optional[str] = None
+    balance: int = None
+
+
+class ProjectServiceResponse(BaseModel):
+    data: Any = None
+    message: str
+
+    def to_dict(self):
+        return {
+            "data": self.data,
+            "message": self.message
+        }
