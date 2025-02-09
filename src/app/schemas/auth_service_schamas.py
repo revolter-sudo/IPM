@@ -1,6 +1,6 @@
 from enum import Enum
 from uuid import UUID
-
+from typing import Any
 from pydantic import BaseModel, field_validator
 
 
@@ -53,4 +53,15 @@ class UserResponse(BaseModel):
             "name": self.name,
             "phone": self.phone,
             "role": self.role,
+        }
+
+
+class AuthServiceResponse(BaseModel):
+    data: Any = None
+    message: str
+
+    def to_dict(self):
+        return {
+            "data": self.data,
+            "message": self.message
         }

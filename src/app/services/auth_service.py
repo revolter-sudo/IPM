@@ -1,7 +1,7 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi import APIRouter, Depends, HTTPException, Security, status
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
@@ -20,6 +20,7 @@ from src.app.schemas.auth_service_schamas import (
     UserLogin,
     UserResponse,
     UserRole,
+    AuthServiceResponse
 )
 
 # Router Setup
@@ -97,13 +98,15 @@ def superadmin_required(current_user: User = Depends(get_current_user)):
 
 # Routes
 @auth_router.post(
-    "/register", response_model=Token, tags=["Users"], status_code=201
+    "/register",
+    tags=["Users"],
+    status_code=status.HTTP_201_CREATED
 )
 def register_user(
     user: UserCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(superadmin_required),
-):
+) -> dict:
     db_user = (
         db.query(User)
         .filter(
@@ -130,16 +133,22 @@ def register_user(
     db.commit()
     db.refresh(new_user)
     access_token = create_access_token(data={"sub": str(new_user.uuid)})
-    return {"access_token": access_token, "token_type": "bearer"}
+    response = {"access_token": access_token, "token_type": "bearer"}
+    return AuthServiceResponse(
+        data=response,
+        message="User reginstered successfully"
+    ).model_dump()
 
 
 @auth_router.post(
-    "/login", response_model=Token, status_code=201, tags=["Users"]
+    "/login",
+    status_code=status.HTTP_200_OK,
+    tags=["Users"]
 )
 def login(
     login_data: UserLogin,
     db: Session = Depends(get_db),
-):
+) -> dict:
     db_user = (
         db.query(User)
         .filter(
@@ -158,10 +167,18 @@ def login(
         )
 
     access_token = create_access_token(data={"sub": str(db_user.uuid)})
-    return {"access_token": access_token, "token_type": "bearer"}
+    response = {"access_token": access_token, "token_type": "bearer"}
+    return AuthServiceResponse(
+        data=response,
+        message="User logged in successfully"
+    ).model_dump()
 
 
-@auth_router.put("/delete/{user_uuid}", status_code=204, tags=["Users"])
+@auth_router.put(
+        "/delete",
+        status_code=status.HTTP_201_CREATED,
+        tags=["Users"]
+    )
 def delete_user(
     user_uuid: UUID,
     db: Session = Depends(get_db),
@@ -190,15 +207,17 @@ def delete_user(
         user_data.is_deleted = True
         db.commit()
         db.refresh(user_data)
-
-        return {"result": "User successfully deleted."}
+        return AuthServiceResponse(
+            data=None,
+            message="User deleted successfully."
+        ).model_dump()
 
     except Exception as e:
         logging.error(f"Error in delete_user API: {str(e)}")
         raise e
 
 
-@auth_router.put("/deactivate/{user_uuid}", status_code=204, tags=["Users"])
+@auth_router.put("/deactivate", status_code=status.HTTP_200_OK, tags=["Users"])
 def deactivate_user(
     user_uuid: UUID,
     db: Session = Depends(get_db),
@@ -228,14 +247,16 @@ def deactivate_user(
         user_data.is_active = False
         db.commit()
         db.refresh(user_data)
-
-        return {"result": "User successfully deactivated."}
+        return AuthServiceResponse(
+            data=None,
+            message="User deactivated successfully."
+        ).model_dump()
     except Exception as e:
         logging.error(f"Error in deactivate_user API: {str(e)}")
         raise e
 
 
-@auth_router.put("/activate/{user_uuid}", status_code=204, tags=["Users"])
+@auth_router.put("/activate", status_code=status.HTTP_200_OK, tags=["Users"])
 def activate_user(
     user_uuid: UUID,
     db: Session = Depends(get_db),
@@ -248,7 +269,6 @@ def activate_user(
                 and_(
                     User.uuid == user_uuid,
                     User.is_deleted.is_(False),
-                    User.is_active.is_(True),
                 )
             )
             .first()
@@ -264,14 +284,16 @@ def activate_user(
         user_data.is_active = True
         db.commit()
         db.refresh(user_data)
-
-        return {"result": "User successfully activated."}
+        return AuthServiceResponse(
+            data=None,
+            message="User activated successfully"
+        ).model_dump()
     except Exception as e:
         logging.error(f"Error in activate_user API: {str(e)}")
         raise e
 
 
-@auth_router.get("/users", tags=["Users"])
+@auth_router.get("/users", status_code=status.HTTP_200_OK, tags=["Users"])
 def list_all_active_users(db: Session = Depends(get_db)):
     try:
         users = db.query(User).filter(User.is_active.is_(True)).all()
@@ -284,13 +306,16 @@ def list_all_active_users(db: Session = Depends(get_db)):
             ).to_dict()
             for user in users
         ]
-        return {"result": user_response_data}
+        return AuthServiceResponse(
+            data=user_response_data,
+            message="All users fetched successfully"
+        ).model_dump()
     except Exception as e:
         logging.error(f"Error in list_all_active_users API: {str(e)}")
         raise e
 
 
-@auth_router.get("/user/{user_uuid}", tags=["Users"])
+@auth_router.get("/user", tags=["Users"])
 def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
     try:
         user = (
@@ -305,7 +330,10 @@ def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
         user_response = UserResponse(
             uuid=user.uuid, name=user.name, phone=user.phone, role=user.role
         )
-        return {"result": user_response}
+        return AuthServiceResponse(
+            data=user_response,
+            message="User info fetched successfully"
+        )
     except Exception as e:
         logging.error(f"Error in get_user_info API: {str(e)}")
         raise e
