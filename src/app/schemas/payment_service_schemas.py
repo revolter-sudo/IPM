@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import Optional, Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -58,3 +58,14 @@ class PaymentsResponse(BaseModel):
     remarks: Optional[str] = None
     person: Optional[UUID] = None
     file: Optional[str]
+
+
+class PaymentServiceResponse(BaseModel):
+    data: Any = None
+    message: str
+
+    def to_dict(self):
+        return {
+            "data": self.data,
+            "message": self.message
+        }

@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi import status as h_status
 from sqlalchemy.orm import Session
-
+from src.app.database.models import Project
 from src.app.database.database import get_db
 from src.app.database.models import Payment, Person, User
 from src.app.schemas import constants
@@ -17,6 +17,7 @@ from src.app.schemas.payment_service_schemas import (
     PaymentsResponse,
     PaymentStatus,
     PersonDetail,
+    PaymentServiceResponse
 )
 from src.app.services.auth_service import get_current_user
 from src.app.services.project_service import create_project_balance_entry
@@ -25,7 +26,7 @@ payment_router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
 @payment_router.post(
-    "/", tags=["Payments"], status_code=h_status.HTTP_201_CREATED
+    "", tags=["Payments"], status_code=h_status.HTTP_201_CREATED
 )
 def create_payment(
     amount: float,
@@ -83,8 +84,10 @@ def create_payment(
             new_payment.file = file_path
             db.commit()
 
-        return new_payment
-
+        return PaymentServiceResponse(
+            data={"payment_uuid": new_payment.uuid},
+            message="Payment created successfully."
+        ).model_dump()
     except Exception as e:
         db.rollback()
         print(f"Error in create_payment API: {str(e)}")
@@ -94,7 +97,7 @@ def create_payment(
         )
 
 
-@payment_router.get("/", tags=["Payments"], status_code=h_status.HTTP_200_OK)
+@payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
 def get_all_payments(
     db: Session = Depends(get_db),
     amount: Optional[float] = Query(
@@ -158,8 +161,10 @@ def get_all_payments(
             ).model_dump()
             for payment in payments
         ]
-
-        return {"result": payments_data}
+        return PaymentServiceResponse(
+            data=payments_data,
+            message="All Payments fetched successfully."
+        ).model_dump()
     except Exception as e:
         print(f"Error in get_all_payments API: {str(e)}")
         raise HTTPException(
@@ -168,7 +173,7 @@ def get_all_payments(
         )
 
 
-@payment_router.put("/{payment_id}/approve")
+@payment_router.put("/approve")
 def approve_payment(
     payment_id: UUID,
     db: Session = Depends(get_db),
@@ -193,7 +198,10 @@ def approve_payment(
 
         payment.status = PaymentStatus.approved.value
         db.commit()
-        return {"message": "Payment approved successfully"}
+        return PaymentServiceResponse(
+            data=None,
+            message="Payment approved successfully"
+        ).model_dump()
     except Exception as e:
         print(f"Error in approve_payment API: {str(e)}")
         raise HTTPException(
@@ -202,7 +210,7 @@ def approve_payment(
         )
 
 
-@payment_router.put("/{payment_id}/decline")
+@payment_router.put("/decline")
 def decline_payment(
     payment_id: UUID,
     remarks: str,
@@ -229,7 +237,10 @@ def decline_payment(
         payment.status = PaymentStatus.declined.value
         payment.remarks = remarks
         db.commit()
-        return {"message": "Payment declined with remarks"}
+        return PaymentServiceResponse(
+            data=None,
+            message="Payment declined with remarks"
+        ).model_dump()
     except Exception as e:
         print(f"Error in decline_payment API: {str(e)}")
         raise HTTPException(
@@ -238,7 +249,7 @@ def decline_payment(
         )
 
 
-@payment_router.delete("/{payment_id}")
+@payment_router.delete("")
 def delete_payment(
     payment_id: UUID,
     db: Session = Depends(get_db),
@@ -254,7 +265,10 @@ def delete_payment(
 
         payment.is_deleted = True
         db.commit()
-        return {"message": "Payment request deleted successfully"}
+        return PaymentServiceResponse(
+            data=None,
+            message="Payment request deleted successfully"
+        ).model_dump()
     except Exception as e:
         print(f"Error in delete_payment API: {str(e)}")
         raise HTTPException(
@@ -299,9 +313,10 @@ def create_person(
         generated_uuid = new_person.uuid
 
         db.commit()
-
-        return {"result": str(generated_uuid)}
-
+        return PaymentServiceResponse(
+            data=str(generated_uuid),
+            message="Create person successfully."
+        ).model_dump()
     except HTTPException as e:
         raise e
 
@@ -352,7 +367,10 @@ def get_all_persons(
             ).model_dump()
             for person in persons
         ]
-        return {"result": persons_data}
+        return PaymentServiceResponse(
+            data=persons_data,
+            message="All persons info fetched successfully."
+        ).model_dump()
     except Exception as e:
         traceback.print_exc()
         print(f"Error in get_all_persons API: {str(e)}")
@@ -363,7 +381,7 @@ def get_all_persons(
 
 
 @payment_router.put(
-    "/persons/{person_id}/delete",
+    "/persons/delete",
     status_code=h_status.HTTP_204_NO_CONTENT,
     tags=["Payments"],
 )
@@ -378,6 +396,10 @@ def delete_person(person_uuid: UUID, db: Session = Depends(get_db)):
             )
         person.is_deleted = True
         db.commit()
+        return PaymentServiceResponse(
+            data=None,
+            message="Person deleted successfully."
+        ).model_dump()
     except Exception as e:
         traceback.print_exc()
         print(f"Error in delete_person API: {str(e)}")
