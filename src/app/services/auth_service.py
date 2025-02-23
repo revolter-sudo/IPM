@@ -30,6 +30,9 @@ auth_router = APIRouter(prefix="/auth")
 pwd_context = CryptContext(
     schemes=["bcrypt"], bcrypt__default_rounds=12, deprecated="auto"
 )
+# print("================================")
+# print(f"Password Hash -> {pwd_context.hash('supersecurepassword')}")
+# print("================================")
 
 # JWT Configuration
 SECRET_KEY = "supersecretkey"
@@ -63,9 +66,11 @@ def get_current_user(
         user_uuid = payload.get("sub")
 
         if not user_uuid:
-            raise HTTPException(
-                status_code=401, detail="Invalid authentication token"
-            )
+            return AuthServiceResponse(
+                data=None,
+                status_code=401,
+                message="Invalid authentication token"
+            ).model_dump()
 
         user = (
             db.query(User)
@@ -78,21 +83,29 @@ def get_current_user(
         )
 
         if not user:
-            raise HTTPException(
-                status_code=401, detail="Invalid authentication"
-            )
+            return AuthServiceResponse(
+                data=None,
+                status_code=404,
+                message="User Not Found"
+            ).model_dump()
 
         return user
 
     except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid authentication")
+        return AuthServiceResponse(
+            data=None,
+            status_code=401,
+            message="Invalid authentication"
+        ).model_dump()
 
 
 def superadmin_required(current_user: User = Depends(get_current_user)):
     if current_user.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(
-            status_code=403, detail="SuperAdmin privileges required"
-        )
+        return AuthServiceResponse(
+                data=None,
+                status_code=403,
+                message="SuperAdmin privileges required"
+            ).model_dump()
     return current_user
 
 
@@ -119,7 +132,11 @@ def register_user(
         .first()
     )
     if db_user:
-        raise HTTPException(status_code=400, detail="Phone already registered")
+        return AuthServiceResponse(
+                data=None,
+                status_code=400,
+                message="Phone already registered"
+            ).model_dump()
     hashed_password = get_password_hash(user.password)
     new_user = User(
         name=user.name,
@@ -136,7 +153,8 @@ def register_user(
     response = {"access_token": access_token, "token_type": "bearer"}
     return AuthServiceResponse(
         data=response,
-        message="User reginstered successfully"
+        message="User reginstered successfully",
+        status_code=200
     ).model_dump()
 
 
@@ -162,15 +180,27 @@ def login(
     if not db_user or not verify_password(
         login_data.password, db_user.password_hash
     ):
-        raise HTTPException(
-            status_code=400, detail="Incorrect phone or password"
-        )
-
+        return AuthServiceResponse(
+                data=None,
+                status_code=400,
+                message="Incorrect phone or password"
+            ).model_dump()
+    user_data = UserResponse(
+        uuid=db_user.uuid,
+        name=db_user.name,
+        phone=db_user.phone,
+        role=db_user.role
+    ).to_dict()
     access_token = create_access_token(data={"sub": str(db_user.uuid)})
-    response = {"access_token": access_token, "token_type": "bearer"}
+    response = {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_data": user_data
+    }
     return AuthServiceResponse(
         data=response,
-        message="User logged in successfully"
+        message="User logged in successfully",
+        status_code=200
     ).model_dump()
 
 
@@ -209,12 +239,17 @@ def delete_user(
         db.refresh(user_data)
         return AuthServiceResponse(
             data=None,
-            message="User deleted successfully."
+            message="User deleted successfully.",
+            status_code=200
         ).model_dump()
 
     except Exception as e:
         logging.error(f"Error in delete_user API: {str(e)}")
-        raise e
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error in delete_user API: {str(e)}"
+        ).model_dump()
 
 
 @auth_router.put("/deactivate", status_code=status.HTTP_200_OK, tags=["Users"])
@@ -236,24 +271,34 @@ def deactivate_user(
             .first()
         )
         if not user_data:
-            raise HTTPException(status_code=404, detail="User does not exist")
+            return AuthServiceResponse(
+                data=None,
+                status_code=404,
+                message="User does not exist"
+            ).model_dump()
 
         if user_data.role == UserRole.SUPER_ADMIN:
-            raise HTTPException(
+            return AuthServiceResponse(
+                data=None,
                 status_code=403,
-                detail="SuperAdmin user cannot be deactivated.",
-            )
+                message="SuperAdmin user cannot be deactivated."
+            ).model_dump()
 
         user_data.is_active = False
         db.commit()
         db.refresh(user_data)
         return AuthServiceResponse(
             data=None,
-            message="User deactivated successfully."
+            message="User deactivated successfully.",
+            status_code=200
         ).model_dump()
     except Exception as e:
         logging.error(f"Error in deactivate_user API: {str(e)}")
-        raise e
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error in deactivate_user API: {str(e)}"
+        ).model_dump()
 
 
 @auth_router.put("/activate", status_code=status.HTTP_200_OK, tags=["Users"])
@@ -274,23 +319,34 @@ def activate_user(
             .first()
         )
         if not user_data:
-            raise HTTPException(status_code=404, detail="User does not exist")
+            return AuthServiceResponse(
+                data=None,
+                status_code=404,
+                message="User does not exist"
+            ).model_dump()
 
         if user_data.role == UserRole.SUPER_ADMIN:
-            raise HTTPException(
-                status_code=403, detail="SuperAdmin user cannot be activated."
-            )
+            return AuthServiceResponse(
+                data=None,
+                status_code=403,
+                message="SuperAdmin user cannot be activated."
+            ).model_dump()
 
         user_data.is_active = True
         db.commit()
         db.refresh(user_data)
         return AuthServiceResponse(
             data=None,
-            message="User activated successfully"
+            message="User activated successfully",
+            status_code=200
         ).model_dump()
     except Exception as e:
         logging.error(f"Error in activate_user API: {str(e)}")
-        raise e
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error in activate_user API: {str(e)}"
+        ).model_dump()
 
 
 @auth_router.get("/users", status_code=status.HTTP_200_OK, tags=["Users"])
@@ -308,11 +364,16 @@ def list_all_active_users(db: Session = Depends(get_db)):
         ]
         return AuthServiceResponse(
             data=user_response_data,
-            message="All users fetched successfully"
+            message="All users fetched successfully",
+            status_code=200
         ).model_dump()
     except Exception as e:
         logging.error(f"Error in list_all_active_users API: {str(e)}")
-        raise e
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error in list_all_active_users API: {str(e)}"
+        ).model_dump()
 
 
 @auth_router.get("/user", tags=["Users"])
@@ -325,15 +386,24 @@ def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
         )
 
         if not user:
-            raise HTTPException(status_code=404, detail="User does not exist")
+            return AuthServiceResponse(
+                data=None,
+                status_code=404,
+                message="User does not exist"
+            ).model_dump()
 
         user_response = UserResponse(
             uuid=user.uuid, name=user.name, phone=user.phone, role=user.role
         )
         return AuthServiceResponse(
             data=user_response,
-            message="User info fetched successfully"
-        )
+            message="User info fetched successfully",
+            status_code=200
+        ).model_dump()
     except Exception as e:
         logging.error(f"Error in get_user_info API: {str(e)}")
-        raise e
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error in get_user_info API: {str(e)}"
+        ).model_dump()

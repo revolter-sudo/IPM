@@ -45,9 +45,11 @@ def update_project_balance(
             .first()
         )
         if not project_balance:
-            raise HTTPException(
-                status_code=404, detail="Project balance not found"
-            )
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Project balance not found"
+            ).model_dump()
 
         # Update project balance
         project_balance.adjustment = new_balance
@@ -60,14 +62,16 @@ def update_project_balance(
         ) or 0.0
         return ProjectServiceResponse(
             data=total_balance,
-            message="Project balance updated successfully"
+            message="Project balance updated successfully",
+            status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}",
-        )
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while fetching project details: {str(e)}"
+        ).model_dump()
 
 
 @project_router.get("/balance", tags=["Projects"])
@@ -88,13 +92,15 @@ def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)):
         response = {"project_uuid": project_uuid, "balance": total_balance}
         return ProjectServiceResponse(
             data=response,
-            message="Project balance fetched successfully."
+            message="Project balance fetched successfully.",
+            status_code=200
         ).model_dump()
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}",
-        )
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while fetching project details: {str(e)}"
+        ).model_dump()
 
 
 @project_router.put("/adjust-balance", tags=["Projects"])
@@ -110,27 +116,35 @@ def adjust_project_balance(
             db.query(Project).filter(Project.uuid == project_uuid).first()
         )
         if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Project not found"
+            ).model_dump()
 
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
         ]:
-            raise HTTPException(
-                status_code=403, detail="Unauthorized to adjust balance"
-            )
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Unauthorized to adjust balance"
+            ).model_dump()
 
         create_project_balance_entry(db, project_uuid, adjustment, description)
         return ProjectServiceResponse(
             data=None,
-            message="Project balance adjusted successfully"
+            message="Project balance adjusted successfully",
+            status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}",
-        )
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while fetching project details: {str(e)}"
+        ).model_dump()
 
 
 @project_router.post(
@@ -147,10 +161,11 @@ def create_project(
             UserRole.ADMIN.value,
             UserRole.PROJECT_MANAGER.value,
         ]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=constants.CAN_NOT_CREATE_PROJECT,
-            )
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message=constants.CAN_NOT_CREATE_PROJECT
+            ).model_dump()
 
         project_uuid = str(uuid4())
         initial_balance = (
@@ -187,15 +202,17 @@ def create_project(
         db.commit()
         return ProjectServiceResponse(
             data=None,
-            message="Project Created Successfully"
+            message="Project Created Successfully",
+            status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
         logging.error(f"Error in create_project API: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while creating the project",
-        )
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while fetching project details"
+        ).model_dump()
 
 
 @project_router.get("", status_code=status.HTTP_200_OK, tags=["Projects"])
@@ -224,14 +241,16 @@ def list_all_projects(db: Session = Depends(get_db)):
             )
         return ProjectServiceResponse(
             data=projects_response_data,
-            message="Projects data fetched successfully."
+            message="Projects data fetched successfully.",
+            status_code=200
         ).model_dump()
     except Exception as e:
         logging.error(f"Error in list_all_projects API: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while fetching projects",
-        )
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while fetching project details"
+        ).model_dump()
 
 
 @project_router.get(
@@ -249,9 +268,11 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             .first()
         )
         if not project:
-            raise HTTPException(
-                status_code=404, detail=constants.PROJECT_NOT_FOUND
-            )
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message=constants.PROJECT_NOT_FOUND
+            ).model_dump()
 
         total_balance = (
             db.query(func.sum(ProjectBalance.adjustment))
@@ -268,11 +289,13 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
         ).to_dict()
         return ProjectServiceResponse(
             data=project_response_data,
-            message="Project info fetched successfully."
+            message="Project info fetched successfully.",
+            status_code=200
         ).model_dump()
     except Exception as e:
         logging.error(f"Error in get_project_info API: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while fetching project details",
-        )
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while fetching project details"
+        ).model_dump()

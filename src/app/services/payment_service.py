@@ -43,9 +43,11 @@ def create_payment(
         """Create a payment request and update project balance."""
         if file and file.filename:
             if file.content_type not in ["application/pdf"]:
-                raise HTTPException(
-                    status_code=400, detail=constants.ONLY_PDFS_ALLOWED
-                )
+                return PaymentServiceResponse(
+                    status_code=400,
+                    data=None,
+                    message=constants.ONLY_PDFS_ALLOWED
+                ).model_dump()
 
         # Check if the project exists
         project = db.query(Project).filter(Project.uuid == project_id).first()
@@ -86,15 +88,17 @@ def create_payment(
 
         return PaymentServiceResponse(
             data={"payment_uuid": new_payment.uuid},
-            message="Payment created successfully."
+            message="Payment created successfully.",
+            status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
         print(f"Error in create_payment API: {str(e)}")
-        raise HTTPException(
-            status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}",
-        )
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500
+        ).model_dump()
 
 
 @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
@@ -163,14 +167,16 @@ def get_all_payments(
         ]
         return PaymentServiceResponse(
             data=payments_data,
-            message="All Payments fetched successfully."
+            message="All Payments fetched successfully.",
+            status_code=200
         ).model_dump()
     except Exception as e:
         print(f"Error in get_all_payments API: {str(e)}")
-        raise HTTPException(
-            status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}",
-        )
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500
+        ).model_dump()
 
 
 @payment_router.put("/approve")
@@ -186,28 +192,34 @@ def approve_payment(
             UserRole.ADMIN.value,
             UserRole.PROJECT_MANAGER.value,
         ]:
-            raise HTTPException(
-                status_code=403, detail=constants.CANT_APPROVE_PAYMENT
-            )
+            return PaymentServiceResponse(
+                data=None,
+                message=constants.CANT_APPROVE_PAYMENT,
+                status_code=403
+            ).model_dump()
 
         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
         if not payment:
-            raise HTTPException(
-                status_code=404, detail=constants.PAYMENT_NOT_FOUND
-            )
+            return PaymentServiceResponse(
+                data=None,
+                message=constants.PAYMENT_NOT_FOUND,
+                status_code=404
+            ).model_dump()
 
         payment.status = PaymentStatus.approved.value
         db.commit()
         return PaymentServiceResponse(
             data=None,
-            message="Payment approved successfully"
+            message="Payment approved successfully",
+            status_code=200
         ).model_dump()
     except Exception as e:
         print(f"Error in approve_payment API: {str(e)}")
-        raise HTTPException(
-            status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}",
-        )
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500
+        ).model_dump()
 
 
 @payment_router.put("/decline")
@@ -224,28 +236,34 @@ def decline_payment(
             UserRole.ADMIN.value,
             UserRole.PROJECT_MANAGER.value,
         ]:
-            raise HTTPException(
-                status_code=403, detail=constants.CANT_DECLINE_PAYMENTS
-            )
+            return PaymentServiceResponse(
+                data=None,
+                message=constants.CANT_DECLINE_PAYMENTS,
+                status_code=403
+            ).model_dump()
 
         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
         if not payment:
-            raise HTTPException(
-                status_code=404, detail=constants.PAYMENT_NOT_FOUND
-            )
+            return PaymentServiceResponse(
+                data=None,
+                message=constants.PAYMENT_NOT_FOUND,
+                status_code=404
+            ).model_dump()
 
         payment.status = PaymentStatus.declined.value
         payment.remarks = remarks
         db.commit()
         return PaymentServiceResponse(
             data=None,
-            message="Payment declined with remarks"
+            message="Payment declined with remarks",
+            status_code=200
         ).model_dump()
     except Exception as e:
         print(f"Error in decline_payment API: {str(e)}")
-        raise HTTPException(
-            status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}",
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500
         )
 
 
@@ -259,22 +277,26 @@ def delete_payment(
         """Delete a payment request."""
         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
         if not payment:
-            raise HTTPException(
-                status_code=404, detail=constants.PAYMENT_NOT_FOUND
+            return PaymentServiceResponse(
+                data=None,
+                status_code=404,
+                message=constants.PAYMENT_NOT_FOUND
             )
 
         payment.is_deleted = True
         db.commit()
         return PaymentServiceResponse(
             data=None,
-            message="Payment request deleted successfully"
+            message="Payment request deleted successfully",
+            status_code=200
         ).model_dump()
     except Exception as e:
         print(f"Error in delete_payment API: {str(e)}")
-        raise HTTPException(
-            status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}",
-        )
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500
+        ).model_dump()
 
 
 @payment_router.post(
@@ -295,10 +317,11 @@ def create_person(
         )
 
         if existing_person:
-            raise HTTPException(
-                status_code=h_status.HTTP_400_BAD_REQUEST,
-                detail=constants.PERSON_EXISTS,
-            )
+            return PaymentServiceResponse(
+                data=None,
+                status_code=400,
+                message=constants.PERSON_EXISTS
+            ).model_dump()
 
         new_person = Person(
             name=request_data.name,
@@ -315,17 +338,19 @@ def create_person(
         db.commit()
         return PaymentServiceResponse(
             data=str(generated_uuid),
-            message="Create person successfully."
+            message="Create person successfully.",
+            status_code=200
         ).model_dump()
     except HTTPException as e:
         raise e
 
     except Exception as e:
         db.rollback()
-        raise HTTPException(
-            status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}",
-        )
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500
+        ).model_dump()
 
 
 @payment_router.get(
@@ -369,15 +394,17 @@ def get_all_persons(
         ]
         return PaymentServiceResponse(
             data=persons_data,
-            message="All persons info fetched successfully."
+            message="All persons info fetched successfully.",
+            status_code=200
         ).model_dump()
     except Exception as e:
         traceback.print_exc()
         print(f"Error in get_all_persons API: {str(e)}")
-        raise HTTPException(
-            status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}",
-        )
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500
+        ).model_dump()
 
 
 @payment_router.put(
@@ -398,12 +425,14 @@ def delete_person(person_uuid: UUID, db: Session = Depends(get_db)):
         db.commit()
         return PaymentServiceResponse(
             data=None,
-            message="Person deleted successfully."
+            message="Person deleted successfully.",
+            status_code=200
         ).model_dump()
     except Exception as e:
         traceback.print_exc()
         print(f"Error in delete_person API: {str(e)}")
-        raise HTTPException(
-            status_code=h_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred: {str(e)}",
-        )
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500
+        ).model_dump()
