@@ -14,7 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
-
+from sqlalchemy.orm import relationship
 from src.app.database.database import Base
 
 
@@ -102,12 +102,31 @@ class Payment(Base):
         nullable=False,
     )
     is_deleted = Column(Boolean, default=False, nullable=False)
-    file = Column(
-        String(255), nullable=True
-    )  # New column added for storing file path
+
+    # Relationships
+    payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Payment(id={self.id}, amount={self.amount}, status={self.status})>"
+
+
+class PaymentFile(Base):
+    __tablename__ = "payment_files"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    payment_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("payments.uuid"),
+        nullable=False
+    )
+    file_path = Column(String(255), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    # Relationship
+    payment = relationship("Payment", back_populates="payment_files")
+
+    def __repr__(self):
+        return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path})>"
 
 
 class Person(Base):

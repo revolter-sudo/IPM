@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, Any
+from typing import Optional, Any, List
 from uuid import UUID
 from datetime import date
 from pydantic import BaseModel, Field
@@ -53,12 +53,12 @@ class PaymentsResponse(BaseModel):
     amount: float
     description: Optional[str] = None
     project_id: UUID
-    created_by: UUID
-    created_at: date
-    status: str
+    files: List[str] = []  # ✅ Ensure default value is an empty list
     remarks: Optional[str] = None
+    status: str
+    created_by: UUID
     person: Optional[UUID] = None
-    file: Optional[str]
+    created_at: str
 
 
 class PaymentServiceResponse(BaseModel):
