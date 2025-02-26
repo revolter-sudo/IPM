@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional, Any
 from uuid import UUID
-
+from datetime import date
 from pydantic import BaseModel, Field
 
 
@@ -54,6 +54,7 @@ class PaymentsResponse(BaseModel):
     description: Optional[str] = None
     project_id: UUID
     created_by: UUID
+    created_at: date
     status: str
     remarks: Optional[str] = None
     person: Optional[UUID] = None

@@ -3,7 +3,7 @@ import shutil
 import traceback
 from typing import Optional
 from uuid import UUID
-
+from datetime import datetime
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi import status as h_status
 from sqlalchemy.orm import Session
@@ -119,6 +119,9 @@ def get_all_payments(
     ),
     remarks: Optional[str] = Query(None, description="Filter by remarks"),
     person: Optional[UUID] = Query(None, description="Filter by person UUID"),
+    start_date: Optional[datetime] = Query(None, description="Filter by start date (created_at)"),
+    end_date: Optional[datetime] = Query(None, description="Filter by end date (created_at)"),
+
 ):
     try:
         query = db.query(
@@ -131,6 +134,7 @@ def get_all_payments(
             Payment.status,
             Payment.created_by,
             Payment.person,
+            Payment.created_at,
         ).filter(Payment.is_deleted.is_(False))
 
         # Apply filters dynamically based on provided query parameters
@@ -148,6 +152,10 @@ def get_all_payments(
             query = query.filter(Payment.remarks.ilike(f"%{remarks}%"))
         if person is not None:
             query = query.filter(Payment.person == person)
+        if start_date is not None:
+            query = query.filter(Payment.created_at >= start_date)
+        if end_date is not None:
+            query = query.filter(Payment.created_at <= end_date)
 
         payments = query.all()
 
@@ -161,6 +169,7 @@ def get_all_payments(
                 remarks=payment.remarks,
                 status=payment.status,
                 created_by=payment.created_by,
+                created_at=payment.created_at.strftime("%Y-%m-%d"),
                 person=payment.person,
             ).model_dump()
             for payment in payments
