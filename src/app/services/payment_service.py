@@ -24,6 +24,7 @@ from src.app.schemas.payment_service_schemas import (
     PersonDetail,
     PaymentServiceResponse
 )
+from sqlalchemy import desc
 from src.app.services.auth_service import get_current_user
 from src.app.services.project_service import create_project_balance_entry
 
@@ -117,163 +118,6 @@ def create_payment(
         ).model_dump()
 
 
-# @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
-# def get_all_payments(
-#     db: Session = Depends(get_db),
-#     amount: Optional[float] = Query(
-#         None, description="Filter by payment amount"
-#     ),
-#     description: Optional[str] = Query(
-#         None, description="Filter by description"
-#     ),
-#     project_id: Optional[UUID] = Query(
-#         None, description="Filter by project ID"
-#     ),
-#     created_by: Optional[UUID] = Query(None, description="Filter by creator"),
-#     status: Optional[str] = Query(
-#         None, description="Filter by payment status"
-#     ),
-#     remarks: Optional[str] = Query(None, description="Filter by remarks"),
-#     person: Optional[UUID] = Query(None, description="Filter by person UUID"),
-#     start_date: Optional[datetime] = Query(None, description="Filter by start date (created_at)"),
-#     end_date: Optional[datetime] = Query(None, description="Filter by end date (created_at)"),
-
-# ):
-#     try:
-#         query = db.query(
-#             Payment.uuid,
-#             Payment.amount,
-#             Payment.description,
-#             Payment.project_id,
-#             Payment.file,
-#             Payment.remarks,
-#             Payment.status,
-#             Payment.created_by,
-#             Payment.person,
-#             Payment.created_at,
-#         ).filter(Payment.is_deleted.is_(False))
-
-#         # Apply filters dynamically based on provided query parameters
-#         if amount is not None:
-#             query = query.filter(Payment.amount == amount)
-#         if description is not None:
-#             query = query.filter(Payment.description.ilike(f"%{description}%"))
-#         if project_id is not None:
-#             query = query.filter(Payment.project_id == project_id)
-#         if created_by is not None:
-#             query = query.filter(Payment.created_by == created_by)
-#         if status is not None:
-#             query = query.filter(Payment.status == status)
-#         if remarks is not None:
-#             query = query.filter(Payment.remarks.ilike(f"%{remarks}%"))
-#         if person is not None:
-#             query = query.filter(Payment.person == person)
-#         if start_date is not None:
-#             query = query.filter(Payment.created_at >= start_date)
-#         if end_date is not None:
-#             query = query.filter(Payment.created_at <= end_date)
-
-#         payments = query.all()
-
-#         payments_data = [
-#             PaymentsResponse(
-#                 uuid=payment.uuid,
-#                 amount=payment.amount,
-#                 description=payment.description,
-#                 project_id=payment.project_id,
-#                 file=payment.file,
-#                 remarks=payment.remarks,
-#                 status=payment.status,
-#                 created_by=payment.created_by,
-#                 created_at=payment.created_at.strftime("%Y-%m-%d"),
-#                 person=payment.person,
-#             ).model_dump()
-#             for payment in payments
-#         ]
-#         return PaymentServiceResponse(
-#             data=payments_data,
-#             message="All Payments fetched successfully.",
-#             status_code=200
-#         ).model_dump()
-#     except Exception as e:
-#         print(f"Error in get_all_payments API: {str(e)}")
-#         return PaymentServiceResponse(
-#             data=None,
-#             message=f"An Error Occurred: {str(e)}",
-#             status_code=500
-#         ).model_dump()
-
-# @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
-# def get_all_payments(
-#     db: Session = Depends(get_db),
-#     amount: Optional[float] = Query(None, description="Filter by payment amount"),
-#     project_id: Optional[UUID] = Query(None, description="Filter by project ID"),
-#     status: Optional[str] = Query(None, description="Filter by payment status"),
-#     start_date: Optional[datetime] = Query(None, description="Filter by start date (created_at)"),
-#     end_date: Optional[datetime] = Query(None, description="Filter by end date (created_at)"),
-# ):
-#     try:
-#         query = db.query(
-#             Payment.uuid,
-#             Payment.amount,
-#             Payment.description,
-#             Payment.project_id,
-#             Payment.created_by,
-#             Payment.created_at,
-#             Payment.status,
-    #         Payment.remarks,
-    #         Payment.person,
-    #     ).outerjoin(
-    #         PaymentFile
-    #     ).options(joinedload(Payment.payment_files)).filter(Payment.is_deleted.is_(False))
-
-    #     if amount is not None:
-    #         query = query.filter(Payment.amount == amount)
-    #     if project_id is not None:
-    #         query = query.filter(Payment.project_id == project_id)
-    #     if status is not None:
-    #         query = query.filter(Payment.status == status)
-    #     if start_date is not None:
-    #         query = query.filter(Payment.created_at >= start_date)
-    #     if end_date is not None:
-    #         query = query.filter(Payment.created_at <= end_date)
-
-    #     payments = query.all()
-    #     payments_data = []
-    #     for payment in payments:
-    #         files = db.query(PaymentFile.file_path).filter(PaymentFile.payment_id == payment.uuid).all()
-    #         file_paths = [file[0] for file in files]
-
-    #         payments_data.append(
-    #             PaymentsResponse(
-    #                 uuid=payment.uuid,
-    #                 amount=payment.amount,
-    #                 description=payment.description,
-    #                 project_id=payment.project_id,
-    #                 files=file_paths,
-    #                 remarks=payment.remarks,
-    #                 status=payment.status,
-    #                 created_by=payment.created_by,
-    #                 person=payment.person,
-    #                 created_at=payment.created_at.strftime("%Y-%m-%d"),
-    #             ).model_dump()
-    #         )
-
-    #     return PaymentServiceResponse(
-    #         data=payments_data,
-    #         message="All Payments fetched successfully.",
-    #         status_code=200
-    #     ).model_dump()
-
-    # except Exception as e:
-    #     print(f"Error in get_all_payments API: {str(e)}")
-    #     return PaymentServiceResponse(
-    #         data=None,
-    #         message=f"An Error Occurred: {str(e)}",
-    #         status_code=500
-    #     ).model_dump()
-
-
 @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
 def get_all_payments(
     db: Session = Depends(get_db),
@@ -282,10 +126,22 @@ def get_all_payments(
     status: Optional[str] = Query(None, description="Filter by payment status"),
     start_date: Optional[datetime] = Query(None, description="Filter by start date (created_at)"),
     end_date: Optional[datetime] = Query(None, description="Filter by end date (created_at)"),
+    recent: Optional[bool] = Query(False, description="Show only last 5 payments if true"),
 ):
     try:
-        query = db.query(Payment).outerjoin(PaymentFile).options(joinedload(Payment.payment_files)).filter(Payment.is_deleted.is_(False))
+        # Step 1: Base Query (fetch latest 5 payments first if recent flag is enabled)
+        base_query = db.query(Payment.uuid).filter(Payment.is_deleted.is_(False))
 
+        if recent:
+            base_query = base_query.order_by(desc(Payment.created_at)).limit(5).subquery()
+
+        # Step 2: Main Query to Fetch Payments
+        query = db.query(Payment).outerjoin(PaymentFile).options(joinedload(Payment.payment_files))
+
+        if recent:
+            query = query.filter(Payment.uuid.in_(db.query(base_query.c.uuid)))
+
+        # Apply additional filters dynamically
         if amount is not None:
             query = query.filter(Payment.amount == amount)
         if project_id is not None:
@@ -320,7 +176,7 @@ def get_all_payments(
 
         return PaymentServiceResponse(
             data=payments_data,
-            message="All Payments fetched successfully.",
+            message="Recent Payments fetched successfully." if recent else "All Payments fetched successfully.",
             status_code=200
         ).model_dump()
 
@@ -331,7 +187,6 @@ def get_all_payments(
             message=f"An Error Occurred: {str(e)}",
             status_code=500
         ).model_dump()
-
 
 
 @payment_router.put("/approve")
