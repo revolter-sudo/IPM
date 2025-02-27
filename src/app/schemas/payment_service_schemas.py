@@ -38,6 +38,7 @@ class CreatePerson(BaseModel):
         max_length=10,
         description="Phone number must be exactly 10 digits",
     )
+    parent_id: Optional[UUID] = None
 
 
 class PersonDetail(BaseModel):

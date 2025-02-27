@@ -462,14 +462,10 @@ def create_person(
     db: Session = Depends(get_db),
 ):
     try:
-        existing_person = (
-            db.query(Person)
-            .filter(
-                (Person.account_number == request_data.account_number)
-                | (Person.ifsc_code == request_data.ifsc_code)
-            )
-            .first()
-        )
+        existing_person = db.query(Person).filter(
+            (Person.account_number == request_data.account_number) |
+            (Person.ifsc_code == request_data.ifsc_code)
+        ).first()
 
         if existing_person:
             return PaymentServiceResponse(
@@ -478,11 +474,23 @@ def create_person(
                 message=constants.PERSON_EXISTS
             ).model_dump()
 
+        # Validate parent_id if provided
+        parent = None
+        if request_data.parent_id:
+            parent = db.query(Person).filter(Person.uuid == request_data.parent_id, Person.is_deleted.is_(False)).first()
+            if not parent:
+                return PaymentServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message="Parent account not found."
+                ).model_dump()
+
         new_person = Person(
             name=request_data.name,
             account_number=request_data.account_number,
             ifsc_code=request_data.ifsc_code,
             phone_number=request_data.phone_number,
+            parent_id=request_data.parent_id  # Link to parent account
         )
 
         db.add(new_person)
@@ -493,9 +501,10 @@ def create_person(
         db.commit()
         return PaymentServiceResponse(
             data=str(generated_uuid),
-            message="Create person successfully.",
+            message="Person created successfully.",
             status_code=200
         ).model_dump()
+
     except HTTPException as e:
         raise e
 
@@ -519,13 +528,7 @@ def get_all_persons(
     db: Session = Depends(get_db),
 ):
     try:
-        query = db.query(
-            Person.uuid,
-            Person.name,
-            Person.account_number,
-            Person.ifsc_code,
-            Person.phone_number,
-        ).filter(Person.is_deleted.is_(False))
+        query = db.query(Person).filter(Person.is_deleted.is_(False))
 
         if name:
             query = query.filter(Person.name.ilike(f"%{name}%"))
@@ -537,16 +540,30 @@ def get_all_persons(
             query = query.filter(Person.ifsc_code == ifsc_code)
 
         persons = query.all()
-        persons_data = [
-            PersonDetail(
-                uuid=person.uuid,
-                name=person.name,
-                account_number=person.account_number,
-                ifsc_code=person.ifsc_code,
-                phone_number=person.phone_number,
-            ).model_dump()
-            for person in persons
-        ]
+        persons_data = []
+
+        for person in persons:
+            persons_data.append(
+                {
+                    "uuid": person.uuid,
+                    "name": person.name,
+                    "account_number": person.account_number,
+                    "ifsc_code": person.ifsc_code,
+                    "phone_number": person.phone_number,
+                    "parent_id": person.parent_id,
+                    "secondary_accounts": [
+                        {
+                            "uuid": child.uuid,
+                            "name": child.name,
+                            "account_number": child.account_number,
+                            "ifsc_code": child.ifsc_code,
+                            "phone_number": child.phone_number
+                        }
+                        for child in person.children
+                    ]
+                }
+            )
+
         return PaymentServiceResponse(
             data=persons_data,
             message="All persons info fetched successfully.",
@@ -554,13 +571,11 @@ def get_all_persons(
         ).model_dump()
     except Exception as e:
         traceback.print_exc()
-        print(f"Error in get_all_persons API: {str(e)}")
         return PaymentServiceResponse(
             data=None,
             message=f"An Error Occurred: {str(e)}",
             status_code=500
         ).model_dump()
-
 
 @payment_router.put(
     "/persons/delete",

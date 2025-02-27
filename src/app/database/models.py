@@ -141,6 +141,14 @@ class Person(Base):
     ifsc_code = Column(String(11), nullable=False)
     phone_number = Column(String(10), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
+
+    # Relationship definitions
+    parent = relationship("Person", remote_side=[uuid], back_populates="children")  # Parent account
+    children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")  # Secondary accounts
+
+    def __repr__(self):
+        return f"<Person(id={self.id}, name={self.name}, parent_id={self.parent_id})>"
 
 
 class ProjectBalance(Base):
