@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import Optional, Any
+from typing import Optional, Any, List
 from uuid import UUID
-
+from datetime import date
 from pydantic import BaseModel, Field
 
 
@@ -38,6 +38,7 @@ class CreatePerson(BaseModel):
         max_length=10,
         description="Phone number must be exactly 10 digits",
     )
+    parent_id: Optional[UUID] = None
 
 
 class PersonDetail(BaseModel):
@@ -53,11 +54,13 @@ class PaymentsResponse(BaseModel):
     amount: float
     description: Optional[str] = None
     project_id: UUID
-    created_by: UUID
-    status: str
+    files: List[str] = []  # ✅ Ensure default value is an empty list
+    items: List[str] = []
     remarks: Optional[str] = None
+    status: str
+    created_by: UUID
     person: Optional[UUID] = None
-    file: Optional[str]
+    created_at: str
 
 
 class PaymentServiceResponse(BaseModel):

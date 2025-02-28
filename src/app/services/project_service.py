@@ -203,7 +203,7 @@ def create_project(
         return ProjectServiceResponse(
             data=None,
             message="Project Created Successfully",
-            status_code=200
+            status_code=201
         ).model_dump()
     except Exception as e:
         db.rollback()

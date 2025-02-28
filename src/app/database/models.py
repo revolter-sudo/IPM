@@ -14,7 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
-
+from sqlalchemy.orm import relationship
 from src.app.database.database import Base
 
 
@@ -102,12 +102,28 @@ class Payment(Base):
         nullable=False,
     )
     is_deleted = Column(Boolean, default=False, nullable=False)
-    file = Column(
-        String(255), nullable=True
-    )  # New column added for storing file path
+
+    # Relationships
+    payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")
+    payment_items = relationship("PaymentItem", back_populates="payment", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Payment(id={self.id}, amount={self.amount}, status={self.status})>"
+
+
+class PaymentFile(Base):
+    __tablename__ = "payment_files"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
+    file_path = Column(String(255), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    # ✅ Correct Relationship
+    payment = relationship("Payment", back_populates="payment_files")
+
+    def __repr__(self):
+        return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path})>"
 
 
 class Person(Base):
@@ -122,6 +138,14 @@ class Person(Base):
     ifsc_code = Column(String(11), nullable=False)
     phone_number = Column(String(10), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
+
+    # Relationship definitions
+    parent = relationship("Person", remote_side=[uuid], back_populates="children")  # Parent account
+    children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")  # Secondary accounts
+
+    def __repr__(self):
+        return f"<Person(id={self.id}, name={self.name}, parent_id={self.parent_id})>"
 
 
 class ProjectBalance(Base):
@@ -142,3 +166,33 @@ class ProjectBalance(Base):
 
     def __repr__(self):
         return f"<ProjectBalance(project_id={self.project_id}, adjustment={self.adjustment})>"
+    
+
+class Item(Base):
+    __tablename__ = "items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
+    name = Column(String(100), nullable=False)
+    category = Column(String(100), nullable=True)
+
+    # Relationship for payments associated with this item
+    payments = relationship("PaymentItem", back_populates="item", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<Item(id={self.id}, name={self.name}, category={self.category})>"
+
+
+class PaymentItem(Base):
+    __tablename__ = "payment_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid", ondelete="CASCADE"), nullable=False)
+
+    # Relationships
+    payment = relationship("Payment", back_populates="payment_items")
+    item = relationship("Item", back_populates="payments")
+
+    def __repr__(self):
+        return f"<PaymentItem(payment_id={self.payment_id}, item_id={self.item_id})>"
