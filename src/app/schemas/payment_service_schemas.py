@@ -55,6 +55,7 @@ class PaymentsResponse(BaseModel):
     description: Optional[str] = None
     project_id: UUID
     files: List[str] = []  # ✅ Ensure default value is an empty list
+    items: List[str] = []
     remarks: Optional[str] = None
     status: str
     created_by: UUID
