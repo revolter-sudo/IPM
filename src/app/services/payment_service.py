@@ -518,7 +518,12 @@ def get_all_persons(
     db: Session = Depends(get_db),
 ):
     try:
-        query = db.query(Person).filter(Person.is_deleted.is_(False))
+        query = db.query(
+            Person
+        ).filter(
+            Person.is_deleted.is_(False),
+            Person.parent_id.is_(None)
+        )
 
         if name:
             query = query.filter(Person.name.ilike(f"%{name}%"))
