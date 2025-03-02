@@ -254,6 +254,29 @@ def create_payment(
 #             status_code=500
 #         ).model_dump()
 
+def get_parent_account_data(person_id: UUID, db):
+    try:
+        person = (
+            db.query(Person)
+            .options(joinedload(Person.parent))
+            .filter(Person.uuid == person_id)
+            .one_or_none()
+        )
+        if person is None:
+            return None  # or handle error
+
+        # If this person has a parent, return the parent's details; otherwise, return the person's own details
+        if person.parent is not None:
+            return person.parent
+        else:
+            return person
+    except Exception as e:
+        print(f"Error in get_parent_account_data API: {str(e)}")
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error in get_parent_account_data: {str(e)}",
+            status_code=500,
+        ).model_dump()
 
 @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
 def get_all_payments(
@@ -284,6 +307,8 @@ def get_all_payments(
                 Payment,
                 Project.name.label("project_name"),
                 Person.name.label("person_name"),
+                Person.account_number,
+                Person.ifsc_code,
                 User.name.label("user_name")
             )
             .outerjoin(Project, Payment.project_id == Project.uuid)
@@ -315,11 +340,9 @@ def get_all_payments(
         if item_id is not None:
             query = query.filter(PaymentItem.item_id == item_id)
 
-        # Execute and retrieve
         results = query.all()
         payments_data = []
 
-        # results is a list of tuples: (Payment, project_name, person_name, user_name)
         for row in results:
             payment = row[0]
             project_name = row.project_name
@@ -328,7 +351,9 @@ def get_all_payments(
 
             file_paths = [f.file_path for f in payment.payment_files] if payment.payment_files else []
             item_names = [p_item.item.name for p_item in payment.payment_items] if payment.payment_items else []
-
+            parent_data = get_parent_account_data(person_id=payment.person, db=db)
+            import pdb
+            pdb.set_trace()
             payments_data.append(
                 PaymentsResponse(
                     uuid=payment.uuid,
@@ -341,8 +366,14 @@ def get_all_payments(
                     },
                     # Return person as an object with both ID and name
                     person={
-                        "uuid": str(payment.person) if payment.person else None,
-                        "name": person_name
+                        "uuid": str(parent_data.uuid) if parent_data else None,
+                        "name": parent_data.name if parent_data else None
+                    },
+                    payment_details={
+                        "person_uuid": str(payment.person) if payment.person else None,
+                        "name": person_name,
+                        "account_number": str(row.account_number),
+                        "ifsc_code": row.ifsc_code
                     },
                     # Return user as an object with both ID and name
                     created_by={

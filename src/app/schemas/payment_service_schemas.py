@@ -49,25 +49,13 @@ class PersonDetail(BaseModel):
     phone_number: str
 
 
-# class PaymentsResponse(BaseModel):
-#     uuid: UUID
-#     amount: float
-#     description: Optional[str] = None
-#     project_id: UUID
-#     files: List[str] = []
-#     items: List[str] = []
-#     remarks: Optional[str] = None
-#     status: str
-#     created_by: UUID
-#     person: Optional[UUID] = None
-#     created_at: str
-
 class PaymentsResponse(BaseModel):
     uuid: UUID
     amount: float
     description: Optional[str] = None
     project: Optional[Dict[str, Optional[str]]] = None
     person: Optional[Dict[str, Optional[str]]] = None
+    payment_details: Optional[Dict[str, Optional[str]]] = None
     created_by: Optional[Dict[str, Optional[str]]] = None
     files: List[str] = []
     items: List[str] = []
