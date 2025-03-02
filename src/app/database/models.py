@@ -106,9 +106,40 @@ class Payment(Base):
     # Relationships
     payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")
     payment_items = relationship("PaymentItem", back_populates="payment", cascade="all, delete-orphan")
+    status_entries = relationship(
+        "PaymentStatusHistory",       # reference the model above
+        back_populates="payment",     # matches PaymentStatusHistory.payment
+        cascade="all, delete-orphan",
+        order_by="PaymentStatusHistory.created_at"  # so entries come in chronological order
+    )
 
     def __repr__(self):
         return f"<Payment(id={self.id}, amount={self.amount}, status={self.status})>"
+
+
+class PaymentStatusHistory(Base):
+    __tablename__ = "payment_status_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
+
+    payment_id = Column(
+        UUID(as_uuid=True), 
+        ForeignKey("payments.uuid", ondelete="CASCADE"), 
+        nullable=False
+    )
+    status = Column(String(20), nullable=False)      # e.g. "requested", "verified", "approved", "done"x``
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    # Relationship back to Payment so we can do payment_status_history.payment to navigate
+    payment = relationship("Payment", back_populates="status_entries")
+
+    def __repr__(self):
+        return (
+            f"<PaymentStatusHistory(id={self.id}, "
+            f"payment_id={self.payment_id}, status={self.status})>"
+        )
 
 
 class PaymentFile(Base):

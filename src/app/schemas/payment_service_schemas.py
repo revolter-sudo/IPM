@@ -60,7 +60,7 @@ class PaymentsResponse(BaseModel):
     files: List[str] = []
     items: List[str] = []
     remarks: Optional[str] = None
-    status: str
+    status: List[str]
     created_at: str
 
 
