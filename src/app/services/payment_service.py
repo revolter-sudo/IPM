@@ -185,14 +185,20 @@ def create_payment(
 #     recent: Optional[bool] = Query(False, description="Show only last 5 payments if true"),
 # ):
 #     try:
-#         # Step 1: Base Query (fetch latest 5 payments first if recent flag is enabled)
+#         # Step 1: Base Query to Fetch Payment UUIDs if 'recent' is enabled
 #         base_query = db.query(Payment.uuid).filter(Payment.is_deleted.is_(False))
 
 #         if recent:
 #             base_query = base_query.order_by(desc(Payment.created_at)).limit(5).subquery()
 
-#         # Step 2: Main Query to Fetch Payments
-#         query = db.query(Payment).outerjoin(PaymentFile).options(joinedload(Payment.payment_files))
+#         query = (
+#             db.query(Payment)
+#             .outerjoin(PaymentFile)
+#             .outerjoin(PaymentItem, Payment.uuid == PaymentItem.payment_id)
+#             .outerjoin(Item, PaymentItem.item_id == Item.uuid)
+#             .options(joinedload(Payment.payment_files), joinedload(Payment.payment_items).joinedload(PaymentItem.item))
+#             .filter(Payment.is_deleted.is_(False))
+#         )
 
 #         if recent:
 #             query = query.filter(Payment.uuid.in_(db.query(base_query.c.uuid)))
@@ -215,13 +221,17 @@ def create_payment(
 #         for payment in payments:
 #             file_paths = [file.file_path for file in payment.payment_files] if payment.payment_files else []
 
+#             # Fetch items associated with the payment
+#             item_names = [payment_item.item.name for payment_item in payment.payment_items] if payment.payment_items else []
+
 #             payments_data.append(
 #                 PaymentsResponse(
 #                     uuid=payment.uuid,
 #                     amount=payment.amount,
 #                     description=payment.description,
 #                     project_id=payment.project_id,
-#                     files=file_paths if file_paths else [],
+#                     files=file_paths,
+#                     items=item_names,  # Include item names
 #                     remarks=payment.remarks,
 #                     status=payment.status,
 #                     created_by=payment.created_by,
@@ -244,6 +254,7 @@ def create_payment(
 #             status_code=500
 #         ).model_dump()
 
+
 @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
 def get_all_payments(
     db: Session = Depends(get_db),
@@ -253,27 +264,42 @@ def get_all_payments(
     start_date: Optional[datetime] = Query(None, description="Filter by start date (created_at)"),
     end_date: Optional[datetime] = Query(None, description="Filter by end date (created_at)"),
     recent: Optional[bool] = Query(False, description="Show only last 5 payments if true"),
+    person_id: Optional[UUID] = Query(None, description="Filter by person ID"),
+    item_id: Optional[UUID] = Query(None, description="Filter by item ID")
 ):
+    """
+    Fetches payments, optionally filtering by amount, project, status,
+    date range, person, item, and optionally returning only the most recent 5.
+    Also returns person name, project name, and created_by user name along with their UUIDs.
+    """
     try:
-        # Step 1: Base Query to Fetch Payment UUIDs if 'recent' is enabled
+        # If "recent" is enabled, get just the last 5 payment UUIDs
         base_query = db.query(Payment.uuid).filter(Payment.is_deleted.is_(False))
-
         if recent:
             base_query = base_query.order_by(desc(Payment.created_at)).limit(5).subquery()
 
+        # Join Payment with Project, Person, User, PaymentFile, PaymentItem, and Item
         query = (
-            db.query(Payment)
+            db.query(
+                Payment,
+                Project.name.label("project_name"),
+                Person.name.label("person_name"),
+                User.name.label("user_name")
+            )
+            .outerjoin(Project, Payment.project_id == Project.uuid)
+            .outerjoin(Person, Payment.person == Person.uuid)
+            .outerjoin(User, Payment.created_by == User.uuid)
             .outerjoin(PaymentFile)
             .outerjoin(PaymentItem, Payment.uuid == PaymentItem.payment_id)
             .outerjoin(Item, PaymentItem.item_id == Item.uuid)
-            .options(joinedload(Payment.payment_files), joinedload(Payment.payment_items).joinedload(PaymentItem.item))
             .filter(Payment.is_deleted.is_(False))
         )
 
+        # Apply the "recent" filter if needed
         if recent:
             query = query.filter(Payment.uuid.in_(db.query(base_query.c.uuid)))
 
-        # Apply additional filters dynamically
+        # Apply additional filters
         if amount is not None:
             query = query.filter(Payment.amount == amount)
         if project_id is not None:
@@ -284,28 +310,49 @@ def get_all_payments(
             query = query.filter(Payment.created_at >= start_date)
         if end_date is not None:
             query = query.filter(Payment.created_at <= end_date)
+        if person_id is not None:
+            query = query.filter(Payment.person == person_id)
+        if item_id is not None:
+            query = query.filter(PaymentItem.item_id == item_id)
 
-        payments = query.all()
+        # Execute and retrieve
+        results = query.all()
         payments_data = []
 
-        for payment in payments:
-            file_paths = [file.file_path for file in payment.payment_files] if payment.payment_files else []
+        # results is a list of tuples: (Payment, project_name, person_name, user_name)
+        for row in results:
+            payment = row[0]
+            project_name = row.project_name
+            person_name = row.person_name
+            user_name = row.user_name
 
-            # Fetch items associated with the payment
-            item_names = [payment_item.item.name for payment_item in payment.payment_items] if payment.payment_items else []
+            file_paths = [f.file_path for f in payment.payment_files] if payment.payment_files else []
+            item_names = [p_item.item.name for p_item in payment.payment_items] if payment.payment_items else []
 
             payments_data.append(
                 PaymentsResponse(
                     uuid=payment.uuid,
                     amount=payment.amount,
                     description=payment.description,
-                    project_id=payment.project_id,
+                    # Return project as an object with both ID and name
+                    project={
+                        "uuid": str(payment.project_id),
+                        "name": project_name
+                    },
+                    # Return person as an object with both ID and name
+                    person={
+                        "uuid": str(payment.person) if payment.person else None,
+                        "name": person_name
+                    },
+                    # Return user as an object with both ID and name
+                    created_by={
+                        "uuid": str(payment.created_by),
+                        "name": user_name
+                    },
                     files=file_paths,
-                    items=item_names,  # Include item names
+                    items=item_names,
                     remarks=payment.remarks,
                     status=payment.status,
-                    created_by=payment.created_by,
-                    person=payment.person,
                     created_at=payment.created_at.strftime("%Y-%m-%d"),
                 ).model_dump()
             )
@@ -323,6 +370,7 @@ def get_all_payments(
             message=f"An Error Occurred: {str(e)}",
             status_code=500
         ).model_dump()
+
 
 @payment_router.put("/approve")
 def approve_payment(
