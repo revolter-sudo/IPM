@@ -401,6 +401,8 @@ def approve_payment(
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
             UserRole.PROJECT_MANAGER.value,
+            UserRole.SITE_ENGINEER.value,
+            UserRole.ACCOUNTANT.value
         ]:
             return PaymentServiceResponse(
                 data=None,
@@ -416,11 +418,17 @@ def approve_payment(
                 status_code=404
             ).model_dump()
 
-        payment.status = PaymentStatus.approved.value
+        status = constants.RoleStatusMapping.get(current_user.role)
+        payment_status = PaymentStatusHistory(
+            payment_id=payment_id,
+            status=status,
+            created_by=current_user.uuid
+        )
+        db.add(payment_status)
         db.commit()
         return PaymentServiceResponse(
             data=None,
-            message="Payment approved successfully",
+            message="Payment status updated successfully",
             status_code=200
         ).model_dump()
     except Exception as e:

@@ -5,10 +5,11 @@ from datetime import date
 from pydantic import BaseModel, Field
 
 
-class PaymentStatus(Enum):
-    approved = "approved"
-    declined = "declined"
-    pending = "pending"
+class PaymentStatus(str, Enum):
+    REQUESTED = "requested"
+    VERIFIED = "verified"
+    APPROVED = "approved"
+    DONE = "done"
 
 
 class PaymentRequest(BaseModel):

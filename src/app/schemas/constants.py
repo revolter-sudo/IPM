@@ -8,3 +8,11 @@ CANT_DECLINE_PAYMENTS = "Not authorized to decline payments"
 PERSON_EXISTS = (
     "A person with the same account number or ifsc code already exists."
 )
+
+RoleStatusMapping = {
+    "SiteEngineer": "requested",
+    "ProjectManager": "verified",
+    "Admin": "approved",
+    "Accountant": "done",
+    "SuperAdmin": "done"
+}

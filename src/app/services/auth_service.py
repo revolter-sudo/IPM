@@ -154,7 +154,7 @@ def register_user(
     return AuthServiceResponse(
         data=response,
         message="User reginstered successfully",
-        status_code=200
+        status_code=201
     ).model_dump()
 
 
@@ -200,7 +200,7 @@ def login(
     return AuthServiceResponse(
         data=response,
         message="User logged in successfully",
-        status_code=200
+        status_code=201
     ).model_dump()
 
 
