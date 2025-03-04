@@ -11,9 +11,9 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
-
+from uuid import uuid4
 from src.app.database.database import get_db
-from src.app.database.models import User
+from src.app.database.models import User, Log
 from src.app.schemas.auth_service_schamas import (
     Token,
     UserCreate,
@@ -235,6 +235,14 @@ def delete_user(
             )
 
         user_data.is_deleted = True
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="User",
+            action="Delete",
+            entity_id=user_uuid,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
         db.commit()
         db.refresh(user_data)
         return AuthServiceResponse(
@@ -285,6 +293,14 @@ def deactivate_user(
             ).model_dump()
 
         user_data.is_active = False
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="User",
+            action="Deactivate",
+            entity_id=user_uuid,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
         db.commit()
         db.refresh(user_data)
         return AuthServiceResponse(
@@ -333,6 +349,14 @@ def activate_user(
             ).model_dump()
 
         user_data.is_active = True
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="User",
+            action="Activate",
+            entity_id=user_uuid,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
         db.commit()
         db.refresh(user_data)
         return AuthServiceResponse(

@@ -20,12 +20,20 @@ project_router = APIRouter(prefix="/projects")
 
 
 def create_project_balance_entry(
-    db, project_id: UUID, adjustment: float, description: str = None
+    db, current_user, project_id: UUID, adjustment: float, description: str = None
 ):
     balance_entry = ProjectBalance(
         project_id=project_id, adjustment=adjustment, description=description
     )
     db.add(balance_entry)
+    log_entry = Log(
+            uuid=str(uuid4()),
+            entity="User",
+            action="Deactivate",
+            entity_id=project_id,
+            performed_by=current_user.uuid,
+        )
+    db.add(log_entry)
     db.commit()
     db.refresh(balance_entry)
 
@@ -53,6 +61,14 @@ def update_project_balance(
 
         # Update project balance
         project_balance.adjustment = new_balance
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="Payment",
+            action="Update",
+            entity_id=project_uuid,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
         db.commit()
 
         total_balance = (
@@ -132,7 +148,7 @@ def adjust_project_balance(
                 message="Unauthorized to adjust balance"
             ).model_dump()
 
-        create_project_balance_entry(db, project_uuid, adjustment, description)
+        create_project_balance_entry(db=db, project_id=project_uuid, adjustment=adjustment, description=description, current_user=current_user)
         return ProjectServiceResponse(
             data=None,
             message="Project balance adjusted successfully",
@@ -188,17 +204,10 @@ def create_project(
             project_id=new_project.uuid,
             adjustment=initial_balance,
             description="Initial project balance",
+            current_user=current_user
         )
 
         # Create a log entry for project creation
-        log_entry = Log(
-            uuid=str(uuid4()),
-            entity="Project",
-            action="Create",
-            entity_id=project_uuid,
-            performed_by=current_user.uuid,
-        )
-        db.add(log_entry)
         db.commit()
         return ProjectServiceResponse(
             data=None,

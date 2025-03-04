@@ -8,24 +8,25 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, Body, Form
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
-from src.app.database.models import Project
 from src.app.database.database import get_db
 from src.app.database.models import (
     Payment,
+    Project,
     Person,
     User,
     Item,
     PaymentItem,
     PaymentFile,
-    PaymentStatusHistory
+    PaymentStatusHistory,
+    Log
 )
+from uuid import uuid4
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
 from src.app.schemas.payment_service_schemas import (
     CreatePerson,
     PaymentsResponse,
     PaymentStatus,
-    PersonDetail,
     PaymentServiceResponse,
     CreatePaymentRequest,
     PaymentUpdateSchema,
@@ -492,7 +493,14 @@ def approve_payment(
         # 6) If the status is "transffered", set transferred_date
         if status == "transffered":
             payment.transferred_date = datetime.now()
-
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="Payment",
+            action=status,
+            entity_id=payment_id,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
         db.commit()
 
         return PaymentServiceResponse(
@@ -541,6 +549,14 @@ def decline_payment(
 
         payment.status = PaymentStatus.declined.value
         payment.remarks = remarks
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="Payment",
+            action="Decline",
+            entity_id=payment_id,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
         db.commit()
         return PaymentServiceResponse(
             data=None,
@@ -721,7 +737,7 @@ def get_all_persons(
     status_code=h_status.HTTP_204_NO_CONTENT,
     tags=["Payments"],
 )
-def delete_person(person_uuid: UUID, db: Session = Depends(get_db)):
+def delete_person(person_uuid: UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
         person = db.query(Person).filter(Person.uuid == person_uuid).first()
 
@@ -731,6 +747,14 @@ def delete_person(person_uuid: UUID, db: Session = Depends(get_db)):
                 detail="Person Does Not Exist",
             )
         person.is_deleted = True
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="Person",
+            action="Delete",
+            entity_id=person_uuid,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
         db.commit()
         return PaymentServiceResponse(
             data=None,
