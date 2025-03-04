@@ -16,3 +16,4 @@ RoleStatusMapping = {
     "Accountant": "transffered",
     "SuperAdmin": "transffered"
 }
+HOST_URL = "http://147.93.31.224:8000"
