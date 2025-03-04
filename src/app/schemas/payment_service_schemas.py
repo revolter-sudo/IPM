@@ -9,7 +9,7 @@ class PaymentStatus(str, Enum):
     REQUESTED = "requested"
     VERIFIED = "verified"
     APPROVED = "approved"
-    DONE = "done"
+    TRANSFERRED = "transferred"
 
 
 class PaymentRequest(BaseModel):
@@ -42,6 +42,37 @@ class CreatePerson(BaseModel):
     parent_id: Optional[UUID] = None
 
 
+class PaymentUpdateSchema(BaseModel):
+    amount: float = Field(..., description="New payment amount")
+    remark: str = Field(..., description="Remark for this update")
+
+
+class CreatePaymentRequest(BaseModel):
+    amount: float
+    project_id: UUID
+    status: PaymentStatus
+    item_uuids: Optional[List[UUID]] = []
+    description: Optional[str] = None
+    remarks: Optional[str] = None
+    person: Optional[UUID] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "amount": 0,
+                "project_id": "f82481f7-ec85-4790-8868-aa9a24906d36",
+                "status": "approved",
+                "item_uuids": [
+                    "6f3e55da-1734-42d6-90ef-ae1b3e9ef759",
+                    "cc8914b9-33ff-41ac-8a32-73a8829d6579"
+                ],
+                "description": "string",
+                "remarks": "string",
+                "person": "e194159d-ce26-43e1-ace0-db4b00d4c43e"
+            }
+        }
+
+
 class PersonDetail(BaseModel):
     uuid: UUID
     name: str
@@ -63,6 +94,7 @@ class PaymentsResponse(BaseModel):
     remarks: Optional[str] = None
     status: List[str]
     created_at: str
+    update_remarks: Any = None
 
 
 class PaymentServiceResponse(BaseModel):

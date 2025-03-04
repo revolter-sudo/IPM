@@ -102,6 +102,7 @@ class Payment(Base):
         nullable=False,
     )
     is_deleted = Column(Boolean, default=False, nullable=False)
+    update_remarks = Column(Text, nullable=True)
 
     # Relationships
     payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")

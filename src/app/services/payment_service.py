@@ -26,7 +26,9 @@ from src.app.schemas.payment_service_schemas import (
     PaymentsResponse,
     PaymentStatus,
     PersonDetail,
-    PaymentServiceResponse
+    PaymentServiceResponse,
+    CreatePaymentRequest,
+    PaymentUpdateSchema
 )
 from sqlalchemy import desc
 from sqlalchemy.exc import SQLAlchemyError
@@ -36,31 +38,6 @@ import json
 from collections import defaultdict
 
 payment_router = APIRouter(prefix="/payments", tags=["Payments"])
-
-class CreatePaymentRequest(BaseModel):
-    amount: float
-    project_id: UUID
-    status: PaymentStatus
-    item_uuids: Optional[List[UUID]] = []
-    description: Optional[str] = None
-    remarks: Optional[str] = None
-    person: Optional[UUID] = None
-
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "amount": 0,
-                "project_id": "f82481f7-ec85-4790-8868-aa9a24906d36",
-                "status": "approved",
-                "item_uuids": [
-                    "6f3e55da-1734-42d6-90ef-ae1b3e9ef759",
-                    "cc8914b9-33ff-41ac-8a32-73a8829d6579"
-                ],
-                "description": "string",
-                "remarks": "string",
-                "person": "e194159d-ce26-43e1-ace0-db4b00d4c43e"
-            }
-        }
 
 
 @payment_router.post("", tags=["Payments"], status_code=201)
@@ -180,6 +157,36 @@ def create_payment(
             data=None,
             message=f"An error occurred: {str(e)}"
         ).model_dump()
+
+
+@payment_router.patch("/payments/{payment_uuid}")
+def update_payment_amount(
+    payment_uuid: UUID,
+    payload: PaymentUpdateSchema,
+    db: Session = Depends(get_db),
+):
+    # Fetch existing payment
+    payment = db.query(Payment).filter(Payment.uuid == payment_uuid).first()
+
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+
+    # Update fields
+    payment.amount = payload.amount
+    payment.update_remarks = payload.remark  # Always store the latest remark
+
+    # Commit changes
+    db.commit()
+    db.refresh(payment)
+    return PaymentServiceResponse(
+        message="Payment updated successfully",
+        data={
+            "uuid": str(payment.uuid),
+            "amount": payment.amount,
+            "update_remarks": payment.update_remarks,
+        },
+        status_code=201
+    )
 
 
 def get_parent_account_data(person_id: UUID, db):
@@ -365,6 +372,7 @@ def get_all_payments(
                         "uuid": str(payment.created_by),
                         "name": user_name
                     },
+                    update_remarks=payment.update_remarks,
                     files=file_paths,
                     items=item_names,
                     remarks=payment.remarks,
