@@ -87,6 +87,11 @@ class PersonDetail(BaseModel):
     phone_number: str
 
 
+class StatusDatePair(BaseModel):
+    status: str
+    date: str  # We'll store a string like "04-03-2025"
+
+
 class PaymentsResponse(BaseModel):
     uuid: UUID
     amount: float
@@ -98,13 +103,18 @@ class PaymentsResponse(BaseModel):
     files: List[str] = []
     items: List[str] = []
     remarks: Optional[str] = None
-    status_history: List[str]
+
+    # We'll store status + date pairs in this list
+    status_history: List[StatusDatePair]
+
+    # A single "current_status" for the latest Payment.status
+    current_status: Optional[str] = None
+
     created_at: str
     update_remarks: Optional[str] = None
     latitude: float
     longitude: float
     transferred_date: Optional[str] = None
-    current_status: Optional[str] = None
 
 
 class PaymentServiceResponse(BaseModel):
