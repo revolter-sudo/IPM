@@ -169,7 +169,11 @@ def update_payment_amount(
     payment = db.query(Payment).filter(Payment.uuid == payment_uuid).first()
 
     if not payment:
-        raise HTTPException(status_code=404, detail="Payment not found")
+        return PaymentServiceResponse(
+            message="Payment not found",
+            data=None,
+            status_code=404
+        ).model_dump()
 
     # Update fields
     payment.amount = payload.amount
@@ -186,7 +190,7 @@ def update_payment_amount(
             "update_remarks": payment.update_remarks,
         },
         status_code=201
-    )
+    ).model_dump()
 
 
 def get_parent_account_data(person_id: UUID, db):
