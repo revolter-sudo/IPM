@@ -337,6 +337,190 @@ def get_parent_account_data(person_id: UUID, db):
         ).model_dump()
 
 
+# @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
+# def get_all_payments(
+#     db: Session = Depends(get_db),
+#     amount: Optional[float] = Query(None, description="Filter by payment amount"),
+#     project_id: Optional[UUID] = Query(None, description="Filter by project ID"),
+#     status: Optional[str] = Query(None, description="Filter by payment status"),
+#     start_date: Optional[datetime] = Query(None, description="Filter by start date (created_at)"),
+#     end_date: Optional[datetime] = Query(None, description="Filter by end date (created_at)"),
+#     recent: Optional[bool] = Query(False, description="Show only last 5 payments if true"),
+#     person_id: Optional[UUID] = Query(None, description="Filter by person ID"),
+#     item_id: Optional[UUID] = Query(None, description="Filter by item ID")
+# ):
+#     """
+#     Fetches payments, optionally filtering by amount, project, status,
+#     date range, person, item, and optionally returning only the most recent 5.
+#     Joins the PaymentStatusHistory table to retrieve an array of all statuses 
+#     stored for each payment.
+#     """
+#     try:
+#         # ---------------------------------------------------------------
+#         # STEP 1: Build a subquery if we only want the 'recent' (last 5)
+#         # ---------------------------------------------------------------
+#         base_query = db.query(Payment.uuid).filter(Payment.is_deleted.is_(False))
+#         if recent:
+#             base_query = (
+#                 base_query
+#                 .order_by(desc(Payment.created_at))
+#                 .limit(5)
+#                 .subquery()
+#             )
+
+#         # ---------------------------------------------------------------
+#         # STEP 2: Main query with outer joins, including PaymentStatusHistory
+#         # ---------------------------------------------------------------
+#         # We SELECT Payment plus the additional columns and the PaymentStatusHistory.status
+#         query = (
+#             db.query(
+#                 Payment,
+#                 Project.name.label("project_name"),
+#                 Person.name.label("person_name"),
+#                 Person.account_number,
+#                 Person.ifsc_code,
+#                 User.name.label("user_name"),
+#                 PaymentStatusHistory.status.label("history_status"),  # <-- for array of statuses
+#             )
+#             .outerjoin(Project, Payment.project_id == Project.uuid)
+#             .outerjoin(Person, Payment.person == Person.uuid)
+#             .outerjoin(User, Payment.created_by == User.uuid)
+#             .outerjoin(PaymentFile)
+#             .outerjoin(PaymentItem, Payment.uuid == PaymentItem.payment_id)
+#             .outerjoin(Item, PaymentItem.item_id == Item.uuid)
+#             .outerjoin(PaymentStatusHistory, Payment.uuid == PaymentStatusHistory.payment_id)  # NEW LINE
+#             .filter(Payment.is_deleted.is_(False))
+#             .order_by(Payment.created_at.desc() )
+#         )
+
+#         if recent:
+#             query = query.filter(Payment.uuid.in_(db.query(base_query.c.uuid)))
+
+#         # ---------------------------------------------------------------
+#         # STEP 3: Apply filters
+#         # ---------------------------------------------------------------
+#         if amount is not None:
+#             query = query.filter(Payment.amount == amount)
+#         if project_id is not None:
+#             query = query.filter(Payment.project_id == project_id)
+#         if status is not None:
+#             query = query.filter(Payment.status == status)
+#         if start_date is not None:
+#             query = query.filter(Payment.created_at >= start_date)
+#         if end_date is not None:
+#             query = query.filter(Payment.created_at <= end_date)
+#         if person_id is not None:
+#             query = query.filter(Payment.person == person_id)
+#         if item_id is not None:
+#             query = query.filter(PaymentItem.item_id == item_id)
+
+#         # ---------------------------------------------------------------
+#         # STEP 4: Execute the query
+#         #
+#         # NOTE: Because PaymentStatusHistory may have multiple rows per
+#         #       payment, we may get multiple rows for the same Payment.
+#         # ---------------------------------------------------------------
+#         results = query.all()
+
+#         # ---------------------------------------------------------------
+#         # STEP 5: Group the data by Payment.uuid (to accumulate statuses)
+#         # ---------------------------------------------------------------
+#         grouped_data = defaultdict(lambda: {
+#             "row_data": None,
+#             "statuses": []
+#         })
+
+#         for row in results:
+#             payment_obj = row[0]
+#             project_name = row.project_name
+#             person_name = row.person_name
+#             user_name = row.user_name
+
+#             # The single PaymentStatusHistory status from this row (could be None if no history)
+#             history_status = row.history_status
+
+#             # If we haven't seen this payment yet, store the row data
+#             if not grouped_data[payment_obj.uuid]["row_data"]:
+#                 grouped_data[payment_obj.uuid]["row_data"] = row
+
+#             # Accumulate the status from PaymentStatusHistory if present
+#             if history_status:
+#                 grouped_data[payment_obj.uuid]["statuses"].append(history_status)
+
+#         # ---------------------------------------------------------------
+#         # STEP 6: Build the final response list
+#         # ---------------------------------------------------------------
+#         payments_data = []
+
+#         for payment_uuid, data in grouped_data.items():
+#             row = data["row_data"]
+#             payment = row[0]
+
+#             # Expand row data
+#             project_name = row.project_name
+#             person_name = row.person_name
+#             user_name = row.user_name
+#             file_paths = [f.file_path for f in payment.payment_files] if payment.payment_files else []
+#             item_names = [p_item.item.name for p_item in payment.payment_items] if payment.payment_items else []
+
+#             # If you have a helper function to fetch a parent account
+#             parent_data = get_parent_account_data(person_id=payment.person, db=db)
+
+#             # Build the array of statuses from the grouping step
+#             status_history_array = data["statuses"]
+
+#             # Construct your response object
+#             payments_data.append(
+#                 PaymentsResponse(
+#                     uuid=payment.uuid,
+#                     amount=payment.amount,
+#                     description=payment.description,
+#                     # Return project as an object with both ID and name
+#                     project={
+#                         "uuid": str(payment.project_id),
+#                         "name": project_name
+#                     },
+#                     # Return parent person or actual person data
+#                     person={
+#                         "uuid": str(parent_data.uuid) if parent_data else None,
+#                         "name": parent_data.name if parent_data else None
+#                     },
+#                     payment_details={
+#                         "person_uuid": str(payment.person) if payment.person else None,
+#                         "name": person_name,
+#                         "account_number": str(row.account_number),
+#                         "ifsc_code": row.ifsc_code
+#                     },
+#                     created_by={
+#                         "uuid": str(payment.created_by),
+#                         "name": user_name
+#                     },
+#                     update_remarks=payment.update_remarks,
+#                     files=file_paths,
+#                     items=item_names,
+#                     latitude=payment.latitude,
+#                     longitude=payment.longitude,
+#                     remarks=payment.remarks,
+#                     status=status_history_array if status_history_array else ['requested'],  # Payment's current status
+#                     created_at=payment.created_at.strftime("%Y-%m-%d"),
+#                     # NEW FIELD for the array of all statuses from PaymentStatusHistory
+#                 ).model_dump()
+#             )
+
+#         return PaymentServiceResponse(
+#             data=payments_data,
+#             message="Recent Payments fetched successfully." if recent else "All Payments fetched successfully.",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         print(f"Error in get_all_payments API: {str(e)}")
+#         return PaymentServiceResponse(
+#             data=None,
+#             message=f"An Error Occurred: {str(e)}",
+#             status_code=500
+#         ).model_dump()
+
 @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
 def get_all_payments(
     db: Session = Depends(get_db),
@@ -347,17 +531,21 @@ def get_all_payments(
     end_date: Optional[datetime] = Query(None, description="Filter by end date (created_at)"),
     recent: Optional[bool] = Query(False, description="Show only last 5 payments if true"),
     person_id: Optional[UUID] = Query(None, description="Filter by person ID"),
-    item_id: Optional[UUID] = Query(None, description="Filter by item ID")
+    item_id: Optional[UUID] = Query(None, description="Filter by item ID"),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Fetches payments, optionally filtering by amount, project, status,
     date range, person, item, and optionally returning only the most recent 5.
     Joins the PaymentStatusHistory table to retrieve an array of all statuses 
     stored for each payment.
+    
+    - status_history: an array of historical statuses (from PaymentStatusHistory)
+    - current_status: the latest status (from Payment.status)
     """
     try:
         # ---------------------------------------------------------------
-        # STEP 1: Build a subquery if we only want the 'recent' (last 5)
+        # STEP 1: If "recent=True", build a subquery for the last 5 payments
         # ---------------------------------------------------------------
         base_query = db.query(Payment.uuid).filter(Payment.is_deleted.is_(False))
         if recent:
@@ -371,7 +559,6 @@ def get_all_payments(
         # ---------------------------------------------------------------
         # STEP 2: Main query with outer joins, including PaymentStatusHistory
         # ---------------------------------------------------------------
-        # We SELECT Payment plus the additional columns and the PaymentStatusHistory.status
         query = (
             db.query(
                 Payment,
@@ -380,7 +567,7 @@ def get_all_payments(
                 Person.account_number,
                 Person.ifsc_code,
                 User.name.label("user_name"),
-                PaymentStatusHistory.status.label("history_status"),  # <-- for array of statuses
+                PaymentStatusHistory.status.label("history_status"),  # single status from PaymentStatusHistory
             )
             .outerjoin(Project, Payment.project_id == Project.uuid)
             .outerjoin(Person, Payment.person == Person.uuid)
@@ -388,16 +575,16 @@ def get_all_payments(
             .outerjoin(PaymentFile)
             .outerjoin(PaymentItem, Payment.uuid == PaymentItem.payment_id)
             .outerjoin(Item, PaymentItem.item_id == Item.uuid)
-            .outerjoin(PaymentStatusHistory, Payment.uuid == PaymentStatusHistory.payment_id)  # NEW LINE
+            .outerjoin(PaymentStatusHistory, Payment.uuid == PaymentStatusHistory.payment_id)
             .filter(Payment.is_deleted.is_(False))
-            .order_by(Payment.created_at.desc() )
+            .order_by(Payment.created_at.desc())
         )
 
         if recent:
             query = query.filter(Payment.uuid.in_(db.query(base_query.c.uuid)))
 
         # ---------------------------------------------------------------
-        # STEP 3: Apply filters
+        # STEP 3: Apply optional filters
         # ---------------------------------------------------------------
         if amount is not None:
             query = query.filter(Payment.amount == amount)
@@ -416,94 +603,90 @@ def get_all_payments(
 
         # ---------------------------------------------------------------
         # STEP 4: Execute the query
-        #
-        # NOTE: Because PaymentStatusHistory may have multiple rows per
-        #       payment, we may get multiple rows for the same Payment.
         # ---------------------------------------------------------------
         results = query.all()
 
         # ---------------------------------------------------------------
-        # STEP 5: Group the data by Payment.uuid (to accumulate statuses)
+        # STEP 5: Group the data by Payment.uuid to accumulate statuses
         # ---------------------------------------------------------------
         grouped_data = defaultdict(lambda: {
-            "row_data": None,
-            "statuses": []
+            "row_data": None,    
+            "statuses": []       
         })
 
         for row in results:
-            payment_obj = row[0]
-            project_name = row.project_name
-            person_name = row.person_name
-            user_name = row.user_name
-
-            # The single PaymentStatusHistory status from this row (could be None if no history)
+            payment_obj = row[0]  # This is Payment
             history_status = row.history_status
 
-            # If we haven't seen this payment yet, store the row data
+            # If first time seeing this Payment, store the row_data
             if not grouped_data[payment_obj.uuid]["row_data"]:
                 grouped_data[payment_obj.uuid]["row_data"] = row
 
-            # Accumulate the status from PaymentStatusHistory if present
+            # Accumulate any PaymentStatusHistory status from this row
             if history_status:
                 grouped_data[payment_obj.uuid]["statuses"].append(history_status)
 
         # ---------------------------------------------------------------
-        # STEP 6: Build the final response list
+        # STEP 6: Build the final response
         # ---------------------------------------------------------------
         payments_data = []
 
         for payment_uuid, data in grouped_data.items():
             row = data["row_data"]
-            payment = row[0]
+            payment = row[0]  # Payment model instance
 
-            # Expand row data
             project_name = row.project_name
             person_name = row.person_name
             user_name = row.user_name
             file_paths = [f.file_path for f in payment.payment_files] if payment.payment_files else []
             item_names = [p_item.item.name for p_item in payment.payment_items] if payment.payment_items else []
 
-            # If you have a helper function to fetch a parent account
+            # If you have a helper function to fetch a parent "account" or person
             parent_data = get_parent_account_data(person_id=payment.person, db=db)
 
-            # Build the array of statuses from the grouping step
+            # Array of all statuses from PaymentStatusHistory
             status_history_array = data["statuses"]
 
-            # Construct your response object
+            # Build your final response object
             payments_data.append(
                 PaymentsResponse(
                     uuid=payment.uuid,
                     amount=payment.amount,
                     description=payment.description,
-                    # Return project as an object with both ID and name
                     project={
                         "uuid": str(payment.project_id),
                         "name": project_name
-                    },
-                    # Return parent person or actual person data
+                    } if payment.project_id else None,
                     person={
-                        "uuid": str(parent_data.uuid) if parent_data else None,
-                        "name": parent_data.name if parent_data else None
-                    },
+                        "uuid": str(parent_data.uuid),
+                        "name": parent_data.name
+                    } if parent_data else None,
                     payment_details={
                         "person_uuid": str(payment.person) if payment.person else None,
                         "name": person_name,
-                        "account_number": str(row.account_number),
-                        "ifsc_code": row.ifsc_code
+                        "account_number": str(row.account_number) if row.account_number else None,
+                        "ifsc_code": row.ifsc_code if row.ifsc_code else None
                     },
                     created_by={
                         "uuid": str(payment.created_by),
                         "name": user_name
-                    },
-                    update_remarks=payment.update_remarks,
+                    } if payment.created_by else None,
                     files=file_paths,
                     items=item_names,
+                    remarks=payment.remarks,
+                    # status_history is the array of all statuses in PaymentStatusHistory
+                    status_history=status_history_array if status_history_array else [payment.status],
+                    # current_status is what's stored in Payment.status
+                    current_status=payment.status,
+                    created_at=payment.created_at.strftime("%Y-%m-%d"),
+                    update_remarks=payment.update_remarks,
                     latitude=payment.latitude,
                     longitude=payment.longitude,
-                    remarks=payment.remarks,
-                    status=status_history_array if status_history_array else ['requested'],  # Payment's current status
-                    created_at=payment.created_at.strftime("%Y-%m-%d"),
-                    # NEW FIELD for the array of all statuses from PaymentStatusHistory
+                    transferred_date=(
+                        payment.transferred_date.strftime("%Y-%m-%d")
+                        if payment.transferred_date
+                        else None
+                    )
                 ).model_dump()
             )
 
@@ -522,14 +705,68 @@ def get_all_payments(
         ).model_dump()
 
 
+# @payment_router.put("/approve")
+# def approve_payment(
+#     payment_id: UUID,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     try:
+#         """Approve a payment request."""
+#         if current_user.role not in [
+#             UserRole.SUPER_ADMIN.value,
+#             UserRole.ADMIN.value,
+#             UserRole.PROJECT_MANAGER.value,
+#             UserRole.SITE_ENGINEER.value,
+#             UserRole.ACCOUNTANT.value
+#         ]:
+#             return PaymentServiceResponse(
+#                 data=None,
+#                 message=constants.CANT_APPROVE_PAYMENT,
+#                 status_code=403
+#             ).model_dump()
+
+#         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
+#         if not payment:
+#             return PaymentServiceResponse(
+#                 data=None,
+#                 message=constants.PAYMENT_NOT_FOUND,
+#                 status_code=404
+#             ).model_dump()
+
+#         status = constants.RoleStatusMapping.get(current_user.role)
+#         payment_status = PaymentStatusHistory(
+#             payment_id=payment_id,
+#             status=status,
+#             created_by=current_user.uuid
+#         )
+#         db.add(payment_status)
+#         db.commit()
+#         return PaymentServiceResponse(
+#             data=None,
+#             message="Payment status updated successfully",
+#             status_code=200
+#         ).model_dump()
+#     except Exception as e:
+#         print(f"Error in approve_payment API: {str(e)}")
+#         return PaymentServiceResponse(
+#             data=None,
+#             message=f"An Error Occurred: {str(e)}",
+#             status_code=500
+#         ).model_dump()
+
 @payment_router.put("/approve")
 def approve_payment(
     payment_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Approve a payment request or move it to the next status, depending on user role.
+    If the status is "transffered", set transferred_date to now.
+    """
     try:
-        """Approve a payment request."""
+        # 1) Check user role
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
@@ -543,6 +780,7 @@ def approve_payment(
                 status_code=403
             ).model_dump()
 
+        # 2) Find the payment
         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
         if not payment:
             return PaymentServiceResponse(
@@ -551,20 +789,42 @@ def approve_payment(
                 status_code=404
             ).model_dump()
 
+        # 3) Get the next status from the mapping
         status = constants.RoleStatusMapping.get(current_user.role)
+        if not status:
+            # Fallback or error if role not mapped
+            return PaymentServiceResponse(
+                data=None,
+                message="Invalid role for updating payment status.",
+                status_code=400
+            ).model_dump()
+
+        # 4) Create a status history entry
         payment_status = PaymentStatusHistory(
             payment_id=payment_id,
             status=status,
             created_by=current_user.uuid
         )
         db.add(payment_status)
+
+        # 5) Update Payment table's status to match
+        payment.status = status
+
+        # 6) If the status is "transffered", set transferred_date
+        #    (Note the RoleStatusMapping has "Accountant": "transffered", "SuperAdmin": "transffered")
+        if status == "transffered":
+            payment.transferred_date = datetime.now()
+
         db.commit()
+
         return PaymentServiceResponse(
             data=None,
             message="Payment status updated successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
+        db.rollback()
         print(f"Error in approve_payment API: {str(e)}")
         return PaymentServiceResponse(
             data=None,

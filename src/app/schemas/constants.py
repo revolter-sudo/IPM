@@ -13,6 +13,6 @@ RoleStatusMapping = {
     "SiteEngineer": "requested",
     "ProjectManager": "verified",
     "Admin": "approved",
-    "Accountant": "done",
-    "SuperAdmin": "done"
+    "Accountant": "transffered",
+    "SuperAdmin": "transffered"
 }

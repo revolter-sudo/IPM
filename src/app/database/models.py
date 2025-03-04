@@ -105,6 +105,7 @@ class Payment(Base):
     update_remarks = Column(Text, nullable=True)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
+    transferred_date = Column(TIMESTAMP, nullable=True)
     # Relationships
     payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")
     payment_items = relationship("PaymentItem", back_populates="payment", cascade="all, delete-orphan")

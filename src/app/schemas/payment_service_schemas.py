@@ -55,7 +55,7 @@ class CreatePaymentRequest(BaseModel):
     description: Optional[str] = None
     remarks: Optional[str] = None
     person: Optional[UUID] = None
-    
+
     # NEW FIELDS:
     latitude: float
     longitude: float
@@ -98,11 +98,13 @@ class PaymentsResponse(BaseModel):
     files: List[str] = []
     items: List[str] = []
     remarks: Optional[str] = None
-    status: List[str]
+    status_history: List[str]
     created_at: str
     update_remarks: Optional[str] = None
     latitude: float
     longitude: float
+    transferred_date: Optional[str] = None
+    current_status: Optional[str] = None
 
 
 class PaymentServiceResponse(BaseModel):
