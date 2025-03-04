@@ -103,15 +103,16 @@ class Payment(Base):
     )
     is_deleted = Column(Boolean, default=False, nullable=False)
     update_remarks = Column(Text, nullable=True)
-
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
     # Relationships
     payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")
     payment_items = relationship("PaymentItem", back_populates="payment", cascade="all, delete-orphan")
     status_entries = relationship(
-        "PaymentStatusHistory",       # reference the model above
-        back_populates="payment",     # matches PaymentStatusHistory.payment
+        "PaymentStatusHistory",
+        back_populates="payment",
         cascade="all, delete-orphan",
-        order_by="PaymentStatusHistory.created_at"  # so entries come in chronological order
+        order_by="PaymentStatusHistory.created_at"
     )
 
     def __repr__(self):

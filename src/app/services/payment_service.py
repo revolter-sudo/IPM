@@ -40,16 +40,134 @@ from collections import defaultdict
 payment_router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
+# @payment_router.post("", tags=["Payments"], status_code=201)
+# def create_payment(
+#     request: str = Form(...),  # Parse request as a JSON string
+#     files: Optional[List[UploadFile]] = File(None),  # Parse files as UploadFile objects
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """Create a payment request and update project balance. If any operation fails, rollback everything."""
+#     try:
+#         # Parse the request JSON string into a dictionary
+#         try:
+#             request_data = json.loads(request)
+#             payment_request = CreatePaymentRequest(**request_data)
+#         except (json.JSONDecodeError, ValidationError) as e:
+#             return PaymentServiceResponse(
+#                 status_code=400,
+#                 data=None,
+#                 message=f"Invalid request format: {str(e)}"
+#             ).model_dump()
+
+#         # Ensure files is a list (handle None case)
+#         files = files or []
+
+#         allowed_file_types = ["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/heic"]
+#         # Validate files
+#         for file in files:
+#             if file.content_type not in allowed_file_types:
+#                 return PaymentServiceResponse(
+#                     status_code=400,
+#                     data=None,
+#                     message="Only PDF, PNG, JPEG, JPG, HEIC files are allowed."
+#                 ).model_dump()
+
+#         # Check if the project exists
+#         project = db.query(Project).filter(Project.uuid == payment_request.project_id).first()
+#         if not project:
+#             return PaymentServiceResponse(
+#                 status_code=404,
+#                 data=None,
+#                 message="Project not found."
+#             ).model_dump()
+
+#         # Create a new payment
+#         new_payment = Payment(
+#             amount=payment_request.amount,
+#             description=payment_request.description,
+#             project_id=payment_request.project_id,
+#             status='requested',
+#             remarks=payment_request.remarks,
+#             created_by=current_user.uuid,
+#             person=payment_request.person,
+#         )
+#         db.add(new_payment)
+#         db.flush()
+
+#         payment_status = PaymentStatusHistory(
+#             payment_id=new_payment.uuid,
+#             status='requested',
+#             created_by=current_user.uuid
+#         )
+#         db.add(payment_status)
+#         # Link items to the payment (only if items exist)
+#         if payment_request.item_uuids:
+#             db.add_all([PaymentItem(payment_id=new_payment.uuid, item_id=item_id) for item_id in payment_request.item_uuids])
+
+#         # Update the project balance in the ledger
+#         create_project_balance_entry(
+#             db=db,
+#             project_id=payment_request.project_id,
+#             adjustment=-payment_request.amount,
+#             description="Payment deduction",
+#         )
+
+#         # Handle multiple file uploads (only if files exist)
+#         if files:
+#             upload_dir = constants.UPLOAD_DIR
+#             os.makedirs(upload_dir, exist_ok=True)
+
+#             for file in files:
+#                 file_path = os.path.join(upload_dir, file.filename)
+                
+#                 with open(file_path, "wb") as buffer:
+#                     buffer.write(file.file.read())
+
+#                 # Save file path in the payment_files table
+#                 new_payment_file = PaymentFile(
+#                     payment_id=new_payment.uuid,
+#                     file_path=file_path,
+#                 )
+#                 db.add(new_payment_file)
+
+#         # Commit everything at once if all operations succeed
+#         db.commit()
+
+#         return PaymentServiceResponse(
+#             data={"payment_uuid": new_payment.uuid},
+#             message="Payment created successfully with multiple files." if files else "Payment created successfully.",
+#             status_code=201
+#         ).model_dump()
+
+#     except SQLAlchemyError as e:
+#         db.rollback()
+#         print(f"Database Error in create_payment API: {str(e)}")
+#         return PaymentServiceResponse(
+#             status_code=500,
+#             data=None,
+#             message="Database error occurred."
+#         ).model_dump()
+
+#     except Exception as e:
+#         db.rollback()
+#         print(f"Error in create_payment API: {str(e)}")
+#         return PaymentServiceResponse(
+#             status_code=500,
+#             data=None,
+#             message=f"An error occurred: {str(e)}"
+#         ).model_dump()
+
+
 @payment_router.post("", tags=["Payments"], status_code=201)
 def create_payment(
-    request: str = Form(...),  # Parse request as a JSON string
-    files: Optional[List[UploadFile]] = File(None),  # Parse files as UploadFile objects
+    request: str = Form(...),  # JSON string containing the data
+    files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Create a payment request and update project balance. If any operation fails, rollback everything."""
     try:
-        # Parse the request JSON string into a dictionary
+        # 1) Parse the incoming JSON
         try:
             request_data = json.loads(request)
             payment_request = CreatePaymentRequest(**request_data)
@@ -60,11 +178,9 @@ def create_payment(
                 message=f"Invalid request format: {str(e)}"
             ).model_dump()
 
-        # Ensure files is a list (handle None case)
+        # 2) Validate file types if provided
         files = files or []
-
         allowed_file_types = ["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/heic"]
-        # Validate files
         for file in files:
             if file.content_type not in allowed_file_types:
                 return PaymentServiceResponse(
@@ -73,7 +189,7 @@ def create_payment(
                     message="Only PDF, PNG, JPEG, JPG, HEIC files are allowed."
                 ).model_dump()
 
-        # Check if the project exists
+        # 3) Check project
         project = db.query(Project).filter(Project.uuid == payment_request.project_id).first()
         if not project:
             return PaymentServiceResponse(
@@ -82,7 +198,7 @@ def create_payment(
                 message="Project not found."
             ).model_dump()
 
-        # Create a new payment
+        # 4) Create Payment
         new_payment = Payment(
             amount=payment_request.amount,
             description=payment_request.description,
@@ -91,21 +207,29 @@ def create_payment(
             remarks=payment_request.remarks,
             created_by=current_user.uuid,
             person=payment_request.person,
+            # NEW FIELDS:
+            latitude=payment_request.latitude,
+            longitude=payment_request.longitude,
         )
         db.add(new_payment)
         db.flush()
-        
+
+        # 5) Payment status history
         payment_status = PaymentStatusHistory(
             payment_id=new_payment.uuid,
             status='requested',
             created_by=current_user.uuid
         )
         db.add(payment_status)
-        # Link items to the payment (only if items exist)
-        if payment_request.item_uuids:
-            db.add_all([PaymentItem(payment_id=new_payment.uuid, item_id=item_id) for item_id in payment_request.item_uuids])
 
-        # Update the project balance in the ledger
+        # 6) Link items
+        if payment_request.item_uuids:
+            db.add_all([
+                PaymentItem(payment_id=new_payment.uuid, item_id=item_id)
+                for item_id in payment_request.item_uuids
+            ])
+
+        # 7) Update Project's balance in ledger
         create_project_balance_entry(
             db=db,
             project_id=payment_request.project_id,
@@ -113,30 +237,26 @@ def create_payment(
             description="Payment deduction",
         )
 
-        # Handle multiple file uploads (only if files exist)
+        # 8) Handle file uploads
         if files:
             upload_dir = constants.UPLOAD_DIR
             os.makedirs(upload_dir, exist_ok=True)
-
             for file in files:
                 file_path = os.path.join(upload_dir, file.filename)
-                
                 with open(file_path, "wb") as buffer:
                     buffer.write(file.file.read())
-
-                # Save file path in the payment_files table
                 new_payment_file = PaymentFile(
                     payment_id=new_payment.uuid,
                     file_path=file_path,
                 )
                 db.add(new_payment_file)
 
-        # Commit everything at once if all operations succeed
+        # Commit if all succeeded
         db.commit()
 
         return PaymentServiceResponse(
             data={"payment_uuid": new_payment.uuid},
-            message="Payment created successfully with multiple files." if files else "Payment created successfully.",
+            message="Payment created successfully.",
             status_code=201
         ).model_dump()
 
@@ -148,7 +268,6 @@ def create_payment(
             data=None,
             message="Database error occurred."
         ).model_dump()
-
     except Exception as e:
         db.rollback()
         print(f"Error in create_payment API: {str(e)}")
@@ -307,8 +426,8 @@ def get_all_payments(
         # STEP 5: Group the data by Payment.uuid (to accumulate statuses)
         # ---------------------------------------------------------------
         grouped_data = defaultdict(lambda: {
-            "row_data": None,    # will hold (Payment, project/person name, etc.)
-            "statuses": []       # will collect PaymentStatusHistory.status
+            "row_data": None,
+            "statuses": []
         })
 
         for row in results:
@@ -379,6 +498,8 @@ def get_all_payments(
                     update_remarks=payment.update_remarks,
                     files=file_paths,
                     items=item_names,
+                    latitude=payment.latitude,
+                    longitude=payment.longitude,
                     remarks=payment.remarks,
                     status=status_history_array if status_history_array else ['requested'],  # Payment's current status
                     created_at=payment.created_at.strftime("%Y-%m-%d"),

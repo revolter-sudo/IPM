@@ -55,20 +55,26 @@ class CreatePaymentRequest(BaseModel):
     description: Optional[str] = None
     remarks: Optional[str] = None
     person: Optional[UUID] = None
+    
+    # NEW FIELDS:
+    latitude: float
+    longitude: float
 
     class Config:
         json_schema_extra = {
             "example": {
-                "amount": 0,
+                "amount": 100.5,
                 "project_id": "f82481f7-ec85-4790-8868-aa9a24906d36",
                 "status": "approved",
                 "item_uuids": [
                     "6f3e55da-1734-42d6-90ef-ae1b3e9ef759",
                     "cc8914b9-33ff-41ac-8a32-73a8829d6579"
                 ],
-                "description": "string",
-                "remarks": "string",
-                "person": "e194159d-ce26-43e1-ace0-db4b00d4c43e"
+                "description": "Purchase of materials",
+                "remarks": "Urgent requirement",
+                "person": "e194159d-ce26-43e1-ace0-db4b00d4c43e",
+                "latitude": 22.5726,
+                "longitude": 88.3639
             }
         }
 
@@ -94,7 +100,9 @@ class PaymentsResponse(BaseModel):
     remarks: Optional[str] = None
     status: List[str]
     created_at: str
-    update_remarks: Any = None
+    update_remarks: Optional[str] = None
+    latitude: float
+    longitude: float
 
 
 class PaymentServiceResponse(BaseModel):
