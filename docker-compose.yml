@@ -1,8 +1,28 @@
 version: '3.8'
 
 services:
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: 200899
+      POSTGRES_DB: ipm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "myuser", "-d", "ipm"]
+      interval: 5s
+      retries: 5
+      timeout: 3s
+
   api:
     build: .
+    depends_on:
+      db:
+        condition: service_healthy
     restart: always
     env_file:
       - .env
@@ -12,3 +32,6 @@ services:
       - "8000:8000"
     command: >
       sh -c "/entrypoint.sh"
+
+volumes:
+  postgres_data:
