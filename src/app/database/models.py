@@ -18,6 +18,70 @@ from sqlalchemy.orm import relationship
 from src.app.database.database import Base
 
 
+class Khatabook(Base):
+    __tablename__ = "khatabook_entries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+
+    amount = Column(Float, nullable=False)
+    remarks = Column(Text, nullable=True)
+    person_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=True)
+
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
+    # Relationships to user, person, files, and items
+    user = relationship("User", foreign_keys=[user_id])
+    person = relationship("Person", foreign_keys=[person_id])
+    files = relationship("KhatabookFile", back_populates="khatabook_entry", cascade="all, delete-orphan")
+    items = relationship("KhatabookItem", back_populates="khatabook_entry", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<Khatabook(id={self.id}, uuid={self.uuid}, amount={self.amount})>"
+
+
+class KhatabookFile(Base):
+    __tablename__ = "khatabook_files"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    khatabook_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("khatabook_entries.uuid", ondelete="CASCADE"),
+        nullable=False
+    )
+    file_path = Column(String(255), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    khatabook_entry = relationship("Khatabook", back_populates="files")
+
+    def __repr__(self):
+        return f"<KhatabookFile(id={self.id}, file_path={self.file_path})>"
+
+
+class KhatabookItem(Base):
+    __tablename__ = "khatabook_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    khatabook_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("khatabook_entries.uuid", ondelete="CASCADE"),
+        nullable=False
+    )
+    item_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("items.uuid", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    khatabook_entry = relationship("Khatabook", back_populates="items")
+    item = relationship("Item", back_populates="khatabook_items")
+
+    def __repr__(self):
+        return f"<KhatabookItem(khatabook_id={self.khatabook_id}, item_id={self.item_id})>"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -212,6 +276,7 @@ class Item(Base):
 
     # Relationship for payments associated with this item
     payments = relationship("PaymentItem", back_populates="item", cascade="all, delete-orphan")
+    khatabook_items = relationship("KhatabookItem", back_populates="item", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Item(id={self.id}, name={self.name}, category={self.category})>"
