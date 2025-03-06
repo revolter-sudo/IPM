@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form
 from typing import List, Optional
 from uuid import UUID
 import json
+from src.app.schemas import constants
 from sqlalchemy.orm import Session
 from src.app.database.database import get_db
 from src.app.schemas.auth_service_schamas import AuthServiceResponse
@@ -103,7 +104,11 @@ def build_khatabook_dict(entry) -> dict:
             for kb_item in entry.items
         ],
         "files": [
-            {"id": f.id, "download_url": f"/uploads/{f.file_path}"}
+            {
+                "id": f.id,
+                # "download_url": f"{constants.HOST_URL}/{f.file_path.replace('src/app/', '')}"
+                "download_url": f"{constants.HOST_URL}/{f.file_path.replace('app/', '')}" # For Server
+            }
             for f in entry.files
         ],
         "created_at": entry.created_at.isoformat()
