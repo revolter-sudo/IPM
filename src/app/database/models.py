@@ -194,7 +194,7 @@ class Payment(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     status = Column(String(20), nullable=False)
     remarks = Column(Text, nullable=True)
-    person = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
+    person_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
@@ -203,7 +203,7 @@ class Payment(Base):
     longitude = Column(Float, nullable=False)
     transferred_date = Column(TIMESTAMP, nullable=True)
 
-    # ✅ Explicit Relationships (Missing Ones Added)
+    # Corrected and clear relationships
     project = relationship("Project", backref="payments")
     person = relationship("Person", backref="payments")
     created_by_user = relationship("User", backref="created_payments")
@@ -264,9 +264,7 @@ class Person(Base):
     __tablename__ = "person"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(
-        UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False
-    )
+    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
     name = Column(String(25), nullable=False)
     account_number = Column(String(17), nullable=False)
     ifsc_code = Column(String(11), nullable=False)
@@ -274,9 +272,11 @@ class Person(Base):
     is_deleted = Column(Boolean, nullable=False, default=False)
     parent_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
 
-    # Relationship definitions
-    parent = relationship("Person", remote_side=[uuid], back_populates="children")  # Parent account
-    children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")  # Secondary accounts
+    # Explicit Self-referential relationship
+    parent = relationship("Person", remote_side=[uuid], back_populates="children")
+    children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")
+
+    payments = relationship("Payment", back_populates="person")
 
     def __repr__(self):
         return f"<Person(id={self.id}, name={self.name}, parent_id={self.parent_id})>"
