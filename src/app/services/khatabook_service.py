@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Item
 import os
 import shutil
+from src.app.database.models import KhatabookBalance
+
 
 def create_khatabook_entry_service(
     db: Session, data: Dict, files: List[UploadFile]
@@ -107,8 +109,31 @@ def delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     return True
 
 
+# def get_all_khatabook_entries_service(db: Session) -> List[Khatabook]:
+#     return db.query(Khatabook).filter(Khatabook.is_deleted == False).all()
+
 def get_all_khatabook_entries_service(db: Session) -> List[Khatabook]:
-    return db.query(Khatabook).filter(Khatabook.is_deleted == False).all()
+    entries = db.query(Khatabook).filter(Khatabook.is_deleted == False).all()
+
+    # Attach user balance to each entry
+    response_data = []
+    for entry in entries:
+        response_data.append({
+            "uuid": str(entry.uuid),
+            "amount": entry.amount,
+            "remarks": entry.remarks,
+            "person": {
+                "uuid": str(entry.person.uuid),
+                "name": entry.person.name,
+            } if entry.person else None,
+            "user": {
+                "uuid": str(entry.user.uuid),
+                "name": entry.user.name,
+            } if entry.user else None,
+            "created_at": entry.created_at.isoformat(),
+        })
+
+    return response_data
 
 
 def save_uploaded_file(upload_file: UploadFile, folder: str) -> str:
@@ -120,3 +145,12 @@ def save_uploaded_file(upload_file: UploadFile, folder: str) -> str:
         shutil.copyfileobj(upload_file.file, f)
 
     return file_location
+
+
+def get_user_balance(user_uuid: UUID, db: Session):
+    balance = db.query(KhatabookBalance.balance).filter(
+        KhatabookBalance.user_uuid == user_uuid
+    ).first()
+    if not balance:
+        return 0.0
+    return balance[0]
