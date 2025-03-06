@@ -91,7 +91,8 @@ def build_khatabook_dict(entry) -> dict:
         "remarks": entry.remarks,
         "person": {
             "uuid": str(entry.person.uuid),
-            "name": entry.person.name
+            "name": entry.person.name,
+            "phone_number": entry.person.phone_number
         } if entry.person else None,
         "user": {
             "uuid": str(entry.user.uuid),
@@ -102,7 +103,7 @@ def build_khatabook_dict(entry) -> dict:
             for kb_item in entry.items
         ],
         "files": [
-            {"uuid": str(f.uuid), "download_url": f"/uploads/{f.file_path}"}
+            {"id": f.id, "download_url": f"/uploads/{f.file_path}"}
             for f in entry.files
         ],
         "created_at": entry.created_at.isoformat()
