@@ -458,9 +458,9 @@ def get_all_payments(
             #     for file in payment.payment_files
             # ] # Local
             file_urls = [
-                f"{constants.HOST_URL}/{file.file_path.replace('app/', '')}"
+                f"{constants.HOST_URL}/uploads/{file.file_path}"
                 for file in payment.payment_files
-            ] # Server
+            ]  # Server
 
             status_history_array = [
                 {"status": entry.status, "date": entry.created_at.strftime("%d-%m-%Y")}

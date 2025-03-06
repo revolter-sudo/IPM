@@ -138,39 +138,75 @@ class Log(Base):
         )
 
 
+# class Payment(Base):
+#     __tablename__ = "payments"
+
+#     id = Column(Integer, primary_key=True, autoincrement=True)
+#     uuid = Column(
+#         UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
+#     )
+#     amount = Column(Float, nullable=False)
+#     description = Column(Text, nullable=True)
+#     project_id = Column(
+#         UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False
+#     )
+#     created_by = Column(
+#         UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False
+#     )
+#     status = Column(String(20), nullable=False)
+#     remarks = Column(Text, nullable=True)
+#     person = Column(
+#         UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True
+#     )
+#     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+#     updated_at = Column(
+#         TIMESTAMP,
+#         server_default=func.now(),
+#         onupdate=func.now(),
+#         nullable=False,
+#     )
+#     is_deleted = Column(Boolean, default=False, nullable=False)
+#     update_remarks = Column(Text, nullable=True)
+#     latitude = Column(Float, nullable=False)
+#     longitude = Column(Float, nullable=False)
+#     transferred_date = Column(TIMESTAMP, nullable=True)
+#     # Relationships
+#     payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")
+#     payment_items = relationship("PaymentItem", back_populates="payment", cascade="all, delete-orphan")
+#     status_entries = relationship(
+#         "PaymentStatusHistory",
+#         back_populates="payment",
+#         cascade="all, delete-orphan",
+#         order_by="PaymentStatusHistory.created_at"
+#     )
+
+#     def __repr__(self):
+#         return f"<Payment(id={self.id}, amount={self.amount}, status={self.status})>"
+
 class Payment(Base):
     __tablename__ = "payments"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(
-        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
-    )
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     amount = Column(Float, nullable=False)
     description = Column(Text, nullable=True)
-    project_id = Column(
-        UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False
-    )
-    created_by = Column(
-        UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False
-    )
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     status = Column(String(20), nullable=False)
     remarks = Column(Text, nullable=True)
-    person = Column(
-        UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True
-    )
+    person = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
-    updated_at = Column(
-        TIMESTAMP,
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
     update_remarks = Column(Text, nullable=True)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     transferred_date = Column(TIMESTAMP, nullable=True)
-    # Relationships
+
+    # ✅ Explicit Relationships (Missing Ones Added)
+    project = relationship("Project", backref="payments")
+    person = relationship("Person", backref="payments")
+    created_by_user = relationship("User", backref="created_payments")
     payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")
     payment_items = relationship("PaymentItem", back_populates="payment", cascade="all, delete-orphan")
     status_entries = relationship(

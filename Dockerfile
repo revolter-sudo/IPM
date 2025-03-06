@@ -10,6 +10,9 @@ WORKDIR /app
 # Copy the application code to the container
 COPY . .
 
+# Explicitly create uploads dir
+RUN mkdir -p /app/uploads && chmod -R 755 /app/uploads
+
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 

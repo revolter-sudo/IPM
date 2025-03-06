@@ -107,7 +107,7 @@ def build_khatabook_dict(entry) -> dict:
             {
                 "id": f.id,
                 # "download_url": f"{constants.HOST_URL}/{f.file_path.replace('src/app/', '')}"
-                "download_url": f"{constants.HOST_URL}/{f.file_path.replace('app/', '')}" # For Server
+                "download_url": f"{constants.HOST_URL}/uploads/{f.file_path}"
             }
             for f in entry.files
         ],
