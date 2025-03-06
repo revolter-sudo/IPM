@@ -194,7 +194,7 @@ class Payment(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     status = Column(String(20), nullable=False)
     remarks = Column(Text, nullable=True)
-    person_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
+    person_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)  # renamed clearly to person_id
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
@@ -203,9 +203,9 @@ class Payment(Base):
     longitude = Column(Float, nullable=False)
     transferred_date = Column(TIMESTAMP, nullable=True)
 
-    # Corrected and clear relationships
+    # Clearly defined relationships
     project = relationship("Project", backref="payments")
-    person = relationship("Person", backref="payments")
+    person = relationship("Person", back_populates="payments")
     created_by_user = relationship("User", backref="created_payments")
     payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")
     payment_items = relationship("PaymentItem", back_populates="payment", cascade="all, delete-orphan")
@@ -272,10 +272,11 @@ class Person(Base):
     is_deleted = Column(Boolean, nullable=False, default=False)
     parent_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
 
-    # Explicit Self-referential relationship
+    # Self-referential relationship (parent-child)
     parent = relationship("Person", remote_side=[uuid], back_populates="children")
     children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")
 
+    # Clearly named relationship to Payment
     payments = relationship("Payment", back_populates="person")
 
     def __repr__(self):
