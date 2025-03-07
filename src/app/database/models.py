@@ -154,7 +154,7 @@ class Payment(Base):
     status = Column(String(20), nullable=False)
     remarks = Column(Text, nullable=True)
     person = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
-    self_payment = Column(Boolean, nullable=False, default=False)  # New Field
+    self_payment = Column(Boolean, nullable=False, default=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
