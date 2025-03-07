@@ -8,6 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, Body, Form
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import and_
 from src.app.database.database import get_db
 from src.app.database.models import (
     Payment,
@@ -191,9 +192,11 @@ def get_all_payments(
     try:
         # STEP 1: If recent=True, subquery for last 5 payments
         base_query = db.query(Payment.uuid).filter(
-            Payment.is_deleted.is_(False),
-            Payment.created_by == current_user.uuid
-        )
+            and_(
+                Payment.is_deleted.is_(False),
+                Payment.created_by == current_user.uuid
+            )
+        ).all()
         if recent:
             base_query = (
                 base_query
