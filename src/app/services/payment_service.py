@@ -224,7 +224,12 @@ def get_all_payments(
             .outerjoin(PaymentItem, Payment.uuid == PaymentItem.payment_id)
             .outerjoin(Item, PaymentItem.item_id == Item.uuid)
             .outerjoin(PaymentStatusHistory, Payment.uuid == PaymentStatusHistory.payment_id)
-            .filter(Payment.is_deleted.is_(False))
+            .filter(
+                and_(
+                    Payment.is_deleted.is_(False),
+                    Payment.created_by == current_user.uuid
+                )
+            )
             .order_by(Payment.created_at.desc())
         )
 
