@@ -9,8 +9,12 @@ from src.app.services.khatabook_service import (
     create_khatabook_entry_service,
     get_all_khatabook_entries_service,
     update_khatabook_entry_service,
-    delete_khatabook_entry_service
+    delete_khatabook_entry_service,
+    get_user_balance
 )
+from src.app.database.models import User
+from src.app.services.auth_service import get_current_user
+
 
 khatabook_router = APIRouter(prefix="/khatabook", tags=["Khatabook"])
 
@@ -36,11 +40,23 @@ async def create_khatabook_entry(
             message=f"Error: {str(e)}"
         ).model_dump()
 
+
 @khatabook_router.get("")
-def get_all_khatabook_entries(db: Session = Depends(get_db)):
+def get_all_khatabook_entries(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    user_balance = get_user_balance(user_uuid=current_user.uuid, db=db)
     entries = get_all_khatabook_entries_service(db)
+    total_amount = sum(entry["amount"] for entry in entries) if entries else 0.0
+    remaining_balance = user_balance - total_amount
+    response_data = {
+        "remaining_balance": remaining_balance,
+        "total_amount": total_amount,
+        "entries": entries
+    }
     return AuthServiceResponse(
-        data=[build_khatabook_dict(e) for e in entries],
+        data=response_data,
         status_code=200,
         message="Khatabook entries fetched successfully"
     ).model_dump()
@@ -82,29 +98,3 @@ def delete_khatabook_entry(khatabook_uuid: UUID, db: Session = Depends(get_db)):
         status_code=200,
         message="Khatabook entry deleted successfully"
     ).model_dump()
-
-
-def build_khatabook_dict(entry) -> dict:
-    return {
-        "uuid": str(entry.uuid),
-        "amount": entry.amount,
-        "remarks": entry.remarks,
-        "person": {
-            "uuid": str(entry.person.uuid),
-            "name": entry.person.name,
-            "phone_number": entry.person.phone_number
-        } if entry.person else None,
-        "user": {
-            "uuid": str(entry.user.uuid),
-            "name": entry.user.name
-        } if entry.user else None,
-        "items": [
-            {"uuid": str(kb_item.item.uuid), "name": kb_item.item.name}
-            for kb_item in entry.items
-        ],
-        "files": [
-            {"id": f.id, "download_url": f"/uploads/{f.file_path}"}
-            for f in entry.files
-        ],
-        "created_at": entry.created_at.isoformat()
-    }

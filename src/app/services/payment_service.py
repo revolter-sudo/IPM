@@ -18,7 +18,8 @@ from src.app.database.models import (
     PaymentItem,
     PaymentFile,
     PaymentStatusHistory,
-    Log
+    Log,
+    KhatabookBalance
 )
 from uuid import uuid4
 from src.app.schemas import constants
@@ -44,44 +45,21 @@ payment_router = APIRouter(prefix="/payments", tags=["Payments"])
 
 @payment_router.post("", tags=["Payments"], status_code=201)
 def create_payment(
-    request: str = Form(...),  # JSON string containing the data
+    request: str = Form(...),
     files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     try:
-        # 1) Parse the incoming JSON
-        try:
-            request_data = json.loads(request)
-            payment_request = CreatePaymentRequest(**request_data)
-        except (json.JSONDecodeError, ValidationError) as e:
-            return PaymentServiceResponse(
-                status_code=400,
-                data=None,
-                message=f"Invalid request format: {str(e)}"
-            ).model_dump()
+        request_data = json.loads(request)
+        payment_request = CreatePaymentRequest(**request_data)
 
-        # 2) Validate file types if provided
-        files = files or []
-        allowed_file_types = ["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/heic"]
-        for file in files:
-            if file.content_type not in allowed_file_types:
-                return PaymentServiceResponse(
-                    status_code=400,
-                    data=None,
-                    message="Only PDF, PNG, JPEG, JPG, HEIC files are allowed."
-                ).model_dump()
-
-        # 3) Check project
+        # Validate project
         project = db.query(Project).filter(Project.uuid == payment_request.project_id).first()
         if not project:
-            return PaymentServiceResponse(
-                status_code=404,
-                data=None,
-                message="Project not found."
-            ).model_dump()
+            return PaymentServiceResponse(status_code=404, data=None, message="Project not found.").model_dump()
 
-        # 4) Create Payment
+        # Create Payment
         new_payment = Payment(
             amount=payment_request.amount,
             description=payment_request.description,
@@ -90,38 +68,27 @@ def create_payment(
             remarks=payment_request.remarks,
             created_by=current_user.uuid,
             person=payment_request.person,
-            # NEW FIELDS:
+            self_payment=payment_request.self_payment,  # Store self-payment flag
             latitude=payment_request.latitude,
             longitude=payment_request.longitude,
         )
         db.add(new_payment)
         db.flush()
 
-        # 5) Payment status history
-        payment_status = PaymentStatusHistory(
-            payment_id=new_payment.uuid,
-            status='requested',
-            created_by=current_user.uuid
-        )
-        db.add(payment_status)
+        # Create payment status history
+        db.add(PaymentStatusHistory(payment_id=new_payment.uuid, status='requested', created_by=current_user.uuid))
 
-        # 6) Link items
+        # Link items if provided
         if payment_request.item_uuids:
-            db.add_all([
-                PaymentItem(payment_id=new_payment.uuid, item_id=item_id)
-                for item_id in payment_request.item_uuids
-            ])
+            db.add_all([PaymentItem(payment_id=new_payment.uuid, item_id=item_id) for item_id in payment_request.item_uuids])
 
-        # 7) Update Project's balance in ledger
+        # Update project balance
         create_project_balance_entry(
-            db=db,
-            project_id=payment_request.project_id,
-            adjustment=-payment_request.amount,
-            description="Payment deduction",
-            current_user=current_user
+            db=db, project_id=payment_request.project_id, adjustment=-payment_request.amount,
+            description="Payment deduction", current_user=current_user
         )
 
-        # 8) Handle file uploads
+        # Handle file uploads
         if files:
             upload_dir = constants.UPLOAD_DIR
             os.makedirs(upload_dir, exist_ok=True)
@@ -129,37 +96,14 @@ def create_payment(
                 file_path = os.path.join(upload_dir, file.filename)
                 with open(file_path, "wb") as buffer:
                     buffer.write(file.file.read())
-                new_payment_file = PaymentFile(
-                    payment_id=new_payment.uuid,
-                    file_path=file_path,
-                )
-                db.add(new_payment_file)
+                db.add(PaymentFile(payment_id=new_payment.uuid, file_path=file_path))
 
-        # Commit if all succeeded
         db.commit()
+        return PaymentServiceResponse(data={"payment_uuid": new_payment.uuid}, message="Payment created successfully.", status_code=201).model_dump()
 
-        return PaymentServiceResponse(
-            data={"payment_uuid": new_payment.uuid},
-            message="Payment created successfully.",
-            status_code=201
-        ).model_dump()
-
-    except SQLAlchemyError as e:
-        db.rollback()
-        print(f"Database Error in create_payment API: {str(e)}")
-        return PaymentServiceResponse(
-            status_code=500,
-            data=None,
-            message="Database error occurred."
-        ).model_dump()
     except Exception as e:
         db.rollback()
-        print(f"Error in create_payment API: {str(e)}")
-        return PaymentServiceResponse(
-            status_code=500,
-            data=None,
-            message=f"An error occurred: {str(e)}"
-        ).model_dump()
+        return PaymentServiceResponse(status_code=500, data=None, message=f"An error occurred: {str(e)}").model_dump()
 
 
 @payment_router.patch("/payments/{payment_uuid}")
@@ -611,11 +555,6 @@ def approve_payment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Approve a payment request or move it to the next status, depending on user role.
-    If the status is "transffered", set transferred_date to now.
-    Ensures each status can only be added once for a given payment.
-    """
     try:
         # 1) Check user role
         if current_user.role not in [
@@ -678,9 +617,17 @@ def approve_payment(
         # 5) Update Payment table's status to match
         payment.status = status
 
-        # 6) If the status is "transffered", set transferred_date
-        if status == "transffered":
+        if status == "transferred":
             payment.transferred_date = datetime.now()
+            # If it's a self-payment, update khatabook balance
+            if payment.self_payment:
+                user_balance = db.query(KhatabookBalance).filter(KhatabookBalance.user_uuid == payment.created_by).first()
+
+                if not user_balance:
+                    user_balance = KhatabookBalance(user_uuid=payment.created_by, balance=0.0)
+                    db.add(user_balance)
+
+                user_balance.balance += payment.amount
         log_entry = Log(
             uuid=str(uuid4()),
             entity="Payment",
@@ -690,43 +637,37 @@ def approve_payment(
         )
         db.add(log_entry)
         db.commit()
-
-        return PaymentServiceResponse(
-            data=None,
-            message="Payment status updated successfully",
-            status_code=200
-        ).model_dump()
+        return PaymentServiceResponse(data=None, message="Payment approved successfully", status_code=200).model_dump()
 
     except Exception as e:
         db.rollback()
-        print(f"Error in approve_payment API: {str(e)}")
-        return PaymentServiceResponse(
-            data=None,
-            message=f"An Error Occurred: {str(e)}",
-            status_code=500
-        ).model_dump()
+        return PaymentServiceResponse(data=None, message=f"An Error Occurred: {str(e)}", status_code=500).model_dump()
 
 
 @payment_router.put("/decline")
 def decline_payment(
     payment_id: UUID,
-    remarks: str,
+    remarks: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     try:
-        """Decline a payment request with remarks."""
+        """Decline a payment request with optional remarks."""
+
+        # 1) Check user role
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
             UserRole.PROJECT_MANAGER.value,
+            UserRole.SITE_ENGINEER.value,
+            UserRole.ACCOUNTANT.value
         ]:
             return PaymentServiceResponse(
                 data=None,
                 message=constants.CANT_DECLINE_PAYMENTS,
                 status_code=403
             ).model_dump()
-
+        # 2) Find the payment
         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
         if not payment:
             return PaymentServiceResponse(
@@ -735,29 +676,59 @@ def decline_payment(
                 status_code=404
             ).model_dump()
 
-        payment.status = PaymentStatus.declined.value
-        payment.remarks = remarks
+        # 3) Check if already declined
+        existing_status_entry = (
+            db.query(PaymentStatusHistory)
+            .filter(
+                PaymentStatusHistory.payment_id == payment.uuid,
+                PaymentStatusHistory.status == PaymentStatus.DECLINED.value
+            )
+            .first()
+        )
+        if existing_status_entry:
+            return PaymentServiceResponse(
+                data=None,
+                message="Payment has already been declined.",
+                status_code=400
+            ).model_dump()
+
+        # 4) Create a status history entry
+        payment_status = PaymentStatusHistory(
+            payment_id=payment_id,
+            status=PaymentStatus.DECLINED.value,
+            created_by=current_user.uuid
+        )
+        db.add(payment_status)
+        db.flush()
+        # 5) Update Payment table's status
+        payment.status = PaymentStatus.DECLINED.value
+        if remarks:
+            payment.remarks = remarks
+
+        # 6) Log the action
         log_entry = Log(
             uuid=str(uuid4()),
             entity="Payment",
-            action="Decline",
+            action="Declined",
             entity_id=payment_id,
             performed_by=current_user.uuid,
         )
         db.add(log_entry)
+        db.flush()
         db.commit()
         return PaymentServiceResponse(
             data=None,
-            message="Payment declined with remarks",
+            message="Payment declined successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
-        print(f"Error in decline_payment API: {str(e)}")
+        db.rollback()
         return PaymentServiceResponse(
             data=None,
             message=f"An Error Occurred: {str(e)}",
             status_code=500
-        )
+        ).model_dump()
 
 
 @payment_router.delete("")

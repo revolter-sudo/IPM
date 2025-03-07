@@ -28,18 +28,22 @@ class Khatabook(Base):
     remarks = Column(Text, nullable=True)
     person_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False, server_default="7297fa98-342f-4fbe-b0b3-46dc6515cf35")
 
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
 
-    # Relationships to user, person, files, and items
+    # Relationships
     user = relationship("User", foreign_keys=[user_id])
     person = relationship("Person", foreign_keys=[person_id])
+    created_by_user = relationship("User", foreign_keys=[created_by])
     files = relationship("KhatabookFile", back_populates="khatabook_entry", cascade="all, delete-orphan")
     items = relationship("KhatabookItem", back_populates="khatabook_entry", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Khatabook(id={self.id}, uuid={self.uuid}, amount={self.amount})>"
+
+
 
 
 class KhatabookFile(Base):
@@ -142,46 +146,31 @@ class Payment(Base):
     __tablename__ = "payments"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(
-        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
-    )
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     amount = Column(Float, nullable=False)
     description = Column(Text, nullable=True)
-    project_id = Column(
-        UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False
-    )
-    created_by = Column(
-        UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False
-    )
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     status = Column(String(20), nullable=False)
     remarks = Column(Text, nullable=True)
-    person = Column(
-        UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True
-    )
+    person = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
+    self_payment = Column(Boolean, nullable=False, default=False)  # New Field
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
-    updated_at = Column(
-        TIMESTAMP,
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
     update_remarks = Column(Text, nullable=True)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     transferred_date = Column(TIMESTAMP, nullable=True)
+
     # Relationships
     payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")
     payment_items = relationship("PaymentItem", back_populates="payment", cascade="all, delete-orphan")
-    status_entries = relationship(
-        "PaymentStatusHistory",
-        back_populates="payment",
-        cascade="all, delete-orphan",
-        order_by="PaymentStatusHistory.created_at"
-    )
+    status_entries = relationship("PaymentStatusHistory", back_populates="payment", cascade="all, delete-orphan", order_by="PaymentStatusHistory.created_at")
 
     def __repr__(self):
-        return f"<Payment(id={self.id}, amount={self.amount}, status={self.status})>"
+        return f"<Payment(id={self.id}, amount={self.amount}, self_payment={self.self_payment}, status={self.status})>"
+
 
 
 class PaymentStatusHistory(Base):
@@ -295,3 +284,17 @@ class PaymentItem(Base):
 
     def __repr__(self):
         return f"<PaymentItem(payment_id={self.payment_id}, item_id={self.item_id})>"
+
+
+class KhatabookBalance(Base):
+    __tablename__ = "khatabook_balance"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    user_uuid = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False, unique=True)
+    balance = Column(Float, nullable=False, default=0.0)
+
+    user = relationship("User", foreign_keys=[user_uuid])
+
+    def __repr__(self):
+        return f"<KhatabookBalance(id={self.id}, user_uuid={self.user_uuid}, balance={self.balance})>"

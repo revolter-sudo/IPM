@@ -10,7 +10,7 @@ from src.app.database.database import Base  # Import your SQLAlchemy Base
 config = context.config
 # config.set_main_option('sqlalchemy.url', settings.DATABASE_URL)
 database_url = "postgresql://myuser:200899@147.93.31.224:5432/ipm_new"
-# database_url = "postgresql://postgres:200899@localhost:5432/ipm_test"
+# database_url = "postgresql://postgres:200899@localhost:5432/ipm"
 config.set_main_option("sqlalchemy.url", database_url)
 target_metadata = Base.metadata
 

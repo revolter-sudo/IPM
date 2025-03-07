@@ -10,6 +10,7 @@ class PaymentStatus(str, Enum):
     VERIFIED = "verified"
     APPROVED = "approved"
     TRANSFERRED = "transferred"
+    DECLINED = "declined"
 
 
 class PaymentRequest(BaseModel):
@@ -55,8 +56,7 @@ class CreatePaymentRequest(BaseModel):
     description: Optional[str] = None
     remarks: Optional[str] = None
     person: Optional[UUID] = None
-
-    # NEW FIELDS:
+    self_payment: bool  # New Field
     latitude: float
     longitude: float
 
@@ -66,13 +66,11 @@ class CreatePaymentRequest(BaseModel):
                 "amount": 100.5,
                 "project_id": "f82481f7-ec85-4790-8868-aa9a24906d36",
                 "status": "approved",
-                "item_uuids": [
-                    "6f3e55da-1734-42d6-90ef-ae1b3e9ef759",
-                    "cc8914b9-33ff-41ac-8a32-73a8829d6579"
-                ],
+                "item_uuids": ["6f3e55da-1734-42d6-90ef-ae1b3e9ef759"],
                 "description": "Purchase of materials",
                 "remarks": "Urgent requirement",
                 "person": "e194159d-ce26-43e1-ace0-db4b00d4c43e",
+                "self_payment": True,  # Self-payment flag
                 "latitude": 22.5726,
                 "longitude": 88.3639
             }
