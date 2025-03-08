@@ -222,7 +222,7 @@ def get_all_payments(
                 Payment.is_deleted.is_(False),
                 Payment.created_by == current_user.uuid
             )
-        ).all()
+        )
         if recent:
             base_query = (
                 base_query
