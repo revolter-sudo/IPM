@@ -216,13 +216,14 @@ def get_all_payments(
     - files: array of downloadable links
     """
     try:
-        # STEP 1: If recent=True, subquery for last 5 payments
-        base_query = db.query(Payment.uuid).filter(
-            and_(
-                Payment.is_deleted.is_(False),
-                Payment.created_by == current_user.uuid
-            )
-        )
+        # STEP 1: Base query setup
+        base_query = db.query(Payment.uuid).filter(Payment.is_deleted.is_(False))
+
+        # If the user is a Site Engineer, restrict to their own payments
+        if current_user.role == "Site Engineer":
+            base_query = base_query.filter(Payment.created_by == current_user.uuid)
+
+        # If recent flag is set, get the last 5 payments
         if recent:
             base_query = (
                 base_query
@@ -250,25 +251,22 @@ def get_all_payments(
             .outerjoin(PaymentItem, Payment.uuid == PaymentItem.payment_id)
             .outerjoin(Item, PaymentItem.item_id == Item.uuid)
             .outerjoin(PaymentStatusHistory, Payment.uuid == PaymentStatusHistory.payment_id)
-            .filter(
-                and_(
-                    Payment.is_deleted.is_(False),
-                    Payment.created_by == current_user.uuid
-                )
-            )
+            .filter(Payment.is_deleted.is_(False))
             .order_by(Payment.created_at.desc())
         )
 
-        if recent:
-            # query = query.filter(Payment.uuid.in_(db.query(base_query.c.uuid)))
+        # If the user is a Site Engineer, apply the created_by filter
+        if current_user.role == "Site Engineer":
+            query = query.filter(Payment.created_by == current_user.uuid)
 
-            subquery = (
+        # If recent flag is set, exclude payments that have a "transferred" status
+        if recent:
+            transferred_subquery = (
                 db.query(PaymentStatusHistory.payment_id)
                 .filter(PaymentStatusHistory.status == "transferred")
                 .subquery()
             )
-
-            query = query.filter(~Payment.uuid.in_(subquery))
+            query = query.filter(~Payment.uuid.in_(transferred_subquery))
             query = query.filter(Payment.uuid.in_(db.query(base_query.c.uuid)))
 
         # STEP 3: Apply optional filters
@@ -291,10 +289,7 @@ def get_all_payments(
         results = query.all()
 
         # STEP 5: Group data by Payment.uuid
-        grouped_data = defaultdict(lambda: {
-            "row_data": None,
-            "statuses": []
-        })
+        grouped_data = defaultdict(lambda: {"row_data": None, "statuses": []})
 
         for row in results:
             payment_obj = row[0]
@@ -324,13 +319,10 @@ def get_all_payments(
             user_name = row.user_name
 
             # Build file URLs instead of raw file paths
-            # payment.payment_files contains a list of PaymentFile objects
-            # that have file_path = something like "uploads/file.pdf"
             file_urls = []
             if payment.payment_files:
                 for f in payment.payment_files:
                     filename = os.path.basename(f.file_path)  # e.g. "file.pdf"
-                    # Construct a full URL: "http://localhost:8000/uploads/file.pdf"
                     file_url = f"{constants.HOST_URL}/uploads/{filename}"
                     file_urls.append(file_url)
 
@@ -365,12 +357,10 @@ def get_all_payments(
                         "uuid": str(payment.created_by),
                         "name": user_name
                     } if payment.created_by else None,
-                    files=file_urls,  # <-- Use the constructed URLs
+                    files=file_urls,
                     items=item_names,
                     remarks=payment.remarks,
-                    status_history=[
-                        StatusDatePair(**h) for h in status_history_array
-                    ],
+                    status_history=[StatusDatePair(**h) for h in status_history_array],
                     current_status=payment.status,
                     created_at=payment.created_at.strftime("%Y-%m-%d"),
                     update_remarks=payment.update_remarks,
@@ -378,8 +368,7 @@ def get_all_payments(
                     longitude=payment.longitude,
                     transferred_date=(
                         payment.transferred_date.strftime("%Y-%m-%d")
-                        if payment.transferred_date
-                        else None
+                        if payment.transferred_date else None
                     )
                 ).model_dump()
             )
