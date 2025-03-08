@@ -151,8 +151,10 @@ def get_parent_account_data(person_id: UUID, db):
         )
         if person is None:
             return None  # or handle error
-
-        # If this person has a parent, return the parent's details; otherwise, return the person's own details
+        """
+        If this person has a parent, return the parent's details; otherwise,
+        return the person's own details
+        """
         if person.parent is not None:
             return person.parent
         else:
@@ -169,20 +171,44 @@ def get_parent_account_data(person_id: UUID, db):
 @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
 def get_all_payments(
     db: Session = Depends(get_db),
-    amount: Optional[float] = Query(None, description="Filter by payment amount"),
-    project_id: Optional[UUID] = Query(None, description="Filter by project ID"),
-    status: Optional[str] = Query(None, description="Filter by payment status"),
-    start_date: Optional[datetime] = Query(None, description="Filter by start date (created_at)"),
-    end_date: Optional[datetime] = Query(None, description="Filter by end date (created_at)"),
-    recent: Optional[bool] = Query(False, description="Show only last 5 payments if true"),
-    person_id: Optional[UUID] = Query(None, description="Filter by person ID"),
-    item_id: Optional[UUID] = Query(None, description="Filter by item ID"),
+    amount: Optional[float] = Query(
+        None,
+        description="Filter by payment amount"
+    ),
+    project_id: Optional[UUID] = Query(
+        None,
+        description="Filter by project ID"
+    ),
+    status: Optional[str] = Query(
+        None,
+        description="Filter by payment status"
+    ),
+    start_date: Optional[datetime] = Query(
+        None,
+        description="Filter by start date (created_at)"
+    ),
+    end_date: Optional[datetime] = Query(
+        None,
+        description="Filter by end date (created_at)"
+    ),
+    recent: Optional[bool] = Query(
+        False,
+        description="Show only last 5 payments if true"
+    ),
+    person_id: Optional[UUID] = Query(
+        None,
+        description="Filter by person ID"
+    ),
+    item_id: Optional[UUID] = Query(
+        None,
+        description="Filter by item ID"
+    ),
     current_user: User = Depends(get_current_user),
 ):
     """
     Fetches payments, optionally filtering by amount, project, status,
     date range, person, item, and optionally returning only the most recent 5.
-    Joins the PaymentStatusHistory table to retrieve an array of all statuses 
+    Joins the PaymentStatusHistory table to retrieve an array of all statuses
     stored for each payment.
 
     - status_history: an array of {"status": "...", "date": "..."} from PaymentStatusHistory
@@ -220,7 +246,7 @@ def get_all_payments(
             .outerjoin(Project, Payment.project_id == Project.uuid)
             .outerjoin(Person, Payment.person == Person.uuid)
             .outerjoin(User, Payment.created_by == User.uuid)
-            .outerjoin(PaymentFile)  # PaymentFile might be joined for file paths
+            .outerjoin(PaymentFile)
             .outerjoin(PaymentItem, Payment.uuid == PaymentItem.payment_id)
             .outerjoin(Item, PaymentItem.item_id == Item.uuid)
             .outerjoin(PaymentStatusHistory, Payment.uuid == PaymentStatusHistory.payment_id)
@@ -234,6 +260,15 @@ def get_all_payments(
         )
 
         if recent:
+            # query = query.filter(Payment.uuid.in_(db.query(base_query.c.uuid)))
+
+            subquery = (
+                db.query(PaymentStatusHistory.payment_id)
+                .filter(PaymentStatusHistory.status == "transferred")
+                .subquery()
+            )
+
+            query = query.filter(~Payment.uuid.in_(subquery))
             query = query.filter(Payment.uuid.in_(db.query(base_query.c.uuid)))
 
         # STEP 3: Apply optional filters

@@ -26,7 +26,6 @@ def upgrade():
             UUID(as_uuid=True),
             sa.ForeignKey('users.uuid', ondelete="CASCADE"),
             nullable=False,
-            server_default='7297fa98-342f-4fbe-b0b3-46dc6515cf35'
         ),
     )
 
