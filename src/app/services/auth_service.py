@@ -13,9 +13,8 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session
 from uuid import uuid4
 from src.app.database.database import get_db
-from src.app.database.models import User, Log
+from src.app.database.models import User, Log, Person
 from src.app.schemas.auth_service_schamas import (
-    Token,
     UserCreate,
     UserLogin,
     UserResponse,
@@ -147,8 +146,19 @@ def register_user(
         is_active=True,
     )
     db.add(new_user)
+    db.flush()
+
+    new_person = Person(
+        name=user.person.name,
+        phone_number=user.person.phone_number,
+        account_number=user.person.account_number,
+        ifsc_code=user.person.ifsc_code,
+        user_id=new_user.uuid
+    )
+    db.add(new_person)
     db.commit()
     db.refresh(new_user)
+    db.refresh(new_person)
     access_token = create_access_token(data={"sub": str(new_user.uuid)})
     response = {"access_token": access_token, "token_type": "bearer"}
     return AuthServiceResponse(
@@ -377,15 +387,27 @@ def activate_user(
 def list_all_active_users(db: Session = Depends(get_db)):
     try:
         users = db.query(User).filter(User.is_active.is_(True)).all()
-        user_response_data = [
-            UserResponse(
-                uuid=user.uuid,
-                name=user.name,
-                phone=user.phone,
-                role=user.role,
-            ).to_dict()
-            for user in users
-        ]
+
+        user_response_data = []
+        for user in users:
+            person_data = None
+            if user.person:
+                person_data = {
+                    "uuid": str(user.person.uuid),
+                    "name": user.person.name,
+                    "account_number": user.person.account_number,
+                    "ifsc_code": user.person.ifsc_code,
+                    "phone_number": user.person.phone_number,
+                }
+
+            user_response_data.append({
+                "uuid": str(user.uuid),
+                "name": user.name,
+                "phone": user.phone,
+                "role": user.role,
+                "person": person_data
+            })
+
         return AuthServiceResponse(
             data=user_response_data,
             message="All users fetched successfully",
@@ -396,7 +418,7 @@ def list_all_active_users(db: Session = Depends(get_db)):
         return AuthServiceResponse(
             data=None,
             status_code=500,
-            message=f"Error in list_all_active_users API: {str(e)}"
+            message=f"Error fetching users: {str(e)}"
         ).model_dump()
 
 
@@ -416,18 +438,34 @@ def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
                 message="User does not exist"
             ).model_dump()
 
-        user_response = UserResponse(
-            uuid=user.uuid, name=user.name, phone=user.phone, role=user.role
-        )
+        person_data = None
+        if user.person:
+            person_data = {
+                "uuid": str(user.person.uuid),
+                "name": user.person.name,
+                "account_number": user.person.account_number,
+                "ifsc_code": user.person.ifsc_code,
+                "phone_number": user.person.phone_number,
+            }
+
+        user_response = {
+            "uuid": str(user.uuid),
+            "name": user.name,
+            "phone": user.phone,
+            "role": user.role,
+            "person": person_data
+        }
+
         return AuthServiceResponse(
             data=user_response,
             message="User info fetched successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         logging.error(f"Error in get_user_info API: {str(e)}")
         return AuthServiceResponse(
             data=None,
             status_code=500,
-            message=f"Error in get_user_info API: {str(e)}"
+            message=f"Error fetching user info: {str(e)}"
         ).model_dump()

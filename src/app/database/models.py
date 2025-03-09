@@ -44,8 +44,6 @@ class Khatabook(Base):
         return f"<Khatabook(id={self.id}, uuid={self.uuid}, amount={self.amount})>"
 
 
-
-
 class KhatabookFile(Base):
     __tablename__ = "khatabook_files"
 
@@ -90,15 +88,49 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(
-        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
-    )
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     phone = Column(BigInteger, unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(30), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
+
+    # Relationship to Person
+    person = relationship("Person", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+
+class Person(Base):
+    __tablename__ = "person"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(
+        UUID(as_uuid=True),
+        default=uuid.uuid4,
+        unique=True,
+        nullable=False
+    )
+    name = Column(String(25), nullable=False)
+    account_number = Column(String(17), nullable=False)
+    ifsc_code = Column(String(11), nullable=False)
+    phone_number = Column(String(10), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.uuid"),
+        unique=True,
+        nullable=True
+    )
+
+    # Relationships
+    user = relationship("User", back_populates="person")
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
+    parent = relationship("Person", remote_side=[uuid], back_populates="children")  
+    children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")  
+
+    def __repr__(self):
+        return f"<Person(id={self.id}, name={self.name}, user_id={self.user_id})>"
 
 
 class Project(Base):
@@ -213,26 +245,7 @@ class PaymentFile(Base):
         return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path})>"
 
 
-class Person(Base):
-    __tablename__ = "person"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(
-        UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False
-    )
-    name = Column(String(25), nullable=False)
-    account_number = Column(String(17), nullable=False)
-    ifsc_code = Column(String(11), nullable=False)
-    phone_number = Column(String(10), nullable=False)
-    is_deleted = Column(Boolean, nullable=False, default=False)
-    parent_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
-
-    # Relationship definitions
-    parent = relationship("Person", remote_side=[uuid], back_populates="children")  # Parent account
-    children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")  # Secondary accounts
-
-    def __repr__(self):
-        return f"<Person(id={self.id}, name={self.name}, parent_id={self.parent_id})>"
 
 
 class ProjectBalance(Base):

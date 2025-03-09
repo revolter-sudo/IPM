@@ -2,6 +2,7 @@ from enum import Enum
 from uuid import UUID
 from typing import Any
 from pydantic import BaseModel, field_validator
+from src.app.schemas.payment_service_schemas import CreatePerson
 
 
 class UserRole(str, Enum):
@@ -20,6 +21,7 @@ class UserCreate(BaseModel):
     phone: int
     password: str
     role: UserRole
+    person: CreatePerson
 
     @field_validator("phone")
     def validate_phone(cls, value):

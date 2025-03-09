@@ -22,6 +22,7 @@ from src.app.database.models import (
     Log,
     KhatabookBalance
 )
+from src.app.schemas.auth_service_schamas import UserRole
 from uuid import uuid4
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
@@ -211,16 +212,19 @@ def get_all_payments(
     Joins the PaymentStatusHistory table to retrieve an array of all statuses
     stored for each payment.
 
-    - status_history: an array of {"status": "...", "date": "..."} from PaymentStatusHistory
+    - status_history: an array of {"status": "...", "date": "..."}
+      from PaymentStatusHistory
     - current_status: the latest status (from Payment.status)
     - files: array of downloadable links
     """
     try:
         # STEP 1: Base query setup
-        base_query = db.query(Payment.uuid).filter(Payment.is_deleted.is_(False))
+        base_query = db.query(Payment.uuid).filter(
+            Payment.is_deleted.is_(False)
+        )
 
         # If the user is a Site Engineer, restrict to their own payments
-        if current_user.role == "Site Engineer":
+        if current_user.role == UserRole.SITE_ENGINEER.value:
             base_query = base_query.filter(Payment.created_by == current_user.uuid)
 
         # If recent flag is set, get the last 5 payments
