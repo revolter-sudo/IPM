@@ -18,10 +18,11 @@ app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 # app.mount("/uploads", StaticFiles(directory="src/app/uploads"), name="uploads")
 
 #===============# Make sure /app/uploads exists in the container
-os.makedirs("/app/uploads", exist_ok=True)
+UPLOADS_DIR = "/app/uploads"
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 
-# Mount the static folder using an absolute path
-app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
+# Mount /uploads so that all subdirectories (including /payments) are accessible
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 app.include_router(auth_router)
 app.include_router(project_router)

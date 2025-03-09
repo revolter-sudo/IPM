@@ -327,7 +327,7 @@ def get_all_payments(
             if payment.payment_files:
                 for f in payment.payment_files:
                     filename = os.path.basename(f.file_path)  # e.g. "file.pdf"
-                    file_url = f"{constants.HOST_URL}/uploads/{filename}"
+                    file_url = f"{constants.HOST_URL}/uploads/payments/{filename}"
                     file_urls.append(file_url)
 
             # Build item names
