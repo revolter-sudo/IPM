@@ -8,6 +8,7 @@ import os
 import shutil
 from src.app.database.models import KhatabookBalance
 from sqlalchemy import and_
+from sqlalchemy.orm import joinedload
 
 
 def create_khatabook_entry_service(
@@ -121,14 +122,17 @@ def get_all_khatabook_entries_service(
         user_id: UUID,
         db: Session
 ) -> List[Khatabook]:
-    entries = db.query(Khatabook).filter(
+    entries = db.query(Khatabook).options(
+        joinedload(Khatabook.files),  # Join the khatabook_files table
+        joinedload(Khatabook.person)
+    ).filter(
         and_(
             Khatabook.is_deleted.is_(False),
             Khatabook.created_by == user_id
         )
     ).all()
 
-    # Attach user balance to each entry
+    # Attach user balance and file paths to each entry
     response_data = []
     for entry in entries:
         response_data.append({
@@ -139,11 +143,13 @@ def get_all_khatabook_entries_service(
                 "uuid": str(entry.person.uuid),
                 "name": entry.person.name,
             } if entry.person else None,
-            "expense_date": entry.expense_date.isoformat(),
+            "expense_date": entry.expense_date.isoformat() if entry.expense_date else None,
             "created_at": entry.created_at.isoformat(),
+            "files": [file.file_path for file in entry.files] if entry.files else []  # Extract file paths directly
         })
 
     return response_data
+
 
 
 def save_uploaded_file(upload_file: UploadFile, folder: str) -> str:
