@@ -63,7 +63,10 @@ def create_khatabook_entry_service(
 def update_khatabook_entry_service(
     db: Session, kb_uuid: UUID, data: Dict, files: List[UploadFile]
 ) -> Optional[Khatabook]:
-    kb_entry = db.query(Khatabook).filter(Khatabook.uuid == kb_uuid, Khatabook.is_deleted == False).first()
+    kb_entry = db.query(Khatabook).filter(
+        Khatabook.uuid == kb_uuid,
+        Khatabook.is_deleted.is_(False)
+    ).first()
     if not kb_entry:
         return None
 
@@ -104,8 +107,8 @@ def update_khatabook_entry_service(
 
 def delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     kb_entry = db.query(Khatabook).filter(
-        Khatabook.uuid == kb_uuid, 
-        Khatabook.is_deleted == False
+        Khatabook.uuid == kb_uuid,
+        Khatabook.is_deleted.is_(False)
     ).first()
     if not kb_entry:
         return False
@@ -114,9 +117,6 @@ def delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     db.commit()
     return True
 
-
-# def get_all_khatabook_entries_service(db: Session) -> List[Khatabook]:
-#     return db.query(Khatabook).filter(Khatabook.is_deleted == False).all()
 
 def get_all_khatabook_entries_service(
         user_id: UUID,
@@ -149,7 +149,6 @@ def get_all_khatabook_entries_service(
         })
 
     return response_data
-
 
 
 def save_uploaded_file(upload_file: UploadFile, folder: str) -> str:

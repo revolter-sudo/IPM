@@ -12,16 +12,16 @@ from src.app.services.khatabook_endpoints import khatabook_router
 app = FastAPI()
 app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 # Local
-os.makedirs("uploads", exist_ok=True)
+# os.makedirs("uploads", exist_ok=True)
 
 # Mount the uploads folder for static access
-app.mount("/uploads", StaticFiles(directory="src/app/uploads"), name="uploads")
+# app.mount("/uploads", StaticFiles(directory="src/app/uploads"), name="uploads")
 
 #===============# Make sure /app/uploads exists in the container
-# os.makedirs("/app/uploads", exist_ok=True)
+os.makedirs("/app/uploads", exist_ok=True)
 
-# # Mount the static folder using an absolute path
-# app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
+# Mount the static folder using an absolute path
+app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
 
 app.include_router(auth_router)
 app.include_router(project_router)
