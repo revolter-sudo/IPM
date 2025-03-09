@@ -18,15 +18,17 @@ from src.app.services.auth_service import get_current_user
 
 khatabook_router = APIRouter(prefix="/khatabook", tags=["Khatabook"])
 
+
 @khatabook_router.post("")
 async def create_khatabook_entry(
     data: str = Form(...),
     files: Optional[List[UploadFile]] = File(None),
-    db=Depends(get_db)
+    db=Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     try:
         parsed_data = json.loads(data)
-        entry = create_khatabook_entry_service(db, parsed_data, files)
+        create_khatabook_entry_service(db=db, data=parsed_data, files=files, user_id=current_user.uuid)
         return AuthServiceResponse(
             data=None,
             status_code=201,
@@ -47,7 +49,7 @@ def get_all_khatabook_entries(
     current_user: User = Depends(get_current_user)
 ):
     user_balance = get_user_balance(user_uuid=current_user.uuid, db=db)
-    entries = get_all_khatabook_entries_service(db)
+    entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
     total_amount = sum(entry["amount"] for entry in entries) if entries else 0.0
     remaining_balance = user_balance - total_amount
     response_data = {

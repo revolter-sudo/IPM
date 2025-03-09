@@ -26,22 +26,21 @@ class Khatabook(Base):
 
     amount = Column(Float, nullable=False)
     remarks = Column(Text, nullable=True)
-    person_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=True)
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False, server_default="7297fa98-342f-4fbe-b0b3-46dc6515cf35")
+    person_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=False)  # Ensure person_id is required
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    expense_date = Column(TIMESTAMP, nullable=True)  # New field for user-entered date
 
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
 
     # Relationships
-    user = relationship("User", foreign_keys=[user_id])
     person = relationship("Person", foreign_keys=[person_id])
     created_by_user = relationship("User", foreign_keys=[created_by])
     files = relationship("KhatabookFile", back_populates="khatabook_entry", cascade="all, delete-orphan")
     items = relationship("KhatabookItem", back_populates="khatabook_entry", cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f"<Khatabook(id={self.id}, uuid={self.uuid}, amount={self.amount})>"
+        return f"<Khatabook(id={self.id}, uuid={self.uuid}, amount={self.amount}, expense_date={self.expense_date})>"
 
 
 class KhatabookFile(Base):

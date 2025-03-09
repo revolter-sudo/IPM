@@ -7,10 +7,14 @@ from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Ite
 import os
 import shutil
 from src.app.database.models import KhatabookBalance
+from sqlalchemy import and_
 
 
 def create_khatabook_entry_service(
-    db: Session, data: Dict, files: List[UploadFile]
+    db: Session,
+    data: Dict,
+    files: List[UploadFile],
+    user_id: UUID
 ) -> Khatabook:
     """
     data is a dict with keys like 'amount', 'remarks', 'user_id', 'person_id', 'item_ids'
@@ -18,14 +22,15 @@ def create_khatabook_entry_service(
     amount = data.get("amount")
     remarks = data.get("remarks")
     person_id = data.get("person_id")
-    user_id = data.get("user_id")
     item_ids = data.get("item_ids", [])
+    expense_date = data.get("expense_date")
 
     kb_entry = Khatabook(
         amount=amount,
         remarks=remarks,
         person_id=person_id,
-        user_id=user_id
+        expense_date=expense_date,
+        created_by=user_id
     )
     db.add(kb_entry)
     db.flush()
@@ -112,8 +117,16 @@ def delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
 # def get_all_khatabook_entries_service(db: Session) -> List[Khatabook]:
 #     return db.query(Khatabook).filter(Khatabook.is_deleted == False).all()
 
-def get_all_khatabook_entries_service(db: Session) -> List[Khatabook]:
-    entries = db.query(Khatabook).filter(Khatabook.is_deleted == False).all()
+def get_all_khatabook_entries_service(
+        user_id: UUID,
+        db: Session
+) -> List[Khatabook]:
+    entries = db.query(Khatabook).filter(
+        and_(
+            Khatabook.is_deleted.is_(False),
+            Khatabook.created_by == user_id
+        )
+    ).all()
 
     # Attach user balance to each entry
     response_data = []
@@ -126,10 +139,7 @@ def get_all_khatabook_entries_service(db: Session) -> List[Khatabook]:
                 "uuid": str(entry.person.uuid),
                 "name": entry.person.name,
             } if entry.person else None,
-            "user": {
-                "uuid": str(entry.user.uuid),
-                "name": entry.user.name,
-            } if entry.user else None,
+            "expense_date": entry.expense_date.isoformat(),
             "created_at": entry.created_at.isoformat(),
         })
 
