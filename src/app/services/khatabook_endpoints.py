@@ -16,13 +16,11 @@ from src.app.services.khatabook_service import (
 )
 from src.app.database.models import User
 from src.app.services.auth_service import get_current_user
-from dotenv import load_dotenv
-
-load_dotenv()
+from src.app.schemas import constants
 
 khatabook_router = APIRouter(prefix="/khatabook", tags=["Khatabook"])
 
-UPLOAD_DIR = os.getenv("UPLOADS_DIR")
+UPLOAD_DIR = constants.KHATABOOK_FOLDER
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
