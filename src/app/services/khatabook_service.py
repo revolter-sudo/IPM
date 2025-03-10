@@ -9,12 +9,13 @@ import shutil
 from src.app.database.models import KhatabookBalance
 from sqlalchemy import and_
 from sqlalchemy.orm import joinedload
+from src.app.schemas import constants
 
 
 def create_khatabook_entry_service(
     db: Session,
     data: Dict,
-    files: List[UploadFile],
+    file_paths: list,
     user_id: UUID
 ) -> Khatabook:
     """
@@ -46,12 +47,11 @@ def create_khatabook_entry_service(
                 )
                 db.add(kb_item)
 
-    if files:
-        for f in files:
-            file_path = save_uploaded_file(f, "khatabook_files")
+    if file_paths:
+        for f in file_paths:
             new_file = KhatabookFile(
                 khatabook_id=kb_entry.uuid,
-                file_path=file_path
+                file_path=f
             )
             db.add(new_file)
 
@@ -118,23 +118,62 @@ def delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     return True
 
 
+# def get_all_khatabook_entries_service(
+#         user_id: UUID,
+#         db: Session
+# ) -> List[Khatabook]:
+#     entries = db.query(Khatabook).options(
+#         joinedload(Khatabook.files),  # Join the khatabook_files table
+#         joinedload(Khatabook.person),
+#     ).filter(
+#         and_(
+#             Khatabook.is_deleted.is_(False),
+#             Khatabook.created_by == user_id
+#         )
+#     ).order_by(Khatabook.id.desc()).all()
+
+#     # Attach user balance and file paths to each entry
+#     response_data = []
+#     for entry in entries:
+#         response_data.append({
+#             "uuid": str(entry.uuid),
+#             "amount": entry.amount,
+#             "remarks": entry.remarks,
+#             "person": {
+#                 "uuid": str(entry.person.uuid),
+#                 "name": entry.person.name,
+#             } if entry.person else None,
+#             "expense_date": entry.expense_date.isoformat() if entry.expense_date else None,
+#             "created_at": entry.created_at.isoformat(),
+#             "files": [file.file_path for file in entry.files] if entry.files else []  # Extract file paths directly
+#         })
+
+#     return response_data
+
 def get_all_khatabook_entries_service(
         user_id: UUID,
         db: Session
 ) -> List[Khatabook]:
     entries = db.query(Khatabook).options(
         joinedload(Khatabook.files),  # Join the khatabook_files table
-        joinedload(Khatabook.person)
+        joinedload(Khatabook.person),
     ).filter(
         and_(
             Khatabook.is_deleted.is_(False),
             Khatabook.created_by == user_id
         )
-    ).all()
+    ).order_by(Khatabook.id.desc()).all()
 
-    # Attach user balance and file paths to each entry
+    # Attach user balance and file URLs to each entry
     response_data = []
     for entry in entries:
+        file_urls = []
+        if entry.files:
+            for f in entry.files:
+                filename = os.path.basename(f.file_path)  # e.g., "file.pdf"
+                file_url = f"{constants.HOST_URL}/uploads/khatabook_files/{filename}"
+                file_urls.append(file_url)
+        
         response_data.append({
             "uuid": str(entry.uuid),
             "amount": entry.amount,
@@ -145,7 +184,7 @@ def get_all_khatabook_entries_service(
             } if entry.person else None,
             "expense_date": entry.expense_date.isoformat() if entry.expense_date else None,
             "created_at": entry.created_at.isoformat(),
-            "files": [file.file_path for file in entry.files] if entry.files else []  # Extract file paths directly
+            "files": file_urls  # Extract file URLs instead of raw file paths
         })
 
     return response_data

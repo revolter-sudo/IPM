@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, UploadFile, File, Form
-from typing import List, Optional
-from uuid import UUID
+import os
+import shutil
 import json
+from typing import Dict, List, Optional
+from uuid import UUID
+from fastapi import APIRouter, Depends, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from src.app.database.database import get_db
 from src.app.schemas.auth_service_schamas import AuthServiceResponse
@@ -14,10 +16,21 @@ from src.app.services.khatabook_service import (
 )
 from src.app.database.models import User
 from src.app.services.auth_service import get_current_user
+from dotenv import load_dotenv
 
+load_dotenv()
 
 khatabook_router = APIRouter(prefix="/khatabook", tags=["Khatabook"])
 
+UPLOAD_DIR = os.getenv("UPLOADS_DIR")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+def save_uploaded_file(upload_file: UploadFile) -> str:
+    file_location = os.path.join(UPLOAD_DIR, upload_file.filename)
+    with open(file_location, "wb") as f:
+        shutil.copyfileobj(upload_file.file, f)
+    return upload_file.filename
 
 @khatabook_router.post("")
 async def create_khatabook_entry(
@@ -28,13 +41,42 @@ async def create_khatabook_entry(
 ):
     try:
         parsed_data = json.loads(data)
-        create_khatabook_entry_service(db=db, data=parsed_data, files=files, user_id=current_user.uuid)
+        file_paths = [save_uploaded_file(f) for f in files] if files else []
+        create_khatabook_entry_service(db=db, data=parsed_data, file_paths=file_paths, user_id=current_user.uuid)
         return AuthServiceResponse(
             data=None,
             status_code=201,
             message="Khatabook entry created successfully"
         ).model_dump()
+    except Exception as e:
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error: {str(e)}"
+        ).model_dump()
 
+@khatabook_router.put("/{khatabook_uuid}")
+def update_khatabook_entry(
+    khatabook_uuid: UUID,
+    data: str = Form(...),
+    files: Optional[List[UploadFile]] = File(None),
+    db: Session = Depends(get_db)
+):
+    try:
+        parsed_data = json.loads(data)
+        file_paths = [save_uploaded_file(f) for f in files] if files else []
+        entry = update_khatabook_entry_service(db, khatabook_uuid, parsed_data, file_paths)
+        if not entry:
+            return AuthServiceResponse(
+                data=None,
+                status_code=404,
+                message="Khatabook entry not found"
+            ).model_dump()
+        return AuthServiceResponse(
+            data=None,
+            status_code=200,
+            message="Khatabook entry updated successfully"
+        ).model_dump()
     except Exception as e:
         return AuthServiceResponse(
             data=None,
@@ -63,40 +105,3 @@ def get_all_khatabook_entries(
         message="Khatabook entries fetched successfully"
     ).model_dump()
 
-@khatabook_router.put("/{khatabook_uuid}")
-def update_khatabook_entry(
-    khatabook_uuid: UUID,
-    data: str = Form(...),
-    files: Optional[List[UploadFile]] = File(None),
-    db: Session = Depends(get_db)
-):
-    parsed_data = json.loads(data)
-    entry = update_khatabook_entry_service(db, khatabook_uuid, parsed_data, files)
-    if not entry:
-        return AuthServiceResponse(
-            data=None,
-            status_code=404,
-            message="Khatabook entry not found"
-        ).model_dump()
-
-    return AuthServiceResponse(
-        data=None,
-        status_code=200,
-        message="Khatabook entry updated successfully"
-    ).model_dump()
-
-@khatabook_router.delete("/{khatabook_uuid}")
-def delete_khatabook_entry(khatabook_uuid: UUID, db: Session = Depends(get_db)):
-    success = delete_khatabook_entry_service(db, khatabook_uuid)
-    if not success:
-        return AuthServiceResponse(
-            data=None,
-            status_code=404,
-            message="Khatabook entry not found"
-        ).model_dump()
-
-    return AuthServiceResponse(
-        data=None,
-        status_code=200,
-        message="Khatabook entry deleted successfully"
-    ).model_dump()

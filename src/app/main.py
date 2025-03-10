@@ -7,6 +7,11 @@ from src.app.services.auth_service import auth_router
 from src.app.services.payment_service import payment_router
 from src.app.services.project_service import project_router
 from src.app.services.khatabook_endpoints import khatabook_router
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+UPLOADS_DIR = os.getenv("UPLOADS_DIR")
 
 # FastAPI App
 app = FastAPI()
@@ -18,7 +23,6 @@ app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 # app.mount("/uploads", StaticFiles(directory="src/app/uploads"), name="uploads")
 
 #===============# Make sure /app/uploads exists in the container
-UPLOADS_DIR = "/app/uploads"
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 # Mount /uploads so that all subdirectories (including /payments) are accessible
