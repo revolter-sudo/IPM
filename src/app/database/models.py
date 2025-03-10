@@ -198,10 +198,34 @@ class Payment(Base):
     payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")
     payment_items = relationship("PaymentItem", back_populates="payment", cascade="all, delete-orphan")
     status_entries = relationship("PaymentStatusHistory", back_populates="payment", cascade="all, delete-orphan", order_by="PaymentStatusHistory.created_at")
+    edit_histories = relationship(
+        "PaymentEditHistory",
+        back_populates="payment",
+        cascade="all, delete-orphan",
+        order_by="PaymentEditHistory.updated_at"
+    )
 
     def __repr__(self):
         return f"<Payment(id={self.id}, amount={self.amount}, self_payment={self.self_payment}, status={self.status})>"
 
+
+class PaymentEditHistory(Base):
+    __tablename__ = "payment_edit_histories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
+    payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
+    old_amount = Column(Float, nullable=False)
+    new_amount = Column(Float, nullable=False)
+    remarks = Column(Text, nullable=True)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+
+    # Relationship back to Payment
+    payment = relationship("Payment", back_populates="edit_histories")
+
+    def __repr__(self):
+        return f"<PaymentEditHistory(old={self.old_amount}, new={self.new_amount}, remarks={self.remarks})>"
 
 
 class PaymentStatusHistory(Base):
