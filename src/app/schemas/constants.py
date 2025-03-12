@@ -4,6 +4,7 @@ CANT_APPROVE_PAYMENT = "Not authorized to approve payments"
 PAYMENT_NOT_FOUND = "Payment request not found"
 ONLY_PDFS_ALLOWED = "Only PDF files are allowed."
 UPLOAD_DIR = "uploads/payments"
+UPLOAD_DIR_ADMIN = "uploads/admin"
 KHATABOOK_FOLDER = "uploads/khatabook_files"
 CANT_DECLINE_PAYMENTS = "Not authorized to decline payments"
 PERSON_EXISTS = (

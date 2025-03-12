@@ -759,7 +759,7 @@ def approve_payment(
 
         # 6) Handle optional file uploads
         if files:
-            upload_dir = constants.UPLOAD_DIR  # or wherever you are storing payment files
+            upload_dir = constants.UPLOAD_DIR_ADMIN  # or wherever you are storing payment files
             os.makedirs(upload_dir, exist_ok=True)
             for file in files:
                 file_path = os.path.join(upload_dir, file.filename)
