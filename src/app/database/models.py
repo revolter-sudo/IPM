@@ -32,6 +32,7 @@ class Khatabook(Base):
 
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
+    balance_after_entry = Column(Float, nullable=True)
 
     # Relationships
     person = relationship("Person", foreign_keys=[person_id])
@@ -326,7 +327,6 @@ class KhatabookBalance(Base):
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     user_uuid = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False, unique=True)
     balance = Column(Float, nullable=False, default=0.0)
-    balance_after_entry = Column(Float, nullable=True)
 
     user = relationship("User", foreign_keys=[user_uuid])
 
