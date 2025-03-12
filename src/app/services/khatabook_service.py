@@ -124,7 +124,7 @@ def delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
 # ) -> List[Khatabook]:
 #     entries = db.query(Khatabook).options(
 #         joinedload(Khatabook.files),  # Join the khatabook_files table
-#         joinedload(Khatabook.person),
+#         joinedload(Khatabook.person)
 #     ).filter(
 #         and_(
 #             Khatabook.is_deleted.is_(False),
@@ -132,9 +132,16 @@ def delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
 #         )
 #     ).order_by(Khatabook.id.desc()).all()
 
-#     # Attach user balance and file paths to each entry
+#     # Attach user balance and file URLs to each entry
 #     response_data = []
 #     for entry in entries:
+#         file_urls = []
+#         if entry.files:
+#             for f in entry.files:
+#                 filename = os.path.basename(f.file_path)  # e.g., "file.pdf"
+#                 file_url = f"{constants.HOST_URL}/uploads/khatabook_files/{filename}"
+#                 file_urls.append(file_url)
+        
 #         response_data.append({
 #             "uuid": str(entry.uuid),
 #             "amount": entry.amount,
@@ -145,46 +152,67 @@ def delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
 #             } if entry.person else None,
 #             "expense_date": entry.expense_date.isoformat() if entry.expense_date else None,
 #             "created_at": entry.created_at.isoformat(),
-#             "files": [file.file_path for file in entry.files] if entry.files else []  # Extract file paths directly
+#             "files": file_urls  # Extract file URLs instead of raw file paths
 #         })
 
 #     return response_data
 
 def get_all_khatabook_entries_service(
-        user_id: UUID,
-        db: Session
-) -> List[Khatabook]:
-    entries = db.query(Khatabook).options(
-        joinedload(Khatabook.files),  # Join the khatabook_files table
-        joinedload(Khatabook.person),
-    ).filter(
-        and_(
-            Khatabook.is_deleted.is_(False),
-            Khatabook.created_by == user_id
+    user_id: UUID,
+    db: Session
+) -> List[dict]:
+    # Use joinedload to fetch files, person, and items->item in one go
+    entries = (
+        db.query(Khatabook)
+        .options(
+            joinedload(Khatabook.files),
+            joinedload(Khatabook.person),
+            joinedload(Khatabook.items).joinedload(KhatabookItem.item)
         )
-    ).order_by(Khatabook.id.desc()).all()
+        .filter(
+            and_(
+                Khatabook.is_deleted.is_(False),
+                Khatabook.created_by == user_id
+            )
+        )
+        .order_by(Khatabook.id.desc())
+        .all()
+    )
 
-    # Attach user balance and file URLs to each entry
     response_data = []
     for entry in entries:
+        # Build file URL list
         file_urls = []
         if entry.files:
             for f in entry.files:
-                filename = os.path.basename(f.file_path)  # e.g., "file.pdf"
+                filename = os.path.basename(f.file_path)
                 file_url = f"{constants.HOST_URL}/uploads/khatabook_files/{filename}"
                 file_urls.append(file_url)
-        
+
+        # Build items data
+        items_data = []
+        if entry.items:
+            for khatabook_item in entry.items:
+                if khatabook_item.item:
+                    items_data.append({
+                        "uuid": str(khatabook_item.item.uuid),
+                        "name": khatabook_item.item.name,
+                        "category": khatabook_item.item.category,
+                        "quantity": getattr(khatabook_item, "quantity", None)
+                    })
+
         response_data.append({
             "uuid": str(entry.uuid),
             "amount": entry.amount,
             "remarks": entry.remarks,
             "person": {
                 "uuid": str(entry.person.uuid),
-                "name": entry.person.name,
+                "name": entry.person.name
             } if entry.person else None,
             "expense_date": entry.expense_date.isoformat() if entry.expense_date else None,
             "created_at": entry.created_at.isoformat(),
-            "files": file_urls  # Extract file URLs instead of raw file paths
+            "files": file_urls,
+            "items": items_data
         })
 
     return response_data

@@ -268,9 +268,6 @@ class PaymentFile(Base):
         return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path})>"
 
 
-
-
-
 class ProjectBalance(Base):
     __tablename__ = "project_balances"
 
@@ -289,7 +286,7 @@ class ProjectBalance(Base):
 
     def __repr__(self):
         return f"<ProjectBalance(project_id={self.project_id}, adjustment={self.adjustment})>"
-    
+
 
 class Item(Base):
     __tablename__ = "items"
