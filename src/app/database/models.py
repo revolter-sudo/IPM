@@ -254,19 +254,39 @@ class PaymentStatusHistory(Base):
         )
 
 
+# class PaymentFile(Base):
+#     __tablename__ = "payment_files"
+
+#     id = Column(Integer, primary_key=True, autoincrement=True)
+#     payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
+#     file_path = Column(String(255), nullable=False)
+#     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+#     # ✅ Correct Relationship
+#     payment = relationship("Payment", back_populates="payment_files")
+
+#     def __repr__(self):
+#         return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path})>"
+
 class PaymentFile(Base):
     __tablename__ = "payment_files"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
+    payment_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("payments.uuid", ondelete="CASCADE"),
+        nullable=False
+    )
     file_path = Column(String(255), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
-    # ✅ Correct Relationship
+    # NEW: A column to indicate files that came from the /approve endpoint
+    is_approval_upload = Column(Boolean, default=False, nullable=False)
+
     payment = relationship("Payment", back_populates="payment_files")
 
     def __repr__(self):
-        return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path})>"
+        return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path}, is_approval_upload={self.is_approval_upload})>"
 
 
 class ProjectBalance(Base):
