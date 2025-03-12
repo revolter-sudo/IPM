@@ -326,6 +326,7 @@ class KhatabookBalance(Base):
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     user_uuid = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False, unique=True)
     balance = Column(Float, nullable=False, default=0.0)
+    balance_after_entry = Column(Float, nullable=True)
 
     user = relationship("User", foreign_keys=[user_uuid])
 
