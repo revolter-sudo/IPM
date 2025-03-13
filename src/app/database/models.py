@@ -185,20 +185,39 @@ class Payment(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     status = Column(String(20), nullable=False)
     remarks = Column(Text, nullable=True)
+
+    # This is the FK pointing to Person
     person = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
+
+    # Flag if this payment is "self-payment"
     self_payment = Column(Boolean, nullable=False, default=False)
+
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
-    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
+    updated_at = Column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
     is_deleted = Column(Boolean, default=False, nullable=False)
     update_remarks = Column(Text, nullable=True)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     transferred_date = Column(TIMESTAMP, nullable=True)
 
-    # Relationships
-    payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")
-    payment_items = relationship("PaymentItem", back_populates="payment", cascade="all, delete-orphan")
-    status_entries = relationship("PaymentStatusHistory", back_populates="payment", cascade="all, delete-orphan", order_by="PaymentStatusHistory.created_at")
+    # NEW RELATIONSHIP: link to Person table for the 'person' FK
+    person_rel = relationship("Person", foreign_keys=[person], lazy="joined")
+
+    # Other relationships
+    payment_files = relationship(
+        "PaymentFile", back_populates="payment", cascade="all, delete-orphan"
+    )
+    payment_items = relationship(
+        "PaymentItem", back_populates="payment", cascade="all, delete-orphan"
+    )
+    status_entries = relationship(
+        "PaymentStatusHistory",
+        back_populates="payment",
+        cascade="all, delete-orphan",
+        order_by="PaymentStatusHistory.created_at"
+    )
     edit_histories = relationship(
         "PaymentEditHistory",
         back_populates="payment",
