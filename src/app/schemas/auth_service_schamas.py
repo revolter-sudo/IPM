@@ -16,6 +16,11 @@ class UserRole(str, Enum):
     SUPER_ADMIN = "SuperAdmin"
 
 
+class ForgotPasswordRequest(BaseModel):
+    phone: int
+    new_password: str
+
+
 class UserCreate(BaseModel):
     name: str
     phone: int

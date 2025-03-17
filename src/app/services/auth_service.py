@@ -19,7 +19,8 @@ from src.app.schemas.auth_service_schamas import (
     UserLogin,
     UserResponse,
     UserRole,
-    AuthServiceResponse
+    AuthServiceResponse,
+    ForgotPasswordRequest
 )
 
 # Router Setup
@@ -106,6 +107,44 @@ def superadmin_required(current_user: User = Depends(get_current_user)):
                 message="SuperAdmin privileges required"
             ).model_dump()
     return current_user
+
+
+
+@auth_router.post("/forgot_password", tags=["Users"])
+def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Resets a user's password, given a phone number and a new password.
+    In production, you would typically verify OTP or email link, but
+    here it's a simple, direct reset for demonstration.
+    """
+    # 1) Find user by phone
+    user = (
+        db.query(User)
+        .filter(
+            User.phone == payload.phone,
+            User.is_deleted.is_(False)
+        )
+        .first()
+    )
+    if not user:
+        return AuthServiceResponse(
+            data=None,
+            status_code=404,
+            message="No user found with this phone number."
+        ).model_dump()
+
+    # 2) Hash and set new password
+    hashed = pwd_context.hash(payload.new_password)
+    user.password_hash = hashed
+    db.commit()
+    db.refresh(user)
+
+    # 3) Return success
+    return AuthServiceResponse(
+        data={"uuid": str(user.uuid), "phone": user.phone},
+        message="Password reset successfully",
+        status_code=200
+    ).model_dump()
 
 
 # Routes
