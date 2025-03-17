@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 from uuid import UUID
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
-from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Item
+from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Item, Project
 import os
 import shutil
 from src.app.database.models import KhatabookBalance
@@ -87,6 +87,7 @@ def create_khatabook_entry_service(
 
         new_total_amount = total_amount + amount
         new_balance = user_balance - new_total_amount
+
         # 3. Create the Khatabook entry.
         kb_entry = Khatabook(
             amount=amount,
@@ -95,6 +96,7 @@ def create_khatabook_entry_service(
             expense_date=data.get("expense_date"),
             created_by=user_id,
             balance_after_entry=new_balance,  # Snapshot at time of creation
+            project_id=data.get("project_id")
         )
         db.add(kb_entry)
         db.flush()
@@ -250,7 +252,8 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
         .options(
             joinedload(Khatabook.files),
             joinedload(Khatabook.person),
-            joinedload(Khatabook.items).joinedload(KhatabookItem.item)
+            joinedload(Khatabook.items).joinedload(KhatabookItem.item),
+            joinedload(Khatabook.project),
         )
         .filter(
             Khatabook.is_deleted.is_(False),
@@ -279,6 +282,12 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
                         "category": khatabook_item.item.category,
                     })
 
+        project_info = None
+        if entry.project:
+            project_info = {
+                "uuid": str(entry.project.uuid),
+                "name": entry.project.name
+            }
         response_data.append({
             "uuid": str(entry.uuid),
             "amount": entry.amount,
@@ -288,6 +297,7 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
                 "uuid": str(entry.person.uuid),
                 "name": entry.person.name
             } if entry.person else None,
+            "project_info": project_info,
             "expense_date": entry.expense_date.isoformat() if entry.expense_date else None,
             "created_at": entry.created_at.isoformat(),
             "files": file_urls,

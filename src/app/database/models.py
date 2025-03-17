@@ -33,12 +33,18 @@ class Khatabook(Base):
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     balance_after_entry = Column(Float, nullable=True)
+    project_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.uuid"),
+        nullable=True  # <--- optional field
+    )
 
     # Relationships
     person = relationship("Person", foreign_keys=[person_id])
     created_by_user = relationship("User", foreign_keys=[created_by])
     files = relationship("KhatabookFile", back_populates="khatabook_entry", cascade="all, delete-orphan")
     items = relationship("KhatabookItem", back_populates="khatabook_entry", cascade="all, delete-orphan")
+    project = relationship("Project", foreign_keys=[project_id], lazy="joined")
 
     def __repr__(self):
         return f"<Khatabook(id={self.id}, uuid={self.uuid}, amount={self.amount}, expense_date={self.expense_date})>"
