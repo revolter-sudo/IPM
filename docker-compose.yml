@@ -10,5 +10,7 @@ services:
       DATABASE_URL: postgresql://myuser:200899@147.93.31.224:5432/ipm_new
     ports:
       - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads  # Persist files in the local uploads folder
     command: >
       sh -c "/entrypoint.sh"

@@ -113,6 +113,7 @@ class PaymentsResponse(BaseModel):
     latitude: float
     longitude: float
     transferred_date: Optional[str] = None
+    payment_history: Any = None
 
 
 class PaymentServiceResponse(BaseModel):

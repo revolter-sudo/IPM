@@ -26,24 +26,22 @@ class Khatabook(Base):
 
     amount = Column(Float, nullable=False)
     remarks = Column(Text, nullable=True)
-    person_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=True)
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False, server_default="7297fa98-342f-4fbe-b0b3-46dc6515cf35")
+    person_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=False)  # Ensure person_id is required
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    expense_date = Column(TIMESTAMP, nullable=True)  # New field for user-entered date
 
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
+    balance_after_entry = Column(Float, nullable=True)
 
     # Relationships
-    user = relationship("User", foreign_keys=[user_id])
     person = relationship("Person", foreign_keys=[person_id])
     created_by_user = relationship("User", foreign_keys=[created_by])
     files = relationship("KhatabookFile", back_populates="khatabook_entry", cascade="all, delete-orphan")
     items = relationship("KhatabookItem", back_populates="khatabook_entry", cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f"<Khatabook(id={self.id}, uuid={self.uuid}, amount={self.amount})>"
-
-
+        return f"<Khatabook(id={self.id}, uuid={self.uuid}, amount={self.amount}, expense_date={self.expense_date})>"
 
 
 class KhatabookFile(Base):
@@ -90,15 +88,49 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(
-        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
-    )
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     phone = Column(BigInteger, unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(30), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
+
+    # Relationship to Person
+    person = relationship("Person", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+
+class Person(Base):
+    __tablename__ = "person"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(
+        UUID(as_uuid=True),
+        default=uuid.uuid4,
+        unique=True,
+        nullable=False
+    )
+    name = Column(String(25), nullable=False)
+    account_number = Column(String(17), nullable=False)
+    ifsc_code = Column(String(11), nullable=False)
+    phone_number = Column(String(10), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.uuid"),
+        unique=True,
+        nullable=True
+    )
+
+    # Relationships
+    user = relationship("User", back_populates="person")
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
+    parent = relationship("Person", remote_side=[uuid], back_populates="children")  
+    children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")  
+
+    def __repr__(self):
+        return f"<Person(id={self.id}, name={self.name}, user_id={self.user_id})>"
 
 
 class Project(Base):
@@ -153,24 +185,67 @@ class Payment(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     status = Column(String(20), nullable=False)
     remarks = Column(Text, nullable=True)
+
+    # This is the FK pointing to Person
     person = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
-    self_payment = Column(Boolean, nullable=False, default=False)  # New Field
+
+    # Flag if this payment is "self-payment"
+    self_payment = Column(Boolean, nullable=False, default=False)
+
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
-    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
+    updated_at = Column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
     is_deleted = Column(Boolean, default=False, nullable=False)
     update_remarks = Column(Text, nullable=True)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     transferred_date = Column(TIMESTAMP, nullable=True)
 
-    # Relationships
-    payment_files = relationship("PaymentFile", back_populates="payment", cascade="all, delete-orphan")
-    payment_items = relationship("PaymentItem", back_populates="payment", cascade="all, delete-orphan")
-    status_entries = relationship("PaymentStatusHistory", back_populates="payment", cascade="all, delete-orphan", order_by="PaymentStatusHistory.created_at")
+    # NEW RELATIONSHIP: link to Person table for the 'person' FK
+    person_rel = relationship("Person", foreign_keys=[person], lazy="joined")
+
+    # Other relationships
+    payment_files = relationship(
+        "PaymentFile", back_populates="payment", cascade="all, delete-orphan"
+    )
+    payment_items = relationship(
+        "PaymentItem", back_populates="payment", cascade="all, delete-orphan"
+    )
+    status_entries = relationship(
+        "PaymentStatusHistory",
+        back_populates="payment",
+        cascade="all, delete-orphan",
+        order_by="PaymentStatusHistory.created_at"
+    )
+    edit_histories = relationship(
+        "PaymentEditHistory",
+        back_populates="payment",
+        cascade="all, delete-orphan",
+        order_by="PaymentEditHistory.updated_at"
+    )
 
     def __repr__(self):
         return f"<Payment(id={self.id}, amount={self.amount}, self_payment={self.self_payment}, status={self.status})>"
 
+
+class PaymentEditHistory(Base):
+    __tablename__ = "payment_edit_histories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
+    payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
+    old_amount = Column(Float, nullable=False)
+    new_amount = Column(Float, nullable=False)
+    remarks = Column(Text, nullable=True)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+
+    # Relationship back to Payment
+    payment = relationship("Payment", back_populates="edit_histories")
+
+    def __repr__(self):
+        return f"<PaymentEditHistory(old={self.old_amount}, new={self.new_amount}, remarks={self.remarks})>"
 
 
 class PaymentStatusHistory(Base):
@@ -198,41 +273,39 @@ class PaymentStatusHistory(Base):
         )
 
 
+# class PaymentFile(Base):
+#     __tablename__ = "payment_files"
+
+#     id = Column(Integer, primary_key=True, autoincrement=True)
+#     payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
+#     file_path = Column(String(255), nullable=False)
+#     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+#     # ✅ Correct Relationship
+#     payment = relationship("Payment", back_populates="payment_files")
+
+#     def __repr__(self):
+#         return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path})>"
+
 class PaymentFile(Base):
     __tablename__ = "payment_files"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
+    payment_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("payments.uuid", ondelete="CASCADE"),
+        nullable=False
+    )
     file_path = Column(String(255), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
-    # ✅ Correct Relationship
+    # NEW: A column to indicate files that came from the /approve endpoint
+    is_approval_upload = Column(Boolean, default=False, nullable=False)
+
     payment = relationship("Payment", back_populates="payment_files")
 
     def __repr__(self):
-        return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path})>"
-
-
-class Person(Base):
-    __tablename__ = "person"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(
-        UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False
-    )
-    name = Column(String(25), nullable=False)
-    account_number = Column(String(17), nullable=False)
-    ifsc_code = Column(String(11), nullable=False)
-    phone_number = Column(String(10), nullable=False)
-    is_deleted = Column(Boolean, nullable=False, default=False)
-    parent_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
-
-    # Relationship definitions
-    parent = relationship("Person", remote_side=[uuid], back_populates="children")  # Parent account
-    children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")  # Secondary accounts
-
-    def __repr__(self):
-        return f"<Person(id={self.id}, name={self.name}, parent_id={self.parent_id})>"
+        return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path}, is_approval_upload={self.is_approval_upload})>"
 
 
 class ProjectBalance(Base):
@@ -253,7 +326,7 @@ class ProjectBalance(Base):
 
     def __repr__(self):
         return f"<ProjectBalance(project_id={self.project_id}, adjustment={self.adjustment})>"
-    
+
 
 class Item(Base):
     __tablename__ = "items"
