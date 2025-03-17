@@ -63,7 +63,8 @@ def create_khatabook_entry_service(
     db: Session,
     data: Dict,
     file_paths: List[str],
-    user_id: UUID
+    user_id: UUID,
+    current_user: UUID
 ) -> Khatabook:
     """
     Creates a new Khatabook entry and updates the user's balance. 
@@ -78,30 +79,14 @@ def create_khatabook_entry_service(
       'expense_date': datetime string or None
     """
     try:
-        # 1. Retrieve and lock the balance row so no other transaction can modify it.
-        bal_obj = (
-            db.query(KhatabookBalance)
-            .filter(KhatabookBalance.user_uuid == user_id)
-            .with_for_update()  # <-- row-level lock
-            .one_or_none()
-        )
-        if not bal_obj:
-            # Optionally create a new balance record if user has none
-            bal_obj = KhatabookBalance(user_uuid=user_id, balance=0.0)
-            db.add(bal_obj)
-            db.flush()
-
-        old_balance = bal_obj.balance
         amount = float(data.get("amount", 0.0))
 
-        # 2. Subtract the amount from the old balance.
-        #    If you want to disallow negative balances, add a check here:
-        # if old_balance < amount:
-        #     raise HTTPException(status_code=400, detail="Insufficient balance.")
+        user_balance = get_user_balance(user_uuid=current_user, db=db)
+        entries = get_all_khatabook_entries_service(user_id=current_user, db=db)
+        total_amount = sum(entry["amount"] for entry in entries) if entries else 0.0
 
-        new_balance = old_balance - amount
-        bal_obj.balance = new_balance
-
+        new_total_amount = total_amount + amount
+        new_balance = user_balance - new_total_amount
         # 3. Create the Khatabook entry.
         kb_entry = Khatabook(
             amount=amount,
@@ -113,17 +98,17 @@ def create_khatabook_entry_service(
         )
         db.add(kb_entry)
         db.flush()
-
         # 4. Attach items
         item_ids = data.get("item_ids", [])
-        for item_uuid in item_ids:
-            item_obj = db.query(Item).filter(Item.uuid == item_uuid).first()
-            if item_obj:
-                kb_item = KhatabookItem(
-                    khatabook_id=kb_entry.uuid,
-                    item_id=item_obj.uuid
-                )
-                db.add(kb_item)
+        if item_ids:
+            for item_uuid in item_ids:
+                item_obj = db.query(Item).filter(Item.uuid == item_uuid).first()
+                if item_obj:
+                    kb_item = KhatabookItem(
+                        khatabook_id=kb_entry.uuid,
+                        item_id=item_obj.uuid
+                    )
+                    db.add(kb_item)
 
         # 5. Store file attachments
         for f in file_paths:
