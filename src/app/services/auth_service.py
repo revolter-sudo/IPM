@@ -139,7 +139,7 @@ def upload_user_photo(
         # 4) Update user.photo_path. 
         #    If you have a HOST_URL to build a public URL, you can do that too.
         # current_user.photo_path = file_path  
-        current_user.photo_path = f"{constants.HOST_URL}/uploads/users/{unique_filename}"
+        current_user.photo_path = f"{constants.HOST_URL}/uploads/payments/users/{unique_filename}"
         # Alternatively, you can store the final URL if you have a static server for images:
 
         db.commit()
