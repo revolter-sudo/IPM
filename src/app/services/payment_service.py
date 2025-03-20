@@ -746,10 +746,16 @@ def create_person(
     db: Session = Depends(get_db),
 ):
     try:
-        existing_person = db.query(Person).filter(
-            (Person.account_number == request_data.account_number) |
-            (Person.ifsc_code == request_data.ifsc_code)
-        ).first()
+        if request_data.account_number and request_data.ifsc_code:
+            existing_person = db.query(Person).filter(
+                (Person.account_number == request_data.account_number) |
+                (Person.ifsc_code == request_data.ifsc_code)
+            ).first()
+        else:
+            existing_person = db.query(Person).filter(
+                (Person.phone_number == request_data.phone_number) |
+                (Person.upi_number == request_data.upi_number)
+            ).first()
 
         if existing_person:
             return PaymentServiceResponse(

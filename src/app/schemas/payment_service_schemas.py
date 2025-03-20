@@ -23,25 +23,25 @@ class PaymentRequest(BaseModel):
 class CreatePerson(BaseModel):
     name: str
     account_number: Optional[str] = Field(
-        ...,
+        None,
         min_length=7,
         max_length=17,
         description="Account number must be 7 to 17 digits long",
     )
     ifsc_code: Optional[str] = Field(
-        ...,
+        None,
         min_length=11,
         max_length=11,
         description="IFSC code must be exactly 11 characters long",
     )
     phone_number: str = Field(
-        ...,
+        None,
         min_length=10,
         max_length=10,
         description="Phone number must be exactly 10 digits",
     )
     upi_number: str = Field(
-        ...,
+        None,
         min_length=10,
         max_length=10,
         description="upi number must be exactly 10 digits",
