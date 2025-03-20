@@ -50,7 +50,7 @@ class UserResponse(BaseModel):
     name: str
     phone: int
     role: str
-    photo_path: str
+    photo_path: Any
 
     def to_dict(self):
         """
