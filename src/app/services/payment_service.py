@@ -307,8 +307,11 @@ def get_all_payments(
         # For SiteEngineer / SubContractor again, ensure main query is restricted
         if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
             query = query.filter(Payment.created_by == current_user.uuid)
+        if current_user.role in [UserRole.ACCOUNTANT.value]:
+            query = query.filter(Payment.amount <= 5000)
 
-        # If recent, exclude payments which already have status 'transferred' (if that’s part of your logic),
+        # If recent, exclude payments which already have status 'transferred'
+        # (if that’s part of your logic),
         # and also limit to the base_query of last 5
         if recent:
             transferred_sub = (
