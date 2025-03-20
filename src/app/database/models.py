@@ -101,6 +101,7 @@ class User(Base):
     role = Column(String(30), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
+    photo_path = Column(String(255), nullable=True)
 
     # Relationship to Person
     person = relationship(

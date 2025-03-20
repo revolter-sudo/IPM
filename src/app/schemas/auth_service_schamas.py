@@ -50,6 +50,7 @@ class UserResponse(BaseModel):
     name: str
     phone: int
     role: str
+    photo_path: str
 
     def to_dict(self):
         """
@@ -60,6 +61,7 @@ class UserResponse(BaseModel):
             "name": self.name,
             "phone": self.phone,
             "role": self.role,
+            "photo_path": self.photo_path
         }
 
 
