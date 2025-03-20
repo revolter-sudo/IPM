@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, Body, Form
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from src.app.database.database import get_db
 from src.app.database.models import (
     Payment,
@@ -774,7 +774,8 @@ def create_person(
             account_number=request_data.account_number,
             ifsc_code=request_data.ifsc_code,
             phone_number=request_data.phone_number,
-            parent_id=request_data.parent_id  # Link to parent account
+            parent_id=request_data.parent_id,  # Link to parent account
+            upi_number=request_data.upi_number
         )
 
         db.add(new_person)
@@ -828,7 +829,10 @@ def get_all_persons(
             query = query.filter(Person.ifsc_code == ifsc_code)
 
         # Exclude the current user's Person record if it exists:
-        query = query.filter(Person.user_id != current_user.uuid)
+        query = query.filter(or_(
+            Person.user_id.is_(None),
+            Person.user_id != current_user.uuid
+        ))
 
         persons = query.all()
         persons_data = []
@@ -842,13 +846,15 @@ def get_all_persons(
                     "ifsc_code": person.ifsc_code,
                     "phone_number": person.phone_number,
                     "parent_id": person.parent_id,
+                    "upi_number": person.upi_number,
                     "secondary_accounts": [
                         {
                             "uuid": child.uuid,
                             "name": child.name,
                             "account_number": child.account_number,
                             "ifsc_code": child.ifsc_code,
-                            "phone_number": child.phone_number
+                            "phone_number": child.phone_number,
+                            "upi_number": child.upi_number
                         }
                         for child in person.children
                     ]
