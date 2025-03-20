@@ -103,7 +103,12 @@ class User(Base):
     is_active = Column(Boolean, nullable=False, default=True)
 
     # Relationship to Person
-    person = relationship("Person", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    person = relationship(
+        "Person",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
 
 
 class Person(Base):

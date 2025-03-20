@@ -1038,11 +1038,10 @@ def get_all_persons(
     account_number: str = Query(None),
     ifsc_code: str = Query(None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
-        query = db.query(
-            Person
-        ).filter(
+        query = db.query(Person).filter(
             Person.is_deleted.is_(False),
             Person.parent_id.is_(None)
         )
@@ -1055,6 +1054,9 @@ def get_all_persons(
             query = query.filter(Person.account_number == account_number)
         if ifsc_code:
             query = query.filter(Person.ifsc_code == ifsc_code)
+
+        # Exclude the current user's Person record if it exists:
+        query = query.filter(Person.user_id != current_user.uuid)
 
         persons = query.all()
         persons_data = []
@@ -1086,6 +1088,7 @@ def get_all_persons(
             message="All persons info fetched successfully.",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         traceback.print_exc()
         return PaymentServiceResponse(
@@ -1093,6 +1096,7 @@ def get_all_persons(
             message=f"An Error Occurred: {str(e)}",
             status_code=500
         ).model_dump()
+
 
 @payment_router.put(
     "/persons/delete",
