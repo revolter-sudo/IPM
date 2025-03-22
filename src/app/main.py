@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi_sqlalchemy import DBSessionMiddleware
 import os
+import uvicorn
 from fastapi.staticfiles import StaticFiles
 from src.app.database.database import settings
 from src.app.services.auth_service import auth_router
@@ -36,3 +37,7 @@ app.include_router(khatabook_router)
 @app.get("/healthcheck")
 def healthcheck():
     return {"status": "ok"}
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

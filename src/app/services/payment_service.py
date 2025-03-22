@@ -489,19 +489,18 @@ def get_parent_account_data(person_id: UUID, db):
 
 
 def can_edit_payment(status_history: List[str], current_user_role: str) -> bool:
-    # If transferred / verified / declined found in history — cannot edit
-    if any(status in [PaymentStatus.TRANSFERRED, PaymentStatus.VERIFIED, PaymentStatus.DECLINED] for status in status_history):
+    # SiteEngineer and SubContractor can never edit
+    if current_user_role in [UserRole.SITE_ENGINEER, UserRole.SUB_CONTRACTOR]:
         return False
 
-    # If Project Manager and approved is in history, cannot edit
-    if current_user_role == UserRole.PROJECT_MANAGER and PaymentStatus.APPROVED in status_history:
-        return False
+    # Project Manager, Admin, Accountant, SuperAdmin can edit in any status except transferred or declined
+    if current_user_role in [UserRole.PROJECT_MANAGER, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        if any(status in [PaymentStatus.TRANSFERRED, PaymentStatus.DECLINED] for status in status_history):
+            return False
+        return True
 
-    # If requested stage present, only editable if not SiteEngineer or SubContractor
-    if PaymentStatus.REQUESTED in status_history and current_user_role in [UserRole.SITE_ENGINEER, UserRole.SUB_CONTRACTOR]:
-        return False
+    return False
 
-    return True
 
 @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
 def get_all_payments(
