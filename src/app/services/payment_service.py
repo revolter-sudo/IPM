@@ -657,7 +657,8 @@ def get_all_payments(
                             "person_uuid": str(payment.person) if payment.person else None,
                             "name": person_name,
                             "account_number": str(row.account_number) if row.account_number else None,
-                            "ifsc_code": row.ifsc_code if row.ifsc_code else None
+                            "ifsc_code": row.ifsc_code if row.ifsc_code else None,
+                            "upi_number": row.upi_number if row.upi_number else None
                         },
                         created_by={"uuid": str(payment.created_by), "name": user_name} if payment.created_by else None,
                         files=file_urls,
