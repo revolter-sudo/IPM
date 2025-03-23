@@ -559,8 +559,8 @@ def get_all_payments(
 
         if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
             query = query.filter(Payment.created_by == current_user.uuid)
-        if current_user.role == UserRole.ACCOUNTANT.value:
-            query = query.filter(Payment.amount <= 5000)
+        # if current_user.role == UserRole.ACCOUNTANT.value:
+        #     query = query.filter(Payment.amount <= 5000)
 
         if recent:
             transferred_sub = db.query(PaymentStatusHistory.payment_id).filter(PaymentStatusHistory.status == "transferred").subquery()
@@ -573,10 +573,19 @@ def get_all_payments(
             query = query.filter(Payment.project_id == project_id)
         if status is not None:
             query = query.filter(Payment.status == status)
-        if start_date is not None:
-            query = query.filter(Payment.created_at >= start_date)
-        if end_date is not None:
-            query = query.filter(Payment.created_at <= end_date)
+        # if start_date is not None:
+        #     query = query.filter(Payment.created_at >= start_date)
+        # if end_date is not None:
+        #     query = query.filter(Payment.created_at <= end_date)
+        if start_date is not None and end_date is not None:
+            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            query = query.filter(Payment.created_at.between(start_date, end_date))
+        else:
+            if start_date is not None:
+                query = query.filter(Payment.created_at >= start_date)
+            if end_date is not None:
+                end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                query = query.filter(Payment.created_at <= end_date)
         if person_id is not None:
             query = query.filter(Payment.person == person_id)
         if item_id is not None:
@@ -690,6 +699,93 @@ def get_all_payments(
             data=None,
             message=f"An Error Occurred: {str(e)}",
             status_code=500
+        ).model_dump()
+
+
+@payment_router.put("/cancel-status")
+def cancel_payment_status(
+    payment_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        if current_user.role not in [
+            UserRole.PROJECT_MANAGER.value,
+            UserRole.ACCOUNTANT.value,
+            UserRole.ADMIN.value,
+            UserRole.SUPER_ADMIN.value,
+        ]:
+            return PaymentServiceResponse(
+                data=None,
+                message="You are not authorized to cancel payment status.",
+                status_code=403,
+            ).model_dump()
+
+        payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
+        if not payment:
+            return PaymentServiceResponse(
+                data=None,
+                message="Payment not found.",
+                status_code=404,
+            ).model_dump()
+
+        # Prevent cancellation if last status is 'transferred'
+        history_entries = (
+            db.query(PaymentStatusHistory)
+            .filter(PaymentStatusHistory.payment_id == payment_id)
+            .order_by(PaymentStatusHistory.created_at.desc())
+            .all()
+        )
+
+        if len(history_entries) <= 1:
+            return PaymentServiceResponse(
+                data=None,
+                message="Cannot cancel the only status in history.",
+                status_code=400,
+            ).model_dump()
+
+        last_status_entry = history_entries[0]
+
+        if last_status_entry.status == PaymentStatus.TRANSFERRED.value:
+            return PaymentServiceResponse(
+                data=None,
+                message="Transferred status cannot be canceled.",
+                status_code=400,
+            ).model_dump()
+
+        previous_status = history_entries[1].status
+
+        # Delete the last status record
+        db.delete(last_status_entry)
+
+        # Update payment current status to previous
+        payment.status = previous_status
+
+        # Add log entry
+        db.add(
+            Log(
+                uuid=str(uuid4()),
+                entity="Payment",
+                action="Cancel Last Status",
+                entity_id=payment_id,
+                performed_by=current_user.uuid,
+            )
+        )
+
+        db.commit()
+
+        return PaymentServiceResponse(
+            data=None,
+            message="Last payment status cancelled and reverted successfully.",
+            status_code=200,
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500,
         ).model_dump()
 
 
