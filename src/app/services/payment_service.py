@@ -533,6 +533,7 @@ def get_all_payments(
                 Person.name.label("person_name"),
                 Person.account_number,
                 Person.ifsc_code,
+                Person.upi_number,
                 User.name.label("user_name"),
                 PaymentStatusHistory.status.label("history_status"),
                 PaymentStatusHistory.created_at.label("history_created_at"),
