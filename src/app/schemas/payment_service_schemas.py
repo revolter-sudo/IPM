@@ -13,6 +13,11 @@ class PaymentStatus(str, Enum):
     DECLINED = "declined"
 
 
+class ItemListTag(str, Enum):
+    khatabook = "khatabook"
+    payment = "payment"
+
+
 class PaymentRequest(BaseModel):
     amount: float
     description: Optional[str] = None

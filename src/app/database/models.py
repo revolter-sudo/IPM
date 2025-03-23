@@ -347,6 +347,7 @@ class Item(Base):
     uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
     name = Column(String(100), nullable=False)
     category = Column(String(100), nullable=True)
+    list_tag = Column(String(30), nullable=True)
 
     # Relationship for payments associated with this item
     payments = relationship("PaymentItem", back_populates="item", cascade="all, delete-orphan")

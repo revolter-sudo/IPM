@@ -34,7 +34,8 @@ from src.app.schemas.payment_service_schemas import (
     PaymentServiceResponse,
     CreatePaymentRequest,
     PaymentUpdateSchema,
-    StatusDatePair
+    StatusDatePair,
+    ItemListTag
 )
 from sqlalchemy.orm import aliased
 from sqlalchemy import desc
@@ -1223,9 +1224,18 @@ def delete_person(person_uuid: UUID, db: Session = Depends(get_db), current_user
 
 
 @payment_router.post("/items", tags=["Items"], status_code=201)
-def create_item(name: str, category: Optional[str] = None, db: Session = Depends(get_db)):
+def create_item(
+    name: str,
+    list_tag: ItemListTag,
+    category: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     try:
-        new_item = Item(name=name, category=category)
+        new_item = Item(
+            name=name,
+            category=category,
+            list_tag=list_tag
+        )
         db.add(new_item)
         db.commit()
         db.refresh(new_item)
@@ -1248,7 +1258,7 @@ def create_item(name: str, category: Optional[str] = None, db: Session = Depends
 def list_items(db: Session = Depends(get_db)):
     try:
         items = db.query(Item).all()
-        items_data = [{"uuid": str(item.uuid), "name": item.name, "category": item.category} for item in items]
+        items_data = [{"uuid": str(item.uuid), "name": item.name, "category": item.category, "list_tag": item.list_tag} for item in items]
 
         return PaymentServiceResponse(
             data=items_data,
