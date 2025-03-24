@@ -1271,7 +1271,7 @@ def list_items(db: Session = Depends(get_db)):
             message=f"Error fetching items: {str(e)}",
             status_code=500
         ).model_dump()
-    
+
 
 @payment_router.delete("/items/{item_uuid}", tags=["Items"], status_code=200)
 def delete_item(item_uuid: UUID, db: Session = Depends(get_db)):
@@ -1301,5 +1301,3 @@ def delete_item(item_uuid: UUID, db: Session = Depends(get_db)):
             message=f"Error deleting item: {str(e)}",
             status_code=500
         ).model_dump()
-    
-

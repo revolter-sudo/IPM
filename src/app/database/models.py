@@ -384,3 +384,16 @@ class KhatabookBalance(Base):
 
     def __repr__(self):
         return f"<KhatabookBalance(id={self.id}, user_uuid={self.user_uuid}, balance={self.balance})>"
+
+
+class BalanceDetail(Base):
+    __tablename__ = "balance_details"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(
+        UUID(as_uuid=True),
+        unique=True,
+        nullable=False,
+        default=uuid.uuid4
+    )
+    balance = Column(Float, nullable=False)
