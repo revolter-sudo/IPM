@@ -385,8 +385,9 @@ def get_bank_balance(
             ).model_dump()
         recorded_balance = get_total_transferred_payments_sum(db=db)
         remaining_balance = balance - recorded_balance
+        result = {"balance": remaining_balance}
         return ProjectServiceResponse(
-            data=remaining_balance,
+            data=result,
             status_code=200,
             message="Balance Fetched Successfully."
         ).model_dump()
