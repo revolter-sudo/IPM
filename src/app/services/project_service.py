@@ -324,7 +324,7 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
     tags=["Bank Balance"]
 )
 def create_balance(
-    balance_amount: int,
+    balance_amount: str,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
