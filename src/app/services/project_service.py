@@ -6,7 +6,14 @@ from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from src.app.database.database import get_db
-from src.app.database.models import Log, Project, ProjectBalance, User, BalanceDetail
+from src.app.database.models import (
+    Log,
+    Project,
+    ProjectBalance,
+    User,
+    BalanceDetail,
+    Payment
+)
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
 from src.app.schemas.project_service_schemas import (
@@ -322,7 +329,10 @@ def create_balance(
     user: User = Depends(get_current_user),
 ):
     try:
-        if user.role not in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
+        if user.role not in [
+            UserRole.ACCOUNTANT.value,
+            UserRole.SUPER_ADMIN.value
+        ]:
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
@@ -350,6 +360,13 @@ def create_balance(
         ).model_dump()
 
 
+def get_total_transferred_payments_sum(db):
+    total_sum = db.query(func.sum(Payment.amount))\
+                  .filter(Payment.status == 'transferred', Payment.is_deleted == False)\
+                  .scalar()
+    return total_sum or 0.0
+
+
 @balance_router.get(
     "/balance",
     tags=["Bank Balance"]
@@ -359,15 +376,17 @@ def get_bank_balance(
 ):
     try:
         balance_obj = db.query(BalanceDetail).first()
+        balance = balance_obj.balance
         if not balance_obj:
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
                 message="Balance Not Found"
             ).model_dump()
-
+        recorded_balance = get_total_transferred_payments_sum(db=db)
+        remaining_balance = balance - recorded_balance
         return ProjectServiceResponse(
-            data=balance_obj,
+            data=remaining_balance,
             status_code=200,
             message="Balance Fetched Successfully."
         ).model_dump()
