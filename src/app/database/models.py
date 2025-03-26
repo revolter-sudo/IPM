@@ -29,7 +29,7 @@ class Khatabook(Base):
     person_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=False)  # Ensure person_id is required
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     expense_date = Column(TIMESTAMP, nullable=True)  # New field for user-entered date
-
+    payment_mode = Column(String(50), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     balance_after_entry = Column(Float, nullable=True)
@@ -284,20 +284,6 @@ class PaymentStatusHistory(Base):
             f"payment_id={self.payment_id}, status={self.status})>"
         )
 
-
-# class PaymentFile(Base):
-#     __tablename__ = "payment_files"
-
-#     id = Column(Integer, primary_key=True, autoincrement=True)
-#     payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
-#     file_path = Column(String(255), nullable=False)
-#     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
-
-#     # ✅ Correct Relationship
-#     payment = relationship("Payment", back_populates="payment_files")
-
-#     def __repr__(self):
-#         return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path})>"
 
 class PaymentFile(Base):
     __tablename__ = "payment_files"
