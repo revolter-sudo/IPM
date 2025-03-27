@@ -70,6 +70,7 @@ class CreatePaymentRequest(BaseModel):
     self_payment: bool  # New Field
     latitude: float
     longitude: float
+    priority_id: Optional[UUID] = None
 
     class Config:
         json_schema_extra = {
@@ -83,7 +84,8 @@ class CreatePaymentRequest(BaseModel):
                 "person": "e194159d-ce26-43e1-ace0-db4b00d4c43e",
                 "self_payment": True,  # Self-payment flag
                 "latitude": 22.5726,
-                "longitude": 88.3639
+                "longitude": 88.3639,
+                "priority_id": "9c4f2ae4-a046-421f-b52f-a50c169165c3"
             }
         }
 

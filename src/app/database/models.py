@@ -213,6 +213,13 @@ class Payment(Base):
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     transferred_date = Column(TIMESTAMP, nullable=True)
+    priority_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("priorities.uuid"),
+        nullable=True  # or nullable=False if you want to make it mandatory
+    )
+
+    priority_rel = relationship("Priority", foreign_keys=[priority_id], lazy="joined")
 
     # NEW RELATIONSHIP: link to Person table for the 'person' FK
     person_rel = relationship("Person", foreign_keys=[person], lazy="joined")
@@ -383,3 +390,17 @@ class BalanceDetail(Base):
         default=uuid.uuid4
     )
     balance = Column(Float, nullable=False)
+
+
+class Priority(Base):
+    __tablename__ = "priorities"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(
+        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
+    )
+    priority = Column(String(50), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
+    def __repr__(self):
+        return f"<Priority(id={self.id}, uuid={self.uuid}, priority={self.priority})>"
