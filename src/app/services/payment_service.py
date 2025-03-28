@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, Body, Form
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from src.app.database.database import get_db
 from src.app.database.models import (
     Payment,
@@ -21,7 +21,8 @@ from src.app.database.models import (
     PaymentStatusHistory,
     Log,
     KhatabookBalance,
-    PaymentEditHistory
+    PaymentEditHistory,
+    Priority
 )
 from src.app.schemas.auth_service_schamas import UserRole
 from uuid import uuid4
@@ -34,8 +35,10 @@ from src.app.schemas.payment_service_schemas import (
     PaymentServiceResponse,
     CreatePaymentRequest,
     PaymentUpdateSchema,
-    StatusDatePair
+    StatusDatePair,
+    ItemListTag
 )
+from sqlalchemy.orm import aliased
 from sqlalchemy import desc
 from sqlalchemy.exc import SQLAlchemyError
 from src.app.services.auth_service import get_current_user
@@ -44,69 +47,6 @@ import json
 from collections import defaultdict
 
 payment_router = APIRouter(prefix="/payments", tags=["Payments"])
-
-
-# @payment_router.post("", tags=["Payments"], status_code=201)
-# def create_payment(
-#     request: str = Form(...),
-#     files: Optional[List[UploadFile]] = File(None),
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(get_current_user),
-# ):
-#     try:
-#         request_data = json.loads(request)
-#         payment_request = CreatePaymentRequest(**request_data)
-
-#         # Validate project
-#         project = db.query(Project).filter(Project.uuid == payment_request.project_id).first()
-#         if not project:
-#             return PaymentServiceResponse(status_code=404, data=None, message="Project not found.").model_dump()
-
-#         # Create Payment
-#         new_payment = Payment(
-#             amount=payment_request.amount,
-#             description=payment_request.description,
-#             project_id=payment_request.project_id,
-#             status='requested',
-#             remarks=payment_request.remarks,
-#             created_by=current_user.uuid,
-#             person=payment_request.person,
-#             self_payment=payment_request.self_payment,  # Store self-payment flag
-#             latitude=payment_request.latitude,
-#             longitude=payment_request.longitude,
-#         )
-#         db.add(new_payment)
-#         db.flush()
-
-#         # Create payment status history
-#         db.add(PaymentStatusHistory(payment_id=new_payment.uuid, status='requested', created_by=current_user.uuid))
-#         db.flush()
-#         # Link items if provided
-#         if payment_request.item_uuids:
-#             db.add_all([PaymentItem(payment_id=new_payment.uuid, item_id=item_id) for item_id in payment_request.item_uuids])
-
-#         # Update project balance
-#         create_project_balance_entry(
-#             db=db, project_id=payment_request.project_id, adjustment=-payment_request.amount,
-#             description="Payment deduction", current_user=current_user
-#         )
-
-#         # Handle file uploads
-#         if files:
-#             upload_dir = constants.UPLOAD_DIR
-#             os.makedirs(upload_dir, exist_ok=True)
-#             for file in files:
-#                 file_path = os.path.join(upload_dir, file.filename)
-#                 with open(file_path, "wb") as buffer:
-#                     buffer.write(file.file.read())
-#                 db.add(PaymentFile(payment_id=new_payment.uuid, file_path=file_path))
-
-#         db.commit()
-#         return PaymentServiceResponse(data={"payment_uuid": new_payment.uuid}, message="Payment created successfully.", status_code=201).model_dump()
-
-#     except Exception as e:
-#         db.rollback()
-#         return PaymentServiceResponse(status_code=500, data=None, message=f"An error occurred: {str(e)}").model_dump()
 
 
 @payment_router.post("", tags=["Payments"], status_code=201)
@@ -123,6 +63,8 @@ def create_payment(
     Links items, uploads files, creates PaymentStatusHistory, and adjusts project balance.
     """
     try:
+        import pdb
+        pdb.set_trace()
         request_data = json.loads(request)
         payment_request = CreatePaymentRequest(**request_data)
 
@@ -160,6 +102,7 @@ def create_payment(
             self_payment=payment_request.self_payment, # store the flag
             latitude=payment_request.latitude,
             longitude=payment_request.longitude,
+            priority_id=payment_request.priority_id,
         )
         db.add(new_payment)
         db.flush()  # flush so new_payment.uuid is available
@@ -296,49 +239,269 @@ def get_parent_account_data(person_id: UUID, db):
         ).model_dump()
 
 
-from sqlalchemy.orm import aliased
+def can_edit_payment(status_history: List[str], current_user_role: str) -> bool:
+    # SiteEngineer and SubContractor can never edit
+    if current_user_role in [UserRole.SITE_ENGINEER, UserRole.SUB_CONTRACTOR]:
+        return False
+
+    # Project Manager, Admin, Accountant, SuperAdmin can edit in any status except transferred or declined
+    if current_user_role in [UserRole.PROJECT_MANAGER, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        if any(status in [PaymentStatus.TRANSFERRED, PaymentStatus.DECLINED] for status in status_history):
+            return False
+        return True
+
+    return False
+
+
+# @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
+# def get_all_payments(
+#     db: Session = Depends(get_db),
+#     amount: Optional[float] = Query(None),
+#     project_id: Optional[UUID] = Query(None),
+#     status: Optional[str] = Query(None),
+#     start_date: Optional[datetime] = Query(None),
+#     end_date: Optional[datetime] = Query(None),
+#     recent: Optional[bool] = Query(False),
+#     person_id: Optional[UUID] = Query(None),
+#     item_id: Optional[UUID] = Query(None),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     try:
+#         base_query = db.query(Payment.uuid).filter(Payment.is_deleted.is_(False))
+
+#         if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
+#             base_query = base_query.filter(Payment.created_by == current_user.uuid)
+
+#         if recent:
+#             base_query = base_query.order_by(desc(Payment.created_at)).limit(5).subquery()
+
+#         EditUser = aliased(User)
+
+#         query = (
+#             db.query(
+#                 Payment,
+#                 Project.name.label("project_name"),
+#                 Person.name.label("person_name"),
+#                 Person.account_number,
+#                 Person.ifsc_code,
+#                 Person.upi_number,
+#                 User.name.label("user_name"),
+#                 PaymentStatusHistory.status.label("history_status"),
+#                 PaymentStatusHistory.created_at.label("history_created_at"),
+#                 PaymentEditHistory.old_amount.label("edit_old_amount"),
+#                 PaymentEditHistory.new_amount.label("edit_new_amount"),
+#                 PaymentEditHistory.remarks.label("edit_remarks"),
+#                 PaymentEditHistory.updated_at.label("edit_updated_at"),
+#                 EditUser.name.label("edit_updated_by_name"),
+#                 EditUser.role.label("edit_updated_by_role"),
+#             )
+#             .outerjoin(Project, Payment.project_id == Project.uuid)
+#             .outerjoin(Person, Payment.person == Person.uuid)
+#             .outerjoin(User, Payment.created_by == User.uuid)
+#             .outerjoin(PaymentFile)
+#             .outerjoin(PaymentItem, Payment.uuid == PaymentItem.payment_id)
+#             .outerjoin(Item, PaymentItem.item_id == Item.uuid)
+#             .outerjoin(PaymentStatusHistory, Payment.uuid == PaymentStatusHistory.payment_id)
+#             .outerjoin(PaymentEditHistory, Payment.uuid == PaymentEditHistory.payment_id)
+#             .outerjoin(EditUser, PaymentEditHistory.updated_by == EditUser.uuid)
+#             .filter(Payment.is_deleted.is_(False))
+#             .order_by(Payment.created_at.desc())
+#         )
+
+#         if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
+#             query = query.filter(Payment.created_by == current_user.uuid)
+#         # if current_user.role == UserRole.ACCOUNTANT.value:
+#         #     query = query.filter(Payment.amount <= 5000)
+
+#         if recent:
+#             transferred_sub = db.query(PaymentStatusHistory.payment_id).filter(PaymentStatusHistory.status == "transferred").subquery()
+#             query = query.filter(~Payment.uuid.in_(transferred_sub))
+#             query = query.filter(Payment.uuid.in_(db.query(base_query.c.uuid)))
+
+#         if amount is not None:
+#             query = query.filter(Payment.amount == amount)
+#         if project_id is not None:
+#             query = query.filter(Payment.project_id == project_id)
+#         if status is not None:
+#             query = query.filter(Payment.status == status)
+#         # if start_date is not None:
+#         #     query = query.filter(Payment.created_at >= start_date)
+#         # if end_date is not None:
+#         #     query = query.filter(Payment.created_at <= end_date)
+#         if start_date is not None and end_date is not None:
+#             end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+#             query = query.filter(Payment.created_at.between(start_date, end_date))
+#         else:
+#             if start_date is not None:
+#                 query = query.filter(Payment.created_at >= start_date)
+#             if end_date is not None:
+#                 end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+#                 query = query.filter(Payment.created_at <= end_date)
+#         if person_id is not None:
+#             query = query.filter(Payment.person == person_id)
+#         if item_id is not None:
+#             query = query.filter(PaymentItem.item_id == item_id)
+
+#         results = query.all()
+
+#         grouped_data = defaultdict(lambda: {"row_data": None, "statuses": [], "status_seen": set(), "edits": [], "edits_seen": set()})
+
+#         for row in results:
+#             payment_obj = row[0]
+#             if not grouped_data[payment_obj.uuid]["row_data"]:
+#                 grouped_data[payment_obj.uuid]["row_data"] = row
+
+#             history_status = row.history_status
+#             history_created_at = row.history_created_at
+#             if history_status and history_created_at:
+#                 date_str = history_created_at.strftime("%d-%m-%Y")
+#                 status_key = (history_status, date_str)
+#                 if status_key not in grouped_data[payment_obj.uuid]["status_seen"]:
+#                     grouped_data[payment_obj.uuid]["status_seen"].add(status_key)
+#                     grouped_data[payment_obj.uuid]["statuses"].append({"status": history_status, "date": date_str})
+
+#             if row.edit_old_amount is not None and row.edit_new_amount is not None:
+#                 edit_key = (
+#                     row.edit_old_amount,
+#                     row.edit_new_amount,
+#                     row.edit_remarks,
+#                     row.edit_updated_at,
+#                     row.edit_updated_by_name,
+#                     row.edit_updated_by_role
+#                 )
+#                 if edit_key not in grouped_data[payment_obj.uuid]["edits_seen"]:
+#                     grouped_data[payment_obj.uuid]["edits_seen"].add(edit_key)
+#                     grouped_data[payment_obj.uuid]["edits"].append({
+#                         "old_amount": row.edit_old_amount,
+#                         "new_amount": row.edit_new_amount,
+#                         "remarks": row.edit_remarks,
+#                         "updated_at": row.edit_updated_at.strftime("%Y-%m-%d %H:%M:%S") if row.edit_updated_at else None,
+#                         "updated_by": {"name": row.edit_updated_by_name, "role": row.edit_updated_by_role}
+#                     })
+
+#         payments_data = []
+
+#         for payment_uuid, data in grouped_data.items():
+#             data["edits"].reverse()
+#             row = data["row_data"]
+#             payment = row[0]
+
+#             status_list = [status_entry["status"] for status_entry in data["statuses"]]
+
+#             project_name = row.project_name
+#             person_name = row.person_name
+#             user_name = row.user_name
+
+#             file_urls = []
+#             if payment.payment_files:
+#                 for f in payment.payment_files:
+#                     if not f.is_approval_upload:
+#                         filename = os.path.basename(f.file_path)
+#                         file_url = f"{constants.HOST_URL}/uploads/payments/{filename}"
+#                         file_urls.append(file_url)
+
+#             item_names = []
+#             if payment.payment_items:
+#                 item_names = [p_item.item.name for p_item in payment.payment_items if p_item.item]
+
+#             parent_data = get_parent_account_data(person_id=payment.person, db=db)
+
+#             payments_data.append(
+#                 {
+#                     **PaymentsResponse(
+#                         uuid=payment.uuid,
+#                         amount=payment.amount,
+#                         description=payment.description,
+#                         project={"uuid": str(payment.project_id), "name": project_name} if payment.project_id else None,
+#                         person={"uuid": str(parent_data.uuid), "name": parent_data.name} if parent_data else None,
+#                         payment_details={
+#                             "person_uuid": str(payment.person) if payment.person else None,
+#                             "name": person_name,
+#                             "account_number": str(row.account_number) if row.account_number else None,
+#                             "ifsc_code": row.ifsc_code if row.ifsc_code else None,
+#                             "upi_number": row.upi_number if row.upi_number else None
+#                         },
+#                         created_by={"uuid": str(payment.created_by), "name": user_name} if payment.created_by else None,
+#                         files=file_urls,
+#                         items=item_names,
+#                         remarks=payment.remarks,
+#                         status_history=[StatusDatePair(**h) for h in data["statuses"]],
+#                         current_status=payment.status,
+#                         created_at=payment.created_at.strftime("%Y-%m-%d"),
+#                         update_remarks=payment.update_remarks,
+#                         latitude=payment.latitude,
+#                         longitude=payment.longitude,
+#                         transferred_date=payment.transferred_date.strftime("%Y-%m-%d") if payment.transferred_date else None,
+#                         payment_history=data["edits"]
+#                     ).model_dump(),
+#                     "edit": can_edit_payment(status_list, current_user.role)
+#                 }
+#             )
+
+#         return PaymentServiceResponse(
+#             data=payments_data,
+#             message="Recent Payments fetched successfully." if recent else "All Payments fetched successfully.",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         print(f"Error in get_all_payments API: {str(e)}")
+#         return PaymentServiceResponse(
+#             data=None,
+#             message=f"An Error Occurred: {str(e)}",
+#             status_code=500
+#         ).model_dump()
 
 
 @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
 def get_all_payments(
     db: Session = Depends(get_db),
-    amount: Optional[float] = Query(None, description="Filter by payment amount"),
-    project_id: Optional[UUID] = Query(None, description="Filter by project ID"),
-    status: Optional[str] = Query(None, description="Filter by payment status"),
-    start_date: Optional[datetime] = Query(None, description="Filter by start date (created_at)"),
-    end_date: Optional[datetime] = Query(None, description="Filter by end date (created_at)"),
-    recent: Optional[bool] = Query(False, description="Show only last 5 payments if true"),
-    person_id: Optional[UUID] = Query(None, description="Filter by person ID"),
-    item_id: Optional[UUID] = Query(None, description="Filter by item ID"),
+    amount: Optional[float] = Query(None),
+    project_id: Optional[UUID] = Query(None),
+    status: Optional[str] = Query(None),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    recent: Optional[bool] = Query(False),
+    person_id: Optional[UUID] = Query(None),
+    item_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Fetches payments, optionally filtering by amount, project, status,
-    date range, person, item, and optionally returning only the most recent 5.
-
-    Joins:
-      - PaymentStatusHistory to build a status_history
-      - PaymentEditHistory to build a payment_history
-      - An aliased User (EditUser) to get the name & role for updated_by
-
-    Excludes files uploaded during the /approve step, i.e., where is_approval_upload=True.
+    Fetches payments, optionally filtering by:
+      - amount
+      - project_id
+      - status
+      - date range (start_date, end_date)
+      - person_id
+      - item_id
+      - 'recent' (last 5, excluding 'transferred')
+    
+    Returns structured data with:
+      - Payment details (description, remarks, date, etc.)
+      - Project info (uuid, name)
+      - Person info (name, account_number, ifsc_code, upi_number)
+      - Created-by user info
+      - Files
+      - Items
+      - Priority name
+      - Status history
+      - Edit history
+      - Whether the current user can edit this payment
     """
     try:
-        # STEP 1: Build a subquery of Payment UUIDs (optional filtering for Site Engineer or "recent")
         base_query = db.query(Payment.uuid).filter(Payment.is_deleted.is_(False))
 
-        # If the user is a Site Engineer, restrict to their own payments
-        if current_user.role == UserRole.SITE_ENGINEER.value:
+        # Restrict to own payments if current_user is site_engineer/sub_contractor
+        if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
             base_query = base_query.filter(Payment.created_by == current_user.uuid)
 
-        # If recent flag is set, get the last 5 payments
+        # If 'recent' is True, take the last 5 payments (excluding 'transferred' below)
         if recent:
             base_query = base_query.order_by(desc(Payment.created_at)).limit(5).subquery()
 
-        # We'll alias the User model to avoid confusion with Payment.created_by
         EditUser = aliased(User)
 
-        # STEP 2: Main query with PaymentStatusHistory and PaymentEditHistory (plus EditUser)
+        # MAIN query: join everything we need (Projects, Person, Priority, PaymentFile, PaymentItem, etc.)
         query = (
             db.query(
                 Payment,
@@ -346,7 +509,8 @@ def get_all_payments(
                 Person.name.label("person_name"),
                 Person.account_number,
                 Person.ifsc_code,
-                User.name.label("user_name"),  # Payment.created_by user
+                Person.upi_number,
+                User.name.label("user_name"),
                 PaymentStatusHistory.status.label("history_status"),
                 PaymentStatusHistory.created_at.label("history_created_at"),
                 PaymentEditHistory.old_amount.label("edit_old_amount"),
@@ -355,130 +519,157 @@ def get_all_payments(
                 PaymentEditHistory.updated_at.label("edit_updated_at"),
                 EditUser.name.label("edit_updated_by_name"),
                 EditUser.role.label("edit_updated_by_role"),
+                Priority.priority.label("priority_name"),  # <-- Priority name
             )
             .outerjoin(Project, Payment.project_id == Project.uuid)
             .outerjoin(Person, Payment.person == Person.uuid)
             .outerjoin(User, Payment.created_by == User.uuid)
-            .outerjoin(PaymentFile)  # We'll do python-level filtering for is_approval_upload
+            .outerjoin(PaymentFile)
             .outerjoin(PaymentItem, Payment.uuid == PaymentItem.payment_id)
             .outerjoin(Item, PaymentItem.item_id == Item.uuid)
             .outerjoin(PaymentStatusHistory, Payment.uuid == PaymentStatusHistory.payment_id)
             .outerjoin(PaymentEditHistory, Payment.uuid == PaymentEditHistory.payment_id)
             .outerjoin(EditUser, PaymentEditHistory.updated_by == EditUser.uuid)
+            # NEW: join Priority so we can display priority name
+            .outerjoin(Priority, Payment.priority_id == Priority.uuid)
             .filter(Payment.is_deleted.is_(False))
             .order_by(Payment.created_at.desc())
         )
 
-        # Site Engineer check (redundant if user.role == "Site Engineer", but kept for clarity)
-        if current_user.role == "Site Engineer":
+        # Additional restriction if user is site_engineer/sub_contractor
+        if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
             query = query.filter(Payment.created_by == current_user.uuid)
 
-        # If recent flag is set, exclude already "transferred" payments
+        # Exclude 'transferred' in "recent" & keep only the last 5 from base_query
         if recent:
-            transferred_subquery = (
+            transferred_sub = (
                 db.query(PaymentStatusHistory.payment_id)
                 .filter(PaymentStatusHistory.status == "transferred")
                 .subquery()
             )
-            query = query.filter(~Payment.uuid.in_(transferred_subquery))
+            query = query.filter(~Payment.uuid.in_(transferred_sub))
             query = query.filter(Payment.uuid.in_(db.query(base_query.c.uuid)))
 
-        # STEP 3: Apply optional filters
+        # Apply optional filters
         if amount is not None:
             query = query.filter(Payment.amount == amount)
         if project_id is not None:
             query = query.filter(Payment.project_id == project_id)
         if status is not None:
             query = query.filter(Payment.status == status)
-        if start_date is not None:
-            query = query.filter(Payment.created_at >= start_date)
-        if end_date is not None:
-            query = query.filter(Payment.created_at <= end_date)
+
+        # Handle date-range filters properly
+        if start_date is not None and end_date is not None:
+            # Make end_date inclusive to end of that day
+            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            query = query.filter(Payment.created_at.between(start_date, end_date))
+        else:
+            if start_date is not None:
+                query = query.filter(Payment.created_at >= start_date)
+            if end_date is not None:
+                end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                query = query.filter(Payment.created_at <= end_date)
+
         if person_id is not None:
             query = query.filter(Payment.person == person_id)
         if item_id is not None:
             query = query.filter(PaymentItem.item_id == item_id)
 
-        # STEP 4: Execute the query (multiple rows per Payment possible)
         results = query.all()
 
-        # STEP 5: Group data by Payment.uuid
-        grouped_data = defaultdict(lambda: {"row_data": None, "statuses": [], "edits": []})
+        # We'll group our data by Payment UUID
+        from collections import defaultdict
+        grouped_data = defaultdict(
+            lambda: {
+                "row_data": None,
+                "statuses": [],
+                "status_seen": set(),
+                "edits": [],
+                "edits_seen": set()
+            }
+        )
 
         for row in results:
             payment_obj = row[0]  # The Payment model instance
-
-            # PaymentStatusHistory columns
-            history_status = row.history_status
-            history_created_at = row.history_created_at
-
-            # PaymentEditHistory columns
-            edit_old_amount = row.edit_old_amount
-            edit_new_amount = row.edit_new_amount
-            edit_remarks = row.edit_remarks
-            edit_updated_at = row.edit_updated_at
-            edit_updated_by_name = row.edit_updated_by_name
-            edit_updated_by_role = row.edit_updated_by_role
-
-            # Save the first row_data for each Payment
             if not grouped_data[payment_obj.uuid]["row_data"]:
                 grouped_data[payment_obj.uuid]["row_data"] = row
 
-            # Collect statuses
-            if history_status:
-                date_str = history_created_at.strftime("%d-%m-%Y")
-                grouped_data[payment_obj.uuid]["statuses"].append(
-                    {"status": history_status, "date": date_str}
+            # Collect status history
+            history_status = row.history_status
+            history_created_at = row.history_created_at
+            if history_status and history_created_at:
+                date_str = history_created_at.strftime("%Y-%m-%d %H:%M:%S")
+                status_key = (history_status, date_str)
+                if status_key not in grouped_data[payment_obj.uuid]["status_seen"]:
+                    grouped_data[payment_obj.uuid]["status_seen"].add(status_key)
+                    grouped_data[payment_obj.uuid]["statuses"].append(
+                        {"status": history_status, "date": date_str}
+                    )
+
+            # Collect edit histories
+            if row.edit_old_amount is not None and row.edit_new_amount is not None:
+                edit_key = (
+                    row.edit_old_amount,
+                    row.edit_new_amount,
+                    row.edit_remarks,
+                    row.edit_updated_at,
+                    row.edit_updated_by_name,
+                    row.edit_updated_by_role
                 )
+                if edit_key not in grouped_data[payment_obj.uuid]["edits_seen"]:
+                    grouped_data[payment_obj.uuid]["edits_seen"].add(edit_key)
+                    grouped_data[payment_obj.uuid]["edits"].append({
+                        "old_amount": row.edit_old_amount,
+                        "new_amount": row.edit_new_amount,
+                        "remarks": row.edit_remarks,
+                        "updated_at": row.edit_updated_at.strftime("%Y-%m-%d %H:%M:%S")
+                        if row.edit_updated_at else None,
+                        "updated_by": {
+                            "name": row.edit_updated_by_name,
+                            "role": row.edit_updated_by_role
+                        }
+                    })
 
-            # Collect edit history
-            if edit_old_amount is not None and edit_new_amount is not None:
-                grouped_data[payment_obj.uuid]["edits"].append({
-                    "old_amount": edit_old_amount,
-                    "new_amount": edit_new_amount,
-                    "remarks": edit_remarks,
-                    "updated_at": edit_updated_at.strftime("%Y-%m-%d %H:%M:%S"),
-                    "updated_by": {
-                        "name": edit_updated_by_name,
-                        "role": edit_updated_by_role
-                    }
-                })
-
-        # STEP 6: Build the final response
+        # Build final list of payments
         payments_data = []
 
         for payment_uuid, data in grouped_data.items():
+            data["edits"].reverse()
             row = data["row_data"]
             payment = row[0]
+
+            # Gather all statuses for the can_edit_payment logic
+            status_list = [entry["status"] for entry in data["statuses"]]
 
             project_name = row.project_name
             person_name = row.person_name
             user_name = row.user_name
-            status_history_array = data["statuses"]
-            edit_history_list = data["edits"]
 
-            # Build file URLs but skip those with is_approval_upload=True
+            # priority name from joined table
+            priority_name = row.priority_name
+
+            # Files (excluding is_approval_upload)
             file_urls = []
             if payment.payment_files:
                 for f in payment.payment_files:
-                    # Filter out approval-time files
                     if not f.is_approval_upload:
                         filename = os.path.basename(f.file_path)
                         file_url = f"{constants.HOST_URL}/uploads/payments/{filename}"
                         file_urls.append(file_url)
 
-            # Build item names
+            # Items
             item_names = []
             if payment.payment_items:
                 item_names = [p_item.item.name for p_item in payment.payment_items if p_item.item]
 
-            # Optionally retrieve "parent" account data
+            # Return parent's data if any
             parent_data = get_parent_account_data(person_id=payment.person, db=db)
 
-            payments_data.append(
-                PaymentsResponse(
+            # Payment response build-up
+            payments_data.append({
+                **PaymentsResponse(
                     uuid=payment.uuid,
-                    amount=payment.amount,  # The current/most recent amount
+                    amount=payment.amount,
                     description=payment.description,
                     project={
                         "uuid": str(payment.project_id),
@@ -492,7 +683,8 @@ def get_all_payments(
                         "person_uuid": str(payment.person) if payment.person else None,
                         "name": person_name,
                         "account_number": str(row.account_number) if row.account_number else None,
-                        "ifsc_code": row.ifsc_code if row.ifsc_code else None
+                        "ifsc_code": row.ifsc_code if row.ifsc_code else None,
+                        "upi_number": row.upi_number if row.upi_number else None
                     },
                     created_by={
                         "uuid": str(payment.created_by),
@@ -501,7 +693,7 @@ def get_all_payments(
                     files=file_urls,
                     items=item_names,
                     remarks=payment.remarks,
-                    status_history=[StatusDatePair(**h) for h in status_history_array],
+                    status_history=[StatusDatePair(**h) for h in data["statuses"]],
                     current_status=payment.status,
                     created_at=payment.created_at.strftime("%Y-%m-%d"),
                     update_remarks=payment.update_remarks,
@@ -511,12 +703,12 @@ def get_all_payments(
                         payment.transferred_date.strftime("%Y-%m-%d")
                         if payment.transferred_date else None
                     ),
-                    # Include all edits
-                    payment_history=edit_history_list
-                ).model_dump()
-            )
+                    payment_history=data["edits"]
+                ).model_dump(),
+                "priority_name": priority_name,  # <--- Add to output
+                "edit": can_edit_payment(status_list, current_user.role)
+            })
 
-        # Return final response
         return PaymentServiceResponse(
             data=payments_data,
             message="Recent Payments fetched successfully." if recent else "All Payments fetched successfully.",
@@ -529,6 +721,93 @@ def get_all_payments(
             data=None,
             message=f"An Error Occurred: {str(e)}",
             status_code=500
+        ).model_dump()
+
+
+@payment_router.put("/cancel-status")
+def cancel_payment_status(
+    payment_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        if current_user.role not in [
+            UserRole.PROJECT_MANAGER.value,
+            UserRole.ACCOUNTANT.value,
+            UserRole.ADMIN.value,
+            UserRole.SUPER_ADMIN.value,
+        ]:
+            return PaymentServiceResponse(
+                data=None,
+                message="You are not authorized to cancel payment status.",
+                status_code=403,
+            ).model_dump()
+
+        payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
+        if not payment:
+            return PaymentServiceResponse(
+                data=None,
+                message="Payment not found.",
+                status_code=404,
+            ).model_dump()
+
+        # Prevent cancellation if last status is 'transferred'
+        history_entries = (
+            db.query(PaymentStatusHistory)
+            .filter(PaymentStatusHistory.payment_id == payment_id)
+            .order_by(PaymentStatusHistory.created_at.desc())
+            .all()
+        )
+
+        if len(history_entries) <= 1:
+            return PaymentServiceResponse(
+                data=None,
+                message="Cannot cancel the only status in history.",
+                status_code=400,
+            ).model_dump()
+
+        last_status_entry = history_entries[0]
+
+        if last_status_entry.status == PaymentStatus.TRANSFERRED.value:
+            return PaymentServiceResponse(
+                data=None,
+                message="Transferred status cannot be canceled.",
+                status_code=400,
+            ).model_dump()
+
+        previous_status = history_entries[1].status
+
+        # Delete the last status record
+        db.delete(last_status_entry)
+
+        # Update payment current status to previous
+        payment.status = previous_status
+
+        # Add log entry
+        db.add(
+            Log(
+                uuid=str(uuid4()),
+                entity="Payment",
+                action="Cancel Last Status",
+                entity_id=payment_id,
+                performed_by=current_user.uuid,
+            )
+        )
+
+        db.commit()
+
+        return PaymentServiceResponse(
+            data=None,
+            message="Last payment status cancelled and reverted successfully.",
+            status_code=200,
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500,
         ).model_dump()
 
 
@@ -790,10 +1069,16 @@ def create_person(
     db: Session = Depends(get_db),
 ):
     try:
-        existing_person = db.query(Person).filter(
-            (Person.account_number == request_data.account_number) |
-            (Person.ifsc_code == request_data.ifsc_code)
-        ).first()
+        if request_data.account_number and request_data.ifsc_code:
+            existing_person = db.query(Person).filter(
+                (Person.account_number == request_data.account_number) |
+                (Person.ifsc_code == request_data.ifsc_code)
+            ).first()
+        else:
+            existing_person = db.query(Person).filter(
+                (Person.phone_number == request_data.phone_number) |
+                (Person.upi_number == request_data.upi_number)
+            ).first()
 
         if existing_person:
             return PaymentServiceResponse(
@@ -818,7 +1103,8 @@ def create_person(
             account_number=request_data.account_number,
             ifsc_code=request_data.ifsc_code,
             phone_number=request_data.phone_number,
-            parent_id=request_data.parent_id  # Link to parent account
+            parent_id=request_data.parent_id,  # Link to parent account
+            upi_number=request_data.upi_number
         )
 
         db.add(new_person)
@@ -854,11 +1140,10 @@ def get_all_persons(
     account_number: str = Query(None),
     ifsc_code: str = Query(None),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
-        query = db.query(
-            Person
-        ).filter(
+        query = db.query(Person).filter(
             Person.is_deleted.is_(False),
             Person.parent_id.is_(None)
         )
@@ -872,6 +1157,12 @@ def get_all_persons(
         if ifsc_code:
             query = query.filter(Person.ifsc_code == ifsc_code)
 
+        # Exclude the current user's Person record if it exists:
+        query = query.filter(or_(
+            Person.user_id.is_(None),
+            Person.user_id != current_user.uuid
+        ))
+
         persons = query.all()
         persons_data = []
 
@@ -884,13 +1175,15 @@ def get_all_persons(
                     "ifsc_code": person.ifsc_code,
                     "phone_number": person.phone_number,
                     "parent_id": person.parent_id,
+                    "upi_number": person.upi_number,
                     "secondary_accounts": [
                         {
                             "uuid": child.uuid,
                             "name": child.name,
                             "account_number": child.account_number,
                             "ifsc_code": child.ifsc_code,
-                            "phone_number": child.phone_number
+                            "phone_number": child.phone_number,
+                            "upi_number": child.upi_number
                         }
                         for child in person.children
                     ]
@@ -902,6 +1195,7 @@ def get_all_persons(
             message="All persons info fetched successfully.",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         traceback.print_exc()
         return PaymentServiceResponse(
@@ -909,6 +1203,7 @@ def get_all_persons(
             message=f"An Error Occurred: {str(e)}",
             status_code=500
         ).model_dump()
+
 
 @payment_router.put(
     "/persons/delete",
@@ -950,9 +1245,18 @@ def delete_person(person_uuid: UUID, db: Session = Depends(get_db), current_user
 
 
 @payment_router.post("/items", tags=["Items"], status_code=201)
-def create_item(name: str, category: Optional[str] = None, db: Session = Depends(get_db)):
+def create_item(
+    name: str,
+    list_tag: ItemListTag,
+    category: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     try:
-        new_item = Item(name=name, category=category)
+        new_item = Item(
+            name=name,
+            category=category,
+            list_tag=list_tag
+        )
         db.add(new_item)
         db.commit()
         db.refresh(new_item)
@@ -975,7 +1279,7 @@ def create_item(name: str, category: Optional[str] = None, db: Session = Depends
 def list_items(db: Session = Depends(get_db)):
     try:
         items = db.query(Item).all()
-        items_data = [{"uuid": str(item.uuid), "name": item.name, "category": item.category} for item in items]
+        items_data = [{"uuid": str(item.uuid), "name": item.name, "category": item.category, "list_tag": item.list_tag} for item in items]
 
         return PaymentServiceResponse(
             data=items_data,
@@ -988,7 +1292,7 @@ def list_items(db: Session = Depends(get_db)):
             message=f"Error fetching items: {str(e)}",
             status_code=500
         ).model_dump()
-    
+
 
 @payment_router.delete("/items/{item_uuid}", tags=["Items"], status_code=200)
 def delete_item(item_uuid: UUID, db: Session = Depends(get_db)):
@@ -1018,5 +1322,28 @@ def delete_item(item_uuid: UUID, db: Session = Depends(get_db)):
             message=f"Error deleting item: {str(e)}",
             status_code=500
         ).model_dump()
-    
 
+
+@payment_router.post("/priority", status_code=201)
+def create_priority(priority_name: str, db: Session = Depends(get_db)):
+    new_priority = Priority(priority=priority_name)
+    db.add(new_priority)
+    db.commit()
+    db.refresh(new_priority)
+    response = {"priority_uuid": str(new_priority.uuid), "priority": new_priority.priority}
+    return PaymentServiceResponse(
+        data=response,
+        message="priority created successfully",
+        status_code=201
+    ).model_dump()
+
+
+@payment_router.get("/priority", status_code=200)
+def list_priorities(db: Session = Depends(get_db)):
+    priorities = db.query(Priority).filter(Priority.is_deleted.is_(False)).all()
+    response = [{"uuid": str(p.uuid), "priority": p.priority} for p in priorities]
+    return PaymentServiceResponse(
+        data=response,
+        message="priorities fetched successfully.",
+        status_code=200
+    ).model_dump()

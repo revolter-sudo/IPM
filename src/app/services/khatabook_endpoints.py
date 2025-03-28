@@ -40,7 +40,7 @@ async def create_khatabook_entry(
     try:
         parsed_data = json.loads(data)
         file_paths = [save_uploaded_file(f) for f in files] if files else []
-        create_khatabook_entry_service(db=db, data=parsed_data, file_paths=file_paths, user_id=current_user.uuid)
+        create_khatabook_entry_service(db=db, data=parsed_data, file_paths=file_paths, user_id=current_user.uuid, current_user=current_user.uuid)
         return AuthServiceResponse(
             data=None,
             status_code=201,
@@ -102,4 +102,3 @@ def get_all_khatabook_entries(
         status_code=200,
         message="Khatabook entries fetched successfully"
     ).model_dump()
-

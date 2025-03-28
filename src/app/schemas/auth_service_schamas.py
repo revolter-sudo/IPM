@@ -16,6 +16,11 @@ class UserRole(str, Enum):
     SUPER_ADMIN = "SuperAdmin"
 
 
+class ForgotPasswordRequest(BaseModel):
+    phone: int
+    new_password: str
+
+
 class UserCreate(BaseModel):
     name: str
     phone: int
@@ -45,6 +50,7 @@ class UserResponse(BaseModel):
     name: str
     phone: int
     role: str
+    photo_path: Any
 
     def to_dict(self):
         """
@@ -55,6 +61,7 @@ class UserResponse(BaseModel):
             "name": self.name,
             "phone": self.phone,
             "role": self.role,
+            "photo_path": self.photo_path
         }
 
 

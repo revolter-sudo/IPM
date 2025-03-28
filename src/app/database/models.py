@@ -29,16 +29,22 @@ class Khatabook(Base):
     person_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=False)  # Ensure person_id is required
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     expense_date = Column(TIMESTAMP, nullable=True)  # New field for user-entered date
-
+    payment_mode = Column(String(50), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     balance_after_entry = Column(Float, nullable=True)
+    project_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.uuid"),
+        nullable=True  # <--- optional field
+    )
 
     # Relationships
     person = relationship("Person", foreign_keys=[person_id])
     created_by_user = relationship("User", foreign_keys=[created_by])
     files = relationship("KhatabookFile", back_populates="khatabook_entry", cascade="all, delete-orphan")
     items = relationship("KhatabookItem", back_populates="khatabook_entry", cascade="all, delete-orphan")
+    project = relationship("Project", foreign_keys=[project_id], lazy="joined")
 
     def __repr__(self):
         return f"<Khatabook(id={self.id}, uuid={self.uuid}, amount={self.amount}, expense_date={self.expense_date})>"
@@ -95,9 +101,15 @@ class User(Base):
     role = Column(String(30), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
+    photo_path = Column(String(255), nullable=True)
 
     # Relationship to Person
-    person = relationship("Person", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    person = relationship(
+        "Person",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan"
+    )
 
 
 class Person(Base):
@@ -115,7 +127,7 @@ class Person(Base):
     ifsc_code = Column(String(11), nullable=False)
     phone_number = Column(String(10), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
-
+    upi_number = Column(String(50), nullable=True)      # New field
     user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.uuid"),
@@ -201,6 +213,13 @@ class Payment(Base):
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     transferred_date = Column(TIMESTAMP, nullable=True)
+    priority_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("priorities.uuid"),
+        nullable=True  # or nullable=False if you want to make it mandatory
+    )
+
+    priority_rel = relationship("Priority", foreign_keys=[priority_id], lazy="joined")
 
     # NEW RELATIONSHIP: link to Person table for the 'person' FK
     person_rel = relationship("Person", foreign_keys=[person], lazy="joined")
@@ -273,20 +292,6 @@ class PaymentStatusHistory(Base):
         )
 
 
-# class PaymentFile(Base):
-#     __tablename__ = "payment_files"
-
-#     id = Column(Integer, primary_key=True, autoincrement=True)
-#     payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
-#     file_path = Column(String(255), nullable=False)
-#     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
-
-#     # ✅ Correct Relationship
-#     payment = relationship("Payment", back_populates="payment_files")
-
-#     def __repr__(self):
-#         return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path})>"
-
 class PaymentFile(Base):
     __tablename__ = "payment_files"
 
@@ -335,6 +340,7 @@ class Item(Base):
     uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
     name = Column(String(100), nullable=False)
     category = Column(String(100), nullable=True)
+    list_tag = Column(String(30), nullable=True)
 
     # Relationship for payments associated with this item
     payments = relationship("PaymentItem", back_populates="item", cascade="all, delete-orphan")
@@ -371,3 +377,30 @@ class KhatabookBalance(Base):
 
     def __repr__(self):
         return f"<KhatabookBalance(id={self.id}, user_uuid={self.user_uuid}, balance={self.balance})>"
+
+
+class BalanceDetail(Base):
+    __tablename__ = "balance_details"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(
+        UUID(as_uuid=True),
+        unique=True,
+        nullable=False,
+        default=uuid.uuid4
+    )
+    balance = Column(Float, nullable=False)
+
+
+class Priority(Base):
+    __tablename__ = "priorities"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(
+        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
+    )
+    priority = Column(String(50), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
+    def __repr__(self):
+        return f"<Priority(id={self.id}, uuid={self.uuid}, priority={self.priority})>"

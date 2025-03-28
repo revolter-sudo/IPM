@@ -1,7 +1,7 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Security, status
+from fastapi import APIRouter, Depends, HTTPException, Security, status, UploadFile, File
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
@@ -19,8 +19,11 @@ from src.app.schemas.auth_service_schamas import (
     UserLogin,
     UserResponse,
     UserRole,
-    AuthServiceResponse
+    AuthServiceResponse,
+    ForgotPasswordRequest
 )
+from src.app.schemas import constants
+import os
 
 # Router Setup
 auth_router = APIRouter(prefix="/auth")
@@ -106,6 +109,92 @@ def superadmin_required(current_user: User = Depends(get_current_user)):
                 message="SuperAdmin privileges required"
             ).model_dump()
     return current_user
+
+
+@auth_router.post("/upload_photo", tags=["Users"])
+def upload_user_photo(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Uploads a photo for the current user and updates `photo_path`.
+    Returns the path/URL so the frontend can load it.
+    """
+    try:
+        # 1) Define your upload directory (following your pattern in payment_service.py)
+        upload_dir = os.path.join(constants.UPLOAD_DIR, "users")  # e.g. "uploads/users"
+        os.makedirs(upload_dir, exist_ok=True)
+
+        # 2) Create a unique filename or use the original filename
+        #    e.g. "abc1234_filename.jpg"
+        file_ext = os.path.splitext(file.filename)[1]
+        unique_filename = f"{str(uuid4())}{file_ext}"
+        file_path = os.path.join(upload_dir, unique_filename)
+
+        # 3) Save the file to disk
+        with open(file_path, "wb") as buffer:
+            buffer.write(file.file.read())
+
+        # 4) Update user.photo_path. 
+        #    If you have a HOST_URL to build a public URL, you can do that too.
+        # current_user.photo_path = file_path  
+        current_user.photo_path = f"{constants.HOST_URL}/uploads/payments/users/{unique_filename}"
+        # Alternatively, you can store the final URL if you have a static server for images:
+
+        db.commit()
+        db.refresh(current_user)
+
+        return AuthServiceResponse(
+            data={"photo_path": current_user.photo_path},
+            message="User photo uploaded successfully.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return AuthServiceResponse(
+            data=None,
+            message=f"An error occurred: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+
+@auth_router.post("/forgot_password", tags=["Users"])
+def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Resets a user's password, given a phone number and a new password.
+    In production, you would typically verify OTP or email link, but
+    here it's a simple, direct reset for demonstration.
+    """
+    # 1) Find user by phone
+    user = (
+        db.query(User)
+        .filter(
+            User.phone == payload.phone,
+            User.is_deleted.is_(False)
+        )
+        .first()
+    )
+    if not user:
+        return AuthServiceResponse(
+            data=None,
+            status_code=404,
+            message="No user found with this phone number."
+        ).model_dump()
+
+    # 2) Hash and set new password
+    hashed = pwd_context.hash(payload.new_password)
+    user.password_hash = hashed
+    db.commit()
+    db.refresh(user)
+
+    # 3) Return success
+    return AuthServiceResponse(
+        data={"uuid": str(user.uuid), "phone": user.phone},
+        message="Password reset successfully",
+        status_code=200
+    ).model_dump()
 
 
 # Routes
@@ -199,7 +288,8 @@ def login(
         uuid=db_user.uuid,
         name=db_user.name,
         phone=db_user.phone,
-        role=db_user.role
+        role=db_user.role,
+        photo_path=db_user.photo_path
     ).to_dict()
     access_token = create_access_token(data={"sub": str(db_user.uuid)})
     response = {
@@ -405,6 +495,7 @@ def list_all_active_users(db: Session = Depends(get_db)):
                 "name": user.name,
                 "phone": user.phone,
                 "role": user.role,
+                "photo_path": user.photo_path,
                 "person": person_data
             })
 
@@ -453,6 +544,7 @@ def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
             "name": user.name,
             "phone": user.phone,
             "role": user.role,
+            "photo_path": user.photo_path,
             "person": person_data
         }
 

@@ -13,6 +13,11 @@ class PaymentStatus(str, Enum):
     DECLINED = "declined"
 
 
+class ItemListTag(str, Enum):
+    khatabook = "khatabook"
+    payment = "payment"
+
+
 class PaymentRequest(BaseModel):
     amount: float
     description: Optional[str] = None
@@ -22,23 +27,29 @@ class PaymentRequest(BaseModel):
 
 class CreatePerson(BaseModel):
     name: str
-    account_number: str = Field(
-        ...,
+    account_number: Optional[str] = Field(
+        None,
         min_length=7,
         max_length=17,
         description="Account number must be 7 to 17 digits long",
     )
-    ifsc_code: str = Field(
-        ...,
+    ifsc_code: Optional[str] = Field(
+        None,
         min_length=11,
         max_length=11,
         description="IFSC code must be exactly 11 characters long",
     )
     phone_number: str = Field(
-        ...,
+        None,
         min_length=10,
         max_length=10,
         description="Phone number must be exactly 10 digits",
+    )
+    upi_number: str = Field(
+        None,
+        min_length=10,
+        max_length=10,
+        description="upi number must be exactly 10 digits",
     )
     parent_id: Optional[UUID] = None
 
@@ -59,6 +70,7 @@ class CreatePaymentRequest(BaseModel):
     self_payment: bool  # New Field
     latitude: float
     longitude: float
+    priority_id: Optional[UUID] = None
 
     class Config:
         json_schema_extra = {
@@ -72,7 +84,8 @@ class CreatePaymentRequest(BaseModel):
                 "person": "e194159d-ce26-43e1-ace0-db4b00d4c43e",
                 "self_payment": True,  # Self-payment flag
                 "latitude": 22.5726,
-                "longitude": 88.3639
+                "longitude": 88.3639,
+                "priority_id": "9c4f2ae4-a046-421f-b52f-a50c169165c3"
             }
         }
 
