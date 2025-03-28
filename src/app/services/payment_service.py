@@ -598,7 +598,7 @@ def get_all_payments(
             history_status = row.history_status
             history_created_at = row.history_created_at
             if history_status and history_created_at:
-                date_str = history_created_at.strftime("%d-%m-%Y")
+                date_str = history_created_at.strftime("%Y-%m-%d %H:%M:%S")
                 status_key = (history_status, date_str)
                 if status_key not in grouped_data[payment_obj.uuid]["status_seen"]:
                     grouped_data[payment_obj.uuid]["status_seen"].add(status_key)
