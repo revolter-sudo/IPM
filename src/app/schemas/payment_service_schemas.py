@@ -45,7 +45,7 @@ class CreatePerson(BaseModel):
         max_length=10,
         description="Phone number must be exactly 10 digits",
     )
-    upi_number: str = Field(
+    upi_number: Optional[str] = Field(
         None,
         min_length=10,
         max_length=10,
