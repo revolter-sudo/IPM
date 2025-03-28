@@ -38,7 +38,7 @@ from src.app.schemas.payment_service_schemas import (
     StatusDatePair,
     ItemListTag
 )
-from src.app.notification.notification_service import send_push_notification
+# from src.app.notification.notification_service import send_push_notification
 from sqlalchemy.orm import aliased
 from sqlalchemy import desc
 from sqlalchemy.exc import SQLAlchemyError
@@ -508,12 +508,12 @@ def get_all_payments(
                 "priority_name": priority_name,  # <--- Add to output
                 "edit": can_edit_payment(status_list, current_user.role)
             })
-        send_push_notification(
-            registration_token="TOKEN",
-            title="Get Payment",
-            body="BODY",
-            data={}
-        )
+        # send_push_notification(
+        #     registration_token="TOKEN",
+        #     title="Get Payment",
+        #     body="BODY",
+        #     data={}
+        # )
         return PaymentServiceResponse(
             data=payments_data,
             message="Recent Payments fetched successfully." if recent else "All Payments fetched successfully.",
