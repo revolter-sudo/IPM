@@ -191,7 +191,10 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
 
     # 3) Return success
     return AuthServiceResponse(
-        data={"uuid": str(user.uuid), "phone": user.phone},
+        data={
+            "uuid": str(user.uuid),
+            "phone": user.phone
+        },
         message="Password reset successfully",
         status_code=200
     ).model_dump()

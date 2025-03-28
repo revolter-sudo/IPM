@@ -39,7 +39,7 @@ class UserLogin(BaseModel):
     phone: int
     password: str
     fcm_token: str
-    device_id: int
+    device_id: str
 
 
 class Token(BaseModel):

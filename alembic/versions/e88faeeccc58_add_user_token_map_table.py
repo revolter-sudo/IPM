@@ -31,7 +31,7 @@ def upgrade():
         sa.Column('uuid', UUID(as_uuid=True), nullable=False, unique=True),
         sa.Column('user_id', sa.UUID(as_uuid=True), sa.ForeignKey('users.uuid', ondelete='CASCADE'), nullable=False, index=True),
         sa.Column('fcm_token', sa.String(500), nullable=False),
-        sa.Column('device_id', sa.Integer(), nullable=True),
+        sa.Column('device_id', sa.String(50), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
     )
 
