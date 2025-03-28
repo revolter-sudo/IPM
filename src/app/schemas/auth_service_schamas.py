@@ -38,6 +38,8 @@ class UserCreate(BaseModel):
 class UserLogin(BaseModel):
     phone: int
     password: str
+    fcm_token: str
+    device_id: int
 
 
 class Token(BaseModel):

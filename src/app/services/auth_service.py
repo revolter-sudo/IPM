@@ -13,7 +13,7 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session
 from uuid import uuid4
 from src.app.database.database import get_db
-from src.app.database.models import User, Log, Person
+from src.app.database.models import User, Log, Person, UserTokenMap
 from src.app.schemas.auth_service_schamas import (
     UserCreate,
     UserLogin,
@@ -257,6 +257,35 @@ def register_user(
     ).model_dump()
 
 
+def check_or_add_token(
+    user_id: UUID,
+    fcm_token: str,
+    device_id: int,
+    db: Session
+):
+    try:
+        data = db.query(UserTokenMap).filter(
+            UserTokenMap.device_id == device_id
+        ).first()
+        if data:
+            data.fcm_token = fcm_token
+        else:
+            user_token_data = UserTokenMap(
+                user_id=user_id,
+                fcm_token=fcm_token,
+                device_id=device_id,
+            )
+            db.add(user_token_data)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return AuthServiceResponse(
+            data=None,
+            message=f"Error while check_or_add_token: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+
 @auth_router.post(
     "/login",
     status_code=status.HTTP_200_OK,
@@ -292,6 +321,12 @@ def login(
         photo_path=db_user.photo_path
     ).to_dict()
     access_token = create_access_token(data={"sub": str(db_user.uuid)})
+    check_or_add_token(
+        user_id=db_user.uuid,
+        fcm_token=login_data.fcm_token,
+        device_id=login_data.device_id,
+        db=db
+    )
     response = {
         "access_token": access_token,
         "token_type": "bearer",

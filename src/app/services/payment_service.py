@@ -64,8 +64,6 @@ def create_payment(
     Links items, uploads files, creates PaymentStatusHistory, and adjusts project balance.
     """
     try:
-        import pdb
-        pdb.set_trace()
         request_data = json.loads(request)
         payment_request = CreatePaymentRequest(**request_data)
 

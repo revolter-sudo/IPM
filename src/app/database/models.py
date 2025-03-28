@@ -103,12 +103,37 @@ class User(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     photo_path = Column(String(255), nullable=True)
 
+    token_maps = relationship(
+        "UserTokenMap",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
     # Relationship to Person
     person = relationship(
         "Person",
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan"
+    )
+
+
+class UserTokenMap(Base):
+    __tablename__ = "user_token_map"
+
+    id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    fcm_token = Column(String(500), nullable=False)
+    device_id = Column(String(255), nullable=True)
+    created_at = Column(
+        TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"), nullable=False
+    )
+
+    # Relationship back to User
+    user = relationship(
+        "User",
+        back_populates="token_maps",
     )
 
 
