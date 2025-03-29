@@ -439,17 +439,11 @@ def logout_user(
             UserTokenMap.user_id == user_data.user_id,
             UserTokenMap.device_id == user_data.device_id
         ).first()
-        if not user_token:
-            return AuthServiceResponse(
-                data=None,
-                message="User Token Data Not Found For This Device",
-                status_code=404
-            ).model_dump()
-
-        unsubscribe_news(
-            tokens=user_token,
-            topic=str(user.uuid)
-        )
+        if user_token:
+            unsubscribe_news(
+                tokens=user_token,
+                topic=str(user.uuid)
+            )
         return AuthServiceResponse(
             data=None,
             message="User Logged Out Successfully!",
