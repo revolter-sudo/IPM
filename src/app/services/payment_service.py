@@ -66,10 +66,7 @@ def notify_create_payment(amount: int, user: User, db: Session):
             User.role.in_(roles_to_notify),
             User.is_deleted.is_(False)
         )
-        if user.role not in [
-            UserRole.SUB_CONTRACTOR.value,
-            UserRole.SITE_ENGINEER.value
-        ]:
+        if user.role in roles_to_notify:
             # Then in a second line, exclude the current user
             people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
 
@@ -589,6 +586,48 @@ def get_all_payments(
         ).model_dump()
 
 
+# def notify_payment_status_update(
+#         amount: int,
+#         status: str,
+#         user: User,
+#         payment_user: UUID,
+#         db: Session
+# ):
+#     roles_to_notify = [
+#         UserRole.ACCOUNTANT.value,
+#         UserRole.ADMIN.value,
+#         UserRole.SUPER_ADMIN.value,
+#         UserRole.PROJECT_MANAGER.value
+#     ]
+#     if user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value] and status in [PaymentStatus.APPROVED.value, PaymentStatus.VERIFIED.value]:
+#         return True
+#     people_to_notify = db.query(User).filter(
+#         or_(
+#             User.role.in_(roles_to_notify),
+#             User.uuid == payment_user
+#         ),
+#         User.is_deleted.is_(False)
+#     )
+#     if user.role in roles_to_notify:
+#         people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
+
+#     people = people_to_notify.all()
+#     notification = NotificationMessage(
+#         title="Payment Status Updated",
+#         body=f"Payment of {amount} {status} by {user.name}"
+#     )
+#     for person in people:
+#         send_push_notification(
+#             topic=str(person.uuid),
+#             title=notification.title,
+#             body=notification.body
+#         )
+#     logging.info(
+#         f"{len(people)} Users were notified for this payment request"
+#     )
+#     return True
+
+
 def notify_payment_status_update(
         amount: int,
         status: str,
@@ -602,8 +641,8 @@ def notify_payment_status_update(
         UserRole.SUPER_ADMIN.value,
         UserRole.PROJECT_MANAGER.value
     ]
-    if user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value] and status in [PaymentStatus.APPROVED.value, PaymentStatus.VERIFIED.value]:
-        return True
+
+    # 1) Base query: roles_to_notify OR payment_user
     people_to_notify = db.query(User).filter(
         or_(
             User.role.in_(roles_to_notify),
@@ -611,26 +650,34 @@ def notify_payment_status_update(
         ),
         User.is_deleted.is_(False)
     )
-    if user.role not in [
-        UserRole.SITE_ENGINEER.value,
-        UserRole.SUB_CONTRACTOR.value
-    ]:
+
+    # 2) Exclude current user if they're in that set
+    if user.role in roles_to_notify:
         people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
 
+    # 3) If status is APPROVED or VERIFIED, exclude ALL Site Engineers & Sub-contractors
+    if status in [PaymentStatus.APPROVED.value, PaymentStatus.VERIFIED.value]:
+        people_to_notify = people_to_notify.filter(
+            ~User.role.in_([
+                UserRole.SITE_ENGINEER.value,
+                UserRole.SUB_CONTRACTOR.value
+            ])
+        )
+
+    # 4) Now fetch and notify
     people = people_to_notify.all()
     notification = NotificationMessage(
         title="Payment Status Updated",
         body=f"Payment of {amount} {status} by {user.name}"
     )
+
     for person in people:
         send_push_notification(
             topic=str(person.uuid),
             title=notification.title,
             body=notification.body
         )
-    logging.info(
-        f"{len(people)} Users were notified for this payment request"
-    )
+    logging.info(f"{len(people)} Users were notified for this payment request")
     return True
 
 
