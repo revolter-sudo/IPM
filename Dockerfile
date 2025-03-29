@@ -18,7 +18,7 @@ COPY . .
 
 # 4) Copy the secret file into the container
 #    (Ensure 'secret_files/secret_files.json' is in the Docker build context, but .gitignored)
-COPY /root/secretfiles/secret_files.json /app/utils/firebase/secret_files.json
+COPY secretfiles/secret_files.json /app/utils/firebase/secret_files.json
 
 # 5) Copy the entrypoint script and make it executable
 COPY entrypoint.sh /entrypoint.sh
