@@ -33,7 +33,7 @@ def send_push_notification(
     :param body: The notification body (string).
     :param data: Optional dict of extra key-value pairs.
     """
-    check_or_up_firebase_app()
+    # check_or_up_firebase_app()
     notification = messaging.Notification(title=title, body=body)
 
     message = messaging.Message(
@@ -54,7 +54,7 @@ def send_push_notification(
 
 def subscribe_news(tokens, topic):
     try:
-        check_or_up_firebase_app()
+        # check_or_up_firebase_app()
         response = messaging.subscribe_to_topic(tokens, str(topic))
         if response.failure_count > 0:
             return NotificationServiceResponse(
@@ -72,7 +72,7 @@ def subscribe_news(tokens, topic):
 
 def unsubscribe_news(tokens, topic):
     try:
-        check_or_up_firebase_app()
+        # check_or_up_firebase_app()
         response = messaging.unsubscribe_from_topic(tokens, topic)
         if response.failure_count > 0:
             return NotificationServiceResponse(

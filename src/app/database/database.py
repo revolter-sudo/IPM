@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     DB_PORT: int = 5432
     DB_NAME: str
     UPLOADS_DIR: str
+    SERVICE_FILE: str
 
     @property
     def DATABASE_URL(self) -> str:

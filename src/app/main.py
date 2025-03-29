@@ -1,4 +1,6 @@
 import logging
+import firebase_admin
+from firebase_admin import credentials
 from fastapi import FastAPI
 from fastapi_sqlalchemy import DBSessionMiddleware
 import os
@@ -18,6 +20,7 @@ logging.info("************************************")
 
 load_dotenv()
 UPLOADS_DIR = os.getenv("UPLOADS_DIR")
+SERVICE_FILE = os.getenv("SERVICE_FILE")
 
 # FastAPI App
 app = FastAPI()
@@ -39,6 +42,17 @@ app.include_router(project_router)
 app.include_router(payment_router)
 app.include_router(khatabook_router)
 app.include_router(balance_router)
+
+SERVICE_ACCOUNT_PATH = SERVICE_FILE # noqa
+
+
+if not firebase_admin._apps:
+    cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
+    firebase_admin.initialize_app(cred)
+    logging.info("--------------------------------")
+    logging.info(f"File Path: {SERVICE_ACCOUNT_PATH}")
+    logging.info("FireBase Started")
+    logging.info("--------------------------------")
 
 
 @app.get("/healthcheck")
