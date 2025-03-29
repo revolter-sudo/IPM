@@ -436,7 +436,6 @@ def logout_user(
                 status_code=404
             ).model_dump()
         user_token = db.query(UserTokenMap.fcm_token).filter(
-            UserTokenMap.user_id == user_data.user_id,
             UserTokenMap.device_id == user_data.device_id
         ).first()
         if user_token:
