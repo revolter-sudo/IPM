@@ -41,15 +41,15 @@ def downgrade():
     # Reverse the above changes
     op.drop_column('person', 'upi_number')
     
-    op.alter_column(
-        'person',
-        'account_number',
-        existing_type=sa.String(length=17),
-        nullable=False
-    )
-    op.alter_column(
-        'person',
-        'ifsc_code',
-        existing_type=sa.String(length=11),
-        nullable=False
-    )
+    # op.alter_column(
+    #     'person',
+    #     'account_number',
+    #     existing_type=sa.String(length=17),
+    #     nullable=False
+    # )
+    # op.alter_column(
+    #     'person',
+    #     'ifsc_code',
+    #     existing_type=sa.String(length=11),
+    #     nullable=False
+    # )
