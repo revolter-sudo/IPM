@@ -9,7 +9,7 @@ WORKDIR /app
 
 # Copy the application code to the container
 COPY . .
-COPY /root/secret_files/secret_files.json /app/utils/firebase/secret_files.json
+COPY secret_files/secret_files.json /app/utils/firebase/secret_files.json
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
