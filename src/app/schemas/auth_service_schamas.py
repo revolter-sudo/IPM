@@ -35,6 +35,11 @@ class UserCreate(BaseModel):
         return value
 
 
+class UserLogout(BaseModel):
+    user_id: UUID
+    device_id: str
+
+
 class UserLogin(BaseModel):
     phone: int
     password: str

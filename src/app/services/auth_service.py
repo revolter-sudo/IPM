@@ -1,7 +1,15 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Security, status, UploadFile, File
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Security,
+    status,
+    UploadFile,
+    File
+)
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
@@ -20,7 +28,12 @@ from src.app.schemas.auth_service_schamas import (
     UserResponse,
     UserRole,
     AuthServiceResponse,
-    ForgotPasswordRequest
+    ForgotPasswordRequest,
+    UserLogout
+)
+from src.app.notification.notification_service import (
+    subscribe_news,
+    unsubscribe_news
 )
 from src.app.schemas import constants
 import os
@@ -330,6 +343,10 @@ def login(
         device_id=login_data.device_id,
         db=db
     )
+    subscribe_news(
+        tokens=login_data.fcm_token,
+        topic=db_user.uuid
+    )
     response = {
         "access_token": access_token,
         "token_type": "bearer",
@@ -395,6 +412,55 @@ def delete_user(
             data=None,
             status_code=500,
             message=f"Error in delete_user API: {str(e)}"
+        ).model_dump()
+
+
+@auth_router.post(
+        "/logout",
+        status_code=status.HTTP_201_CREATED,
+        tags=["Users"]
+)
+def logout_user(
+    user_data: UserLogout,
+    db: Session = Depends(get_db)
+):
+    try:
+        user = db.query(User).filter(
+            User.uuid == user_data.user_id,
+            User.is_deleted.is_(False)
+        ).first()
+        if not user:
+            return AuthServiceResponse(
+                data=None,
+                message="User Does not exist",
+                status_code=404
+            ).model_dump()
+        user_token = db.query(UserTokenMap.fcm_token).filter(
+            UserTokenMap.user_id == user_data.user_id,
+            UserTokenMap.device_id == user_data.device_id
+        ).first()
+        if not user_token:
+            return AuthServiceResponse(
+                data=None,
+                message="User Token Data Not Found For This Device",
+                status_code=404
+            ).model_dump()
+
+        unsubscribe_news(
+            tokens=user_token,
+            topic=str(user.uuid)
+        )
+        return AuthServiceResponse(
+            data=None,
+            message="User Logged Out Successfully!",
+            status_code=201
+        ).model_dump()
+
+    except Exception as e:
+        return AuthServiceResponse(
+            data=None,
+            message=f"Error in logout_user API: {str(e)}",
+            status_code=200
         ).model_dump()
 
 
