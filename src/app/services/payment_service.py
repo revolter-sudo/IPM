@@ -64,9 +64,9 @@ def notify_create_payment(amount: int, user: User, db: Session):
         ]
         people_to_notify = db.query(User).filter(
             User.role.in_(roles_to_notify),
-            User.is_deleted.is_(False)
+            User.is_deleted.is_(False),
+            User.uuid != user.uuid  # simpler direct comparison
         )
-        people_to_notify = people_to_notify.filter(~User.uuid.in_([user.uuid]))
         people = people_to_notify.all()
         notification = NotificationMessage(
             title="Payment Request",
