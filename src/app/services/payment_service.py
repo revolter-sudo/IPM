@@ -554,12 +554,6 @@ def get_all_payments(
                 "priority_name": priority_name,  # <--- Add to output
                 "edit": can_edit_payment(status_list, current_user.role)
             })
-        send_push_notification(
-            topic=str(current_user.uuid),
-            title="TITLE",
-            body="BODY",
-            data={"data_1": "Data Data"}
-        )
         return PaymentServiceResponse(
             data=payments_data,
             message="Recent Payments fetched successfully." if recent else "All Payments fetched successfully.",
@@ -573,6 +567,43 @@ def get_all_payments(
             message=f"An Error Occurred: {str(e)}",
             status_code=500
         ).model_dump()
+
+
+def notify_payment_status_update(
+        amount: int,
+        status: str,
+        user: User,
+        payment_user: UUID,
+        db: Session
+):
+    roles_to_notify = [
+        UserRole.ACCOUNTANT.value,
+        UserRole.ADMIN.value,
+        UserRole.SUPER_ADMIN.value,
+        UserRole.PROJECT_MANAGER.value
+    ]
+    people_to_notify = db.query(User).filter(
+        User.role.in_(roles_to_notify),
+        User.uuid == payment_user,
+        User.is_deleted.is_(False)
+    )
+    people_to_notify = people_to_notify.filter(~User.uuid.in_([user.uuid]))
+    people = people_to_notify.all()
+    notification = NotificationMessage(
+        title="Payment Status Updated",
+        body=f"Payment of {amount} {status} by {user.name}"
+    )
+    for person in people:
+        send_push_notification(
+            topic=str(person.uuid),
+            title=notification.title,
+            body=notification.body
+        )
+    logging.info(
+        f"{len(people)} Users were notified for this payment request"
+    )
+    return True
+
 
 
 @payment_router.put("/cancel-status")
@@ -646,7 +677,6 @@ def cancel_payment_status(
         )
 
         db.commit()
-
         return PaymentServiceResponse(
             data=None,
             message="Last payment status cancelled and reverted successfully.",
@@ -777,7 +807,13 @@ def approve_payment(
 
         # Commit everything
         db.commit()
-
+        notify_payment_status_update(
+            amount=payment.amount,
+            status=status,
+            user=current_user,
+            payment_user=payment.created_by,
+            db=db
+        )
         return PaymentServiceResponse(
             data=None,
             message="Payment approved successfully",
@@ -865,6 +901,13 @@ def decline_payment(
         db.add(log_entry)
         db.flush()
         db.commit()
+        notify_payment_status_update(
+            amount=payment.amount,
+            status=PaymentStatus.DECLINED.value,
+            user=current_user,
+            payment_user=payment.created_by,
+            db=db
+        )
         return PaymentServiceResponse(
             data=None,
             message="Payment declined successfully",
