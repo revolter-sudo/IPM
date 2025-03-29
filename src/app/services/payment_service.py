@@ -68,7 +68,7 @@ def notify_create_payment(amount: int, user: User, db: Session):
         )
 
         # Then in a second line, exclude the current user
-        people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
+        people_to_notify = people_to_notify.filter(User.uuid != str(user.uuid))
 
         people = people_to_notify.all()
         notification = NotificationMessage(
@@ -591,7 +591,7 @@ def notify_payment_status_update(
             User.uuid == payment_user
         ),
         User.is_deleted.is_(False),
-        User.uuid != user.uuid
+        User.uuid != str(user.uuid)
     )
     people = people_to_notify.all()
     notification = NotificationMessage(
