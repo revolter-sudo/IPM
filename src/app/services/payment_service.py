@@ -68,7 +68,7 @@ def notify_create_payment(amount: int, user: User, db: Session):
         )
 
         # Then in a second line, exclude the current user
-        people_to_notify = people_to_notify.filter(User.uuid != str(user.uuid))
+        people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
 
         people = people_to_notify.all()
         notification = NotificationMessage(
@@ -77,9 +77,9 @@ def notify_create_payment(amount: int, user: User, db: Session):
         )
         for person in people:
             send_push_notification(
-                  topic=str(person.uuid),
-                  title=notification.title,
-                  body=notification.body
+                topic=str(person.uuid),
+                title=notification.title,
+                body=notification.body
             )
         logging.info(
             f"{len(people)} Users were notified for this payment request"
@@ -111,7 +111,8 @@ def create_payment(
         payment_request = CreatePaymentRequest(**request_data)
 
         # Validate Project
-        project = db.query(Project).filter(Project.uuid == payment_request.project_id).first()
+        project = db.query(Project).filter(
+            Project.uuid == payment_request.project_id).first()
         if not project:
             return PaymentServiceResponse(
                 status_code=404,
@@ -141,7 +142,7 @@ def create_payment(
             remarks=payment_request.remarks,
             created_by=current_user.uuid,
             person=payment_request.person,            # might be overwritten for self_payment
-            self_payment=payment_request.self_payment, # store the flag
+            self_payment=payment_request.self_payment,  # store the flag
             latitude=payment_request.latitude,
             longitude=payment_request.longitude,
             priority_id=payment_request.priority_id,
@@ -187,7 +188,7 @@ def create_payment(
                 db.add(PaymentFile(
                     payment_id=new_payment.uuid,
                     file_path=file_path
-                    ))
+                ))
 
         db.commit()
         notification = notify_create_payment(
@@ -196,7 +197,8 @@ def create_payment(
             db=db
         )
         if not notification:
-            logging.error(f"Something Went wrong while sending create payment notification")
+            logging.error(
+                f"Something Went wrong while sending create payment notification")
         return PaymentServiceResponse(
             data={"payment_uuid": current_payment_uuid},
             message="Payment created successfully.",
@@ -218,7 +220,8 @@ def update_payment_amount(
     payment_uuid: UUID,
     payload: PaymentUpdateSchema,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # <--- If you want to store who updated
+    # <--- If you want to store who updated
+    current_user: User = Depends(get_current_user),
 ):
     # Fetch existing payment
     payment = db.query(Payment).filter(Payment.uuid == payment_uuid).first()
@@ -245,7 +248,8 @@ def update_payment_amount(
 
     # Update the payment to the new amount
     payment.amount = new_amount
-    payment.update_remarks = payload.remark  # Always store the latest remark in Payment
+    # Always store the latest remark in Payment
+    payment.update_remarks = payload.remark
 
     # Commit changes
     db.commit()
@@ -325,7 +329,7 @@ def get_all_payments(
       - person_id
       - item_id
       - 'recent' (last 5, excluding 'transferred')
-    
+
     Returns structured data with:
       - Payment details (description, remarks, date, etc.)
       - Project info (uuid, name)
@@ -339,15 +343,18 @@ def get_all_payments(
       - Whether the current user can edit this payment
     """
     try:
-        base_query = db.query(Payment.uuid).filter(Payment.is_deleted.is_(False))
+        base_query = db.query(Payment.uuid).filter(
+            Payment.is_deleted.is_(False))
 
         # Restrict to own payments if current_user is site_engineer/sub_contractor
         if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-            base_query = base_query.filter(Payment.created_by == current_user.uuid)
+            base_query = base_query.filter(
+                Payment.created_by == current_user.uuid)
 
         # If 'recent' is True, take the last 5 payments (excluding 'transferred' below)
         if recent:
-            base_query = base_query.order_by(desc(Payment.created_at)).limit(5).subquery()
+            base_query = base_query.order_by(
+                desc(Payment.created_at)).limit(5).subquery()
 
         EditUser = aliased(User)
 
@@ -411,13 +418,16 @@ def get_all_payments(
         # Handle date-range filters properly
         if start_date is not None and end_date is not None:
             # Make end_date inclusive to end of that day
-            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-            query = query.filter(Payment.created_at.between(start_date, end_date))
+            end_date = end_date.replace(
+                hour=23, minute=59, second=59, microsecond=999999)
+            query = query.filter(
+                Payment.created_at.between(start_date, end_date))
         else:
             if start_date is not None:
                 query = query.filter(Payment.created_at >= start_date)
             if end_date is not None:
-                end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                end_date = end_date.replace(
+                    hour=23, minute=59, second=59, microsecond=999999)
                 query = query.filter(Payment.created_at <= end_date)
 
         if person_id is not None:
@@ -450,7 +460,8 @@ def get_all_payments(
                 date_str = history_created_at.strftime("%Y-%m-%d %H:%M:%S")
                 status_key = (history_status, date_str)
                 if status_key not in grouped_data[payment_obj.uuid]["status_seen"]:
-                    grouped_data[payment_obj.uuid]["status_seen"].add(status_key)
+                    grouped_data[payment_obj.uuid]["status_seen"].add(
+                        status_key)
                     grouped_data[payment_obj.uuid]["statuses"].append(
                         {"status": history_status, "date": date_str}
                     )
@@ -509,10 +520,12 @@ def get_all_payments(
             # Items
             item_names = []
             if payment.payment_items:
-                item_names = [p_item.item.name for p_item in payment.payment_items if p_item.item]
+                item_names = [
+                    p_item.item.name for p_item in payment.payment_items if p_item.item]
 
             # Return parent's data if any
-            parent_data = get_parent_account_data(person_id=payment.person, db=db)
+            parent_data = get_parent_account_data(
+                person_id=payment.person, db=db)
 
             # Payment response build-up
             payments_data.append({
@@ -542,7 +555,8 @@ def get_all_payments(
                     files=file_urls,
                     items=item_names,
                     remarks=payment.remarks,
-                    status_history=[StatusDatePair(**h) for h in data["statuses"]],
+                    status_history=[StatusDatePair(**h)
+                                    for h in data["statuses"]],
                     current_status=payment.status,
                     created_at=payment.created_at.strftime("%Y-%m-%d"),
                     update_remarks=payment.update_remarks,
@@ -585,13 +599,15 @@ def notify_payment_status_update(
         UserRole.SUPER_ADMIN.value,
         UserRole.PROJECT_MANAGER.value
     ]
+    if user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value] and status in [PaymentStatus.APPROVED.value, PaymentStatus.VERIFIED.value]:
+        return True
     people_to_notify = db.query(User).filter(
         or_(
             User.role.in_(roles_to_notify),
             User.uuid == payment_user
         ),
         User.is_deleted.is_(False),
-        User.uuid != str(user.uuid)
+        User.uuid != user.uuid
     )
     people = people_to_notify.all()
     notification = NotificationMessage(
@@ -608,7 +624,6 @@ def notify_payment_status_update(
         f"{len(people)} Users were notified for this payment request"
     )
     return True
-
 
 
 @payment_router.put("/cancel-status")
@@ -997,7 +1012,8 @@ def create_person(
         # Validate parent_id if provided
         parent = None
         if request_data.parent_id:
-            parent = db.query(Person).filter(Person.uuid == request_data.parent_id, Person.is_deleted.is_(False)).first()
+            parent = db.query(Person).filter(
+                Person.uuid == request_data.parent_id, Person.is_deleted.is_(False)).first()
             if not parent:
                 return PaymentServiceResponse(
                     data=None,
@@ -1186,7 +1202,8 @@ def create_item(
 def list_items(db: Session = Depends(get_db)):
     try:
         items = db.query(Item).all()
-        items_data = [{"uuid": str(item.uuid), "name": item.name, "category": item.category, "list_tag": item.list_tag} for item in items]
+        items_data = [{"uuid": str(item.uuid), "name": item.name,
+                       "category": item.category, "list_tag": item.list_tag} for item in items]
 
         return PaymentServiceResponse(
             data=items_data,
@@ -1237,7 +1254,8 @@ def create_priority(priority_name: str, db: Session = Depends(get_db)):
     db.add(new_priority)
     db.commit()
     db.refresh(new_priority)
-    response = {"priority_uuid": str(new_priority.uuid), "priority": new_priority.priority}
+    response = {"priority_uuid": str(
+        new_priority.uuid), "priority": new_priority.priority}
     return PaymentServiceResponse(
         data=response,
         message="priority created successfully",
@@ -1247,8 +1265,10 @@ def create_priority(priority_name: str, db: Session = Depends(get_db)):
 
 @payment_router.get("/priority", status_code=200)
 def list_priorities(db: Session = Depends(get_db)):
-    priorities = db.query(Priority).filter(Priority.is_deleted.is_(False)).all()
-    response = [{"uuid": str(p.uuid), "priority": p.priority} for p in priorities]
+    priorities = db.query(Priority).filter(
+        Priority.is_deleted.is_(False)).all()
+    response = [{"uuid": str(p.uuid), "priority": p.priority}
+                for p in priorities]
     return PaymentServiceResponse(
         data=response,
         message="priorities fetched successfully.",
