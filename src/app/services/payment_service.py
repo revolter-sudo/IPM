@@ -920,22 +920,30 @@ def create_person(
     db: Session = Depends(get_db),
 ):
     try:
-        if request_data.account_number is not None and request_data.ifsc_code is not None:
+        if request_data.account_number and request_data.ifsc_code:
             existing_person = db.query(Person).filter(
                 (Person.account_number == request_data.account_number) |
                 (Person.ifsc_code == request_data.ifsc_code)
             ).first()
+            reason = "A person with the same account number or ifsc code already exists."
         else:
-            existing_person = db.query(Person).filter(
-                (Person.phone_number == request_data.phone_number) |
-                (Person.upi_number == request_data.upi_number)
-            ).first()
+            if request_data.upi_number:
+                existing_person = db.query(Person).filter(
+                    (Person.phone_number == request_data.phone_number) |
+                    (Person.upi_number == request_data.upi_number)
+                ).first()
+                reason = "Person with same phone number ot account number exists"
+            else:
+                existing_person = db.query(Person).filter(
+                    (Person.phone_number == request_data.phone_number)
+                ).first()
+                reason = "Person with same phone number exists"
 
         if existing_person:
             return PaymentServiceResponse(
                 data=None,
                 status_code=400,
-                message=constants.PERSON_EXISTS
+                message=reason
             ).model_dump()
 
         # Validate parent_id if provided
