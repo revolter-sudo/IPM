@@ -583,11 +583,13 @@ def notify_payment_status_update(
         UserRole.PROJECT_MANAGER.value
     ]
     people_to_notify = db.query(User).filter(
-        User.role.in_(roles_to_notify),
-        User.uuid == payment_user,
-        User.is_deleted.is_(False)
+        or_(
+            User.role.in_(roles_to_notify),
+            User.uuid == payment_user
+        ),
+        User.is_deleted.is_(False),
+        User.uuid != user.uuid
     )
-    people_to_notify = people_to_notify.filter(~User.uuid.in_([user.uuid]))
     people = people_to_notify.all()
     notification = NotificationMessage(
         title="Payment Status Updated",
