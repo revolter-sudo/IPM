@@ -444,6 +444,9 @@ def logout_user(
                 tokens=user_token,
                 topic=str(user.uuid)
             )
+            logging.info("User unsubscribed successfully.")
+        else:
+            logging.info("Issue in unsubscribing user.")
         return AuthServiceResponse(
             data=None,
             message="User Logged Out Successfully!",
