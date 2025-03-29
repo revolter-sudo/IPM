@@ -24,6 +24,7 @@ from src.app.database.models import (
     PaymentEditHistory,
     Priority
 )
+import logging
 from src.app.schemas.auth_service_schamas import UserRole
 from uuid import uuid4
 from src.app.schemas import constants
@@ -39,6 +40,7 @@ from src.app.schemas.payment_service_schemas import (
     ItemListTag
 )
 from src.app.notification.notification_service import send_push_notification
+from src.app.notification.notification_schemas import NotificationMessage
 from sqlalchemy.orm import aliased
 from sqlalchemy import desc
 from sqlalchemy.exc import SQLAlchemyError
@@ -47,7 +49,45 @@ from src.app.services.project_service import create_project_balance_entry
 import json
 from collections import defaultdict
 
+logging.basicConfig(level=logging.INFO)
+
 payment_router = APIRouter(prefix="/payments", tags=["Payments"])
+
+
+def notify_create_payment(amount: int, user: User, db: Session):
+    try:
+        roles_to_notify = [
+            UserRole.ACCOUNTANT.value,
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value
+        ]
+        people_to_notify = db.query(User).filter(
+            User.role.in_(roles_to_notify),
+            User.is_deleted.is_(False)
+        )
+        people_to_notify = people_to_notify.filter(~User.uuid.in_([user.uuid]))
+        people = people_to_notify.all()
+        notification = NotificationMessage(
+            title="Payment Request",
+            body=f"Payment of {amount} amount requested by {user.name}"
+        )
+        for person in people:
+            send_push_notification(
+                  topic=str(person.uuid),
+                  title=notification.title,
+                  body=notification.body
+            )
+        logging.info(
+            f"{len(people)} Users were notified for this payment request"
+        )
+        return True
+    except Exception as e:
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error in notify_create_payment: {str(e)}",
+            status_code=500
+        ).model_dump()
 
 
 @payment_router.post("", tags=["Payments"], status_code=201)
@@ -105,6 +145,7 @@ def create_payment(
         )
         db.add(new_payment)
         db.flush()  # flush so new_payment.uuid is available
+        current_payment_uuid=new_payment.uuid
 
         # Create Payment status history
         db.add(
@@ -146,14 +187,21 @@ def create_payment(
                     ))
 
         db.commit()
-
+        notification = notify_create_payment(
+            amount=payment_request.amount,
+            user=current_user,
+            db=db
+        )
+        if not notification:
+            logging.error(f"Something Went wrong while sending create payment notification")
         return PaymentServiceResponse(
-            data={"payment_uuid": new_payment.uuid},
+            data={"payment_uuid": current_payment_uuid},
             message="Payment created successfully.",
             status_code=201
         ).model_dump()
 
     except Exception as e:
+        traceback.print_exc()
         db.rollback()
         return PaymentServiceResponse(
             status_code=500,

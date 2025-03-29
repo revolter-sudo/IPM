@@ -13,3 +13,8 @@ class NotificationServiceResponse(BaseModel):
             "message": self.message,
             "status_code": self.status_code
         }
+
+
+class NotificationMessage(BaseModel):
+    title: str
+    body: str

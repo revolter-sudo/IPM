@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI
 from fastapi_sqlalchemy import DBSessionMiddleware
 import os
@@ -9,6 +10,11 @@ from src.app.services.payment_service import payment_router
 from src.app.services.project_service import project_router, balance_router
 from src.app.services.khatabook_endpoints import khatabook_router
 from dotenv import load_dotenv
+logging.basicConfig(level=logging.INFO)
+logging.info("************************************")
+logging.info("Test log from main.py startup")
+logging.info("************************************")
+
 
 load_dotenv()
 UPLOADS_DIR = os.getenv("UPLOADS_DIR")
