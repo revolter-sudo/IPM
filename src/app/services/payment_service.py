@@ -66,7 +66,10 @@ def notify_create_payment(amount: int, user: User, db: Session):
             User.role.in_(roles_to_notify),
             User.is_deleted.is_(False)
         )
-        if user.role in roles_to_notify:
+        if user.role in roles_to_notify or user.role in [
+            UserRole.SITE_ENGINEER.value,
+            UserRole.SUB_CONTRACTOR.value
+        ]:
             # Then in a second line, exclude the current user
             people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
 
@@ -656,7 +659,7 @@ def notify_payment_status_update(
         people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
 
     # 3) If status is APPROVED or VERIFIED, exclude ALL Site Engineers & Sub-contractors
-    if status in [PaymentStatus.APPROVED.value, PaymentStatus.VERIFIED.value]:
+    if status in [PaymentStatus.APPROVED.value, PaymentStatus.VERIFIED.value, "approved", "verified"]:
         people_to_notify = people_to_notify.filter(
             ~User.role.in_([
                 UserRole.SITE_ENGINEER.value,
