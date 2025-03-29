@@ -920,7 +920,7 @@ def create_person(
     db: Session = Depends(get_db),
 ):
     try:
-        if request_data.account_number and request_data.ifsc_code:
+        if request_data.account_number is not None and request_data.ifsc_code is not None:
             existing_person = db.query(Person).filter(
                 (Person.account_number == request_data.account_number) |
                 (Person.ifsc_code == request_data.ifsc_code)
