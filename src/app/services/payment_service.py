@@ -66,9 +66,12 @@ def notify_create_payment(amount: int, user: User, db: Session):
             User.role.in_(roles_to_notify),
             User.is_deleted.is_(False)
         )
-
-        # Then in a second line, exclude the current user
-        people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
+        if user.role not in [
+            UserRole.SUB_CONTRACTOR.value,
+            UserRole.SITE_ENGINEER.value
+        ]:
+            # Then in a second line, exclude the current user
+            people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
 
         people = people_to_notify.all()
         notification = NotificationMessage(
@@ -606,9 +609,14 @@ def notify_payment_status_update(
             User.role.in_(roles_to_notify),
             User.uuid == payment_user
         ),
-        User.is_deleted.is_(False),
-        User.uuid != user.uuid
+        User.is_deleted.is_(False)
     )
+    if user.role not in [
+        UserRole.SITE_ENGINEER.value,
+        UserRole.SUB_CONTRACTOR.value
+    ]:
+        people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
+
     people = people_to_notify.all()
     notification = NotificationMessage(
         title="Payment Status Updated",
