@@ -1,6 +1,6 @@
 venv/
 venv
-
+secret_file.json
 # Environment
 .env
 venv/
