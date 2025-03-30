@@ -71,18 +71,10 @@ def subscribe_news(tokens, topic):
 
 
 def unsubscribe_news(tokens, topic):
-    try:
-        # check_or_up_firebase_app()
-        response = messaging.unsubscribe_from_topic(tokens, topic)
-        if response.failure_count > 0:
-            return NotificationServiceResponse(
-                data=None,
-                message="Failed to Unsubscribe Topic",
-                status_code=200
-            ).model_dump()
-    except Exception as e:
+    response = messaging.unsubscribe_from_topic(tokens, topic)
+    if response.failure_count > 0:
         return NotificationServiceResponse(
             data=None,
-            message=f"Error in unsubscribe_news: {str(e)}",
-            status_code=500
+            message="Failed to Unsubscribe Topic",
+            status_code=200
         ).model_dump()

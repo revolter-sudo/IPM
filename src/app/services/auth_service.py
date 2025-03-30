@@ -441,7 +441,7 @@ def logout_user(
         ).first()
         if user_token:
             unsubscribe_news(
-                tokens=user_token,
+                tokens=user_token[0],
                 topic=str(user.uuid)
             )
             logging.info("User unsubscribed successfully.")
