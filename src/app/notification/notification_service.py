@@ -42,7 +42,6 @@ def send_push_notification(
         data=data or {},
         android=messaging.AndroidConfig(priority="high")
     )
-
     try:
         response = messaging.send(message)
         logging.info(f"Successfully sent message: {response}")

@@ -1,14 +1,20 @@
 import os
-import shutil
 import traceback
 from typing import Optional, List
-from pydantic import BaseModel, ValidationError
 from uuid import UUID
 from datetime import datetime
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, Body, Form
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    Form
+)
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, or_
+from sqlalchemy import or_
 from src.app.database.database import get_db
 from src.app.database.models import (
     Payment,
@@ -28,7 +34,6 @@ import logging
 from src.app.schemas.auth_service_schamas import UserRole
 from uuid import uuid4
 from src.app.schemas import constants
-from src.app.schemas.auth_service_schamas import UserRole
 from src.app.schemas.payment_service_schemas import (
     CreatePerson,
     PaymentsResponse,
@@ -43,7 +48,6 @@ from src.app.notification.notification_service import send_push_notification
 from src.app.notification.notification_schemas import NotificationMessage
 from sqlalchemy.orm import aliased
 from sqlalchemy import desc
-from sqlalchemy.exc import SQLAlchemyError
 from src.app.services.auth_service import get_current_user
 from src.app.services.project_service import create_project_balance_entry
 import json
@@ -66,10 +70,7 @@ def notify_create_payment(amount: int, user: User, db: Session):
             User.role.in_(roles_to_notify),
             User.is_deleted.is_(False)
         )
-        if user.role in roles_to_notify or user.role in [
-            UserRole.SITE_ENGINEER.value,
-            UserRole.SUB_CONTRACTOR.value
-        ]:
+        if user.role in roles_to_notify:
             # Then in a second line, exclude the current user
             people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
 
@@ -587,48 +588,6 @@ def get_all_payments(
             message=f"An Error Occurred: {str(e)}",
             status_code=500
         ).model_dump()
-
-
-# def notify_payment_status_update(
-#         amount: int,
-#         status: str,
-#         user: User,
-#         payment_user: UUID,
-#         db: Session
-# ):
-#     roles_to_notify = [
-#         UserRole.ACCOUNTANT.value,
-#         UserRole.ADMIN.value,
-#         UserRole.SUPER_ADMIN.value,
-#         UserRole.PROJECT_MANAGER.value
-#     ]
-#     if user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value] and status in [PaymentStatus.APPROVED.value, PaymentStatus.VERIFIED.value]:
-#         return True
-#     people_to_notify = db.query(User).filter(
-#         or_(
-#             User.role.in_(roles_to_notify),
-#             User.uuid == payment_user
-#         ),
-#         User.is_deleted.is_(False)
-#     )
-#     if user.role in roles_to_notify:
-#         people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
-
-#     people = people_to_notify.all()
-#     notification = NotificationMessage(
-#         title="Payment Status Updated",
-#         body=f"Payment of {amount} {status} by {user.name}"
-#     )
-#     for person in people:
-#         send_push_notification(
-#             topic=str(person.uuid),
-#             title=notification.title,
-#             body=notification.body
-#         )
-#     logging.info(
-#         f"{len(people)} Users were notified for this payment request"
-#     )
-#     return True
 
 
 def notify_payment_status_update(
