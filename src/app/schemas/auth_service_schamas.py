@@ -1,6 +1,6 @@
 from enum import Enum
 from uuid import UUID
-from typing import Any
+from typing import Any, Optional
 from pydantic import BaseModel, field_validator
 from src.app.schemas.payment_service_schemas import CreatePerson
 
@@ -43,7 +43,7 @@ class UserLogout(BaseModel):
 class UserLogin(BaseModel):
     phone: int
     password: str
-    fcm_token: str
+    fcm_token: Optional[str] = None
     device_id: str
 
 

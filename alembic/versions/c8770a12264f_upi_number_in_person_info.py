@@ -40,7 +40,7 @@ def upgrade():
 def downgrade():
     # Reverse the above changes
     op.drop_column('person', 'upi_number')
-    
+
     # op.alter_column(
     #     'person',
     #     'account_number',

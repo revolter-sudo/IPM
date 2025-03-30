@@ -337,16 +337,17 @@ def login(
         photo_path=db_user.photo_path
     ).to_dict()
     access_token = create_access_token(data={"sub": str(db_user.uuid)})
-    check_or_add_token(
-        user_id=db_user.uuid,
-        fcm_token=login_data.fcm_token,
-        device_id=login_data.device_id,
-        db=db
-    )
-    subscribe_news(
-        tokens=login_data.fcm_token,
-        topic=db_user.uuid
-    )
+    if login_data.fcm_token:
+        check_or_add_token(
+            user_id=db_user.uuid,
+            fcm_token=login_data.fcm_token,
+            device_id=login_data.device_id,
+            db=db
+        )
+        subscribe_news(
+            tokens=login_data.fcm_token,
+            topic=db_user.uuid
+        )
     response = {
         "access_token": access_token,
         "token_type": "bearer",
