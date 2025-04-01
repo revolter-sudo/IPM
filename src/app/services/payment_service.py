@@ -1247,7 +1247,7 @@ def delete_person(person_uuid: UUID, db: Session = Depends(get_db), current_user
 @payment_router.post("/items", tags=["Items"], status_code=201)
 def create_item(
     name: str,
-    list_tag: ItemListTag,
+    list_tag: Optional[ItemListTag] = None,
     category: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
