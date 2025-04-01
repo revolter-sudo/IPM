@@ -398,3 +398,58 @@ def get_bank_balance(
             status_code=500,
             message="An error occurred while getting balance"
         ).model_dump()
+
+
+@project_router.delete("/{project_uuid}", status_code=status.HTTP_200_OK, tags=["Projects"])
+def delete_project(
+    project_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        project = (
+            db.query(
+                Project
+            ).filter(
+                Project.uuid == project_uuid,
+                Project.is_deleted.is_(False)
+            ).first()
+        )
+        if not project:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Project not found"
+            ).model_dump()
+
+        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Unauthorized to delete project"
+            ).model_dump()
+
+        project.is_deleted = True
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="Project",
+            action="Delete",
+            entity_id=project_uuid,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
+        db.commit()
+
+        return ProjectServiceResponse(
+            data=None,
+            message="Project deleted successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in delete_project API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while deleting the project"
+        ).model_dump()
