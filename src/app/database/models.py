@@ -228,7 +228,7 @@ class Payment(Base):
 
     # Flag if this payment is "self-payment"
     self_payment = Column(Boolean, nullable=False, default=False)
-
+    decline_remark = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at = Column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False

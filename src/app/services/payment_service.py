@@ -516,16 +516,21 @@ def get_all_payments(
             file_urls = []
             if payment.payment_files:
                 for f in payment.payment_files:
-                    if not f.is_approval_upload:
-                        filename = os.path.basename(f.file_path)
-                        file_url = f"{constants.HOST_URL}/uploads/payments/{filename}"
-                        file_urls.append(file_url)
+                    if f.is_approval_upload:
+                        # Only add approval files if user is Site Engineer or Sub Contractor  # noqa
+                        if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:  # noqa
+                            file_url = f"{constants.HOST_URL}/{f.file_path}"
+                            file_urls.append(file_url)
+                        else:
+                            # Normal files are visible to all roles
+                            file_url = f"{constants.HOST_URL}/{f.file_path}"
+                            file_urls.append(file_url)
 
             # Items
             item_names = []
             if payment.payment_items:
                 item_names = [
-                    p_item.item.name for p_item in payment.payment_items if p_item.item]
+                    p_item.item.name for p_item in payment.payment_items if p_item.item]  # noqa
 
             # Return parent's data if any
             parent_data = get_parent_account_data(
@@ -573,7 +578,8 @@ def get_all_payments(
                     payment_history=data["edits"]
                 ).model_dump(),
                 "priority_name": priority_name,  # <--- Add to output
-                "edit": can_edit_payment(status_list, current_user.role)
+                "edit": can_edit_payment(status_list, current_user.role),
+                "decline_remark": payment.decline_remark
             })
         return PaymentServiceResponse(
             data=payments_data,
@@ -925,7 +931,7 @@ def decline_payment(
         # 5) Update Payment table's status
         payment.status = PaymentStatus.DECLINED.value
         if remarks:
-            payment.remarks = remarks
+            payment.decline_remark = remarks
 
         # 6) Log the action
         log_entry = Log(
@@ -1216,11 +1222,42 @@ def create_item(
 
 
 @payment_router.get("/items", tags=["Items"], status_code=200)
-def list_items(db: Session = Depends(get_db)):
+def list_items(
+    list_tag: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     try:
-        items = db.query(Item).all()
-        items_data = [{"uuid": str(item.uuid), "name": item.name,
-                       "category": item.category, "list_tag": item.list_tag} for item in items]
+        if list_tag is None:
+            items = db.query(Item).all()
+        elif list_tag == 'khatabook':
+            items = db.query(Item).filter(
+                or_(
+                    Item.list_tag.is_(None),
+                    Item.list_tag == 'khatabook'
+                )
+            ).all()
+        elif list_tag == 'payment':
+            items = db.query(Item).filter(
+                or_(
+                    Item.list_tag.is_(None),
+                    Item.list_tag == 'payment'
+                )
+            ).all()
+        else:
+            return PaymentServiceResponse(
+                data=None,
+                message="Undefined value of list_tag. Allowed Values ['payment', 'khatabook', null]",
+                status_code=400
+            ).model_dump()
+
+        items_data = [
+            {
+                "uuid": str(item.uuid),
+                "name": item.name,
+                "category": item.category,
+                "list_tag": item.list_tag
+            } for item in items
+        ]
 
         return PaymentServiceResponse(
             data=items_data,
