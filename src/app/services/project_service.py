@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
+from decimal import Decimal
 
 from src.app.database.database import get_db
 from src.app.database.models import (
@@ -324,11 +325,12 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
     tags=["Bank Balance"]
 )
 def create_balance(
-    balance_amount: float,
+    balance_amount: Decimal,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     try:
+        logging.info(f"Initial Balance: {balance_amount}")
         if user.role not in [
             UserRole.ACCOUNTANT.value,
             UserRole.SUPER_ADMIN.value
@@ -340,8 +342,10 @@ def create_balance(
             ).model_dump()
         balance_obj = db.query(BalanceDetail).first()
         if balance_obj:
+            logging.info(f"Balance amount existing case: {balance_amount}")
             balance_obj.balance = balance_amount
         else:
+            logging.info(f"Balance amount not fount case: {balance_amount}")
             balance_obj = BalanceDetail(balance=balance_amount)
             db.add(balance_obj)
         db.commit()
