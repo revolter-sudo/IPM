@@ -497,7 +497,8 @@ def get_all_payments(
 
         # Build final list of payments
         payments_data = []
-
+        file_urls = []
+        appoval_files = []
         for payment_uuid, data in grouped_data.items():
             data["edits"].reverse()
             row = data["row_data"]
@@ -514,14 +515,14 @@ def get_all_payments(
             priority_name = row.priority_name
 
             # Files (excluding is_approval_upload)
-            file_urls = []
+            
             if payment.payment_files:
                 for f in payment.payment_files:
                     if f.is_approval_upload:
                         # Only add approval files if user is Site Engineer or Sub Contractor  # noqa
                         if current_user.role not in [UserRole.ADMIN.value]:  # noqa
                             file_url = f"{constants.HOST_URL}/{f.file_path}"
-                            file_urls.append(file_url)
+                            appoval_files.append(file_url)
                     else:
                         # Normal files are visible to all roles
                         file_url = f"{constants.HOST_URL}/{f.file_path}"
@@ -580,7 +581,8 @@ def get_all_payments(
                 ).model_dump(),
                 "priority_name": priority_name,  # <--- Add to output
                 "edit": can_edit_payment(status_list, current_user.role),
-                "decline_remark": payment.decline_remark
+                "decline_remark": payment.decline_remark,
+                "approval_files": appoval_files
             })
         return PaymentServiceResponse(
             data=payments_data,
