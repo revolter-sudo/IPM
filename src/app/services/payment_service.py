@@ -522,10 +522,10 @@ def get_all_payments(
                         if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:  # noqa
                             file_url = f"{constants.HOST_URL}/{f.file_path}"
                             file_urls.append(file_url)
-                        else:
-                            # Normal files are visible to all roles
-                            file_url = f"{constants.HOST_URL}/{f.file_path}"
-                            file_urls.append(file_url)
+                    else:
+                        # Normal files are visible to all roles
+                        file_url = f"{constants.HOST_URL}/{f.file_path}"
+                        file_urls.append(file_url)
 
             # Items
             item_names = []
@@ -1134,10 +1134,7 @@ def update_person(
         # 3a) If updating account_number or ifsc_code:
         if (request_data.account_number or request_data.ifsc_code):
             conflict = db.query(Person).filter(
-                (
-                    (Person.account_number == request_data.account_number)
-                    | (Person.ifsc_code == request_data.ifsc_code)
-                ),
+                (Person.account_number == request_data.account_number),
                 Person.uuid != person_id,  # exclude self
                 Person.is_deleted.is_(False)
             ).first()
