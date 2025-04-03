@@ -366,9 +366,12 @@ def create_balance(
 
 def get_total_transferred_payments_sum(db):
     total_sum = db.query(func.sum(Payment.amount))\
-                  .filter(Payment.status == 'transferred', Payment.is_deleted == False)\
+                  .filter(Payment.status == 'transferred', Payment.is_deleted.is_(False))\
                   .scalar()
-    return total_sum or 0.0
+    if total_sum:
+        return total_sum
+    else:
+        return 0.0
 
 
 @balance_router.get(
@@ -381,6 +384,7 @@ def get_bank_balance(
     try:
         balance_obj = db.query(BalanceDetail).first()
         balance = balance_obj.balance
+        logging.info(f"Balance before subtraction: {balance}")
         if not balance_obj:
             return ProjectServiceResponse(
                 data=None,
@@ -388,8 +392,10 @@ def get_bank_balance(
                 message="Balance Not Found"
             ).model_dump()
         recorded_balance = get_total_transferred_payments_sum(db=db)
+        logging.info(f"Total records: {balance}")
         remaining_balance = balance - recorded_balance
         result = {"balance": remaining_balance}
+        logging.info(f"Remaining Balance: {balance}")
         return ProjectServiceResponse(
             data=result,
             status_code=200,
