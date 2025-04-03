@@ -519,7 +519,7 @@ def get_all_payments(
                 for f in payment.payment_files:
                     if f.is_approval_upload:
                         # Only add approval files if user is Site Engineer or Sub Contractor  # noqa
-                        if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:  # noqa
+                        if current_user.role not in [UserRole.ADMIN.value]:  # noqa
                             file_url = f"{constants.HOST_URL}/{f.file_path}"
                             file_urls.append(file_url)
                     else:
