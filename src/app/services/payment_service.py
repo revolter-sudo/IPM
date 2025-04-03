@@ -381,7 +381,7 @@ def get_all_payments(
                 PaymentEditHistory.updated_at.label("edit_updated_at"),
                 EditUser.name.label("edit_updated_by_name"),
                 EditUser.role.label("edit_updated_by_role"),
-                Priority.priority.label("priority_name"),  # <-- Priority name
+                Priority.priority.label("priority_name"),
             )
             .outerjoin(Project, Payment.project_id == Project.uuid)
             .outerjoin(Person, Payment.person == Person.uuid)
@@ -497,8 +497,7 @@ def get_all_payments(
 
         # Build final list of payments
         payments_data = []
-        file_urls = []
-        appoval_files = []
+        
         for payment_uuid, data in grouped_data.items():
             data["edits"].reverse()
             row = data["row_data"]
@@ -513,9 +512,9 @@ def get_all_payments(
 
             # priority name from joined table
             priority_name = row.priority_name
-
+            file_urls = []
+            appoval_files = []
             # Files (excluding is_approval_upload)
-            
             if payment.payment_files:
                 for f in payment.payment_files:
                     if f.is_approval_upload:
