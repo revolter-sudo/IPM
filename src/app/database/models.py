@@ -152,7 +152,7 @@ class Person(Base):
     ifsc_code = Column(String(11), nullable=False)
     phone_number = Column(String(10), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
-    upi_number = Column(String(50), nullable=True)      # New field
+    upi_number = Column(String(50), nullable=True)
     user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.uuid"),

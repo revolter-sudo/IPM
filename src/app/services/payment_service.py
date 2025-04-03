@@ -42,7 +42,8 @@ from src.app.schemas.payment_service_schemas import (
     CreatePaymentRequest,
     PaymentUpdateSchema,
     StatusDatePair,
-    ItemListTag
+    ItemListTag,
+    UpdatePerson
 )
 from src.app.notification.notification_service import send_push_notification
 from src.app.notification.notification_schemas import NotificationMessage
@@ -1067,6 +1068,123 @@ def create_person(
 
     except HTTPException as e:
         raise e
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+
+@payment_router.put(
+        "/person/{person_id}", tags=["Payments"],
+        status_code=h_status.HTTP_200_OK
+    )
+def update_person(
+    person_id: UUID,
+    request_data: UpdatePerson,
+    db: Session = Depends(get_db),
+):
+    """
+    Partially update a Person's details
+    (account_number, ifsc_code, phone_number, upi_number, parent_id, etc.)
+    """
+    try:
+        # 1) Find the existing person
+        person_record = db.query(Person).filter(
+            Person.uuid == person_id,
+            Person.is_deleted.is_(False)
+        ).first()
+
+        if not person_record:
+            return PaymentServiceResponse(
+                data=None,
+                message="Person not found.",
+                status_code=404
+            ).model_dump()
+
+        # 2) If a new parent_id is provided, check that it exists
+        # (and isn't the same as the person's own UUID)
+        if request_data.parent_id:
+            if request_data.parent_id == person_record.uuid:
+                return PaymentServiceResponse(
+                    data=None,
+                    message="A person cannot be their own parent.",
+                    status_code=400
+                ).model_dump()
+
+            parent_person = db.query(Person).filter(
+                Person.uuid == request_data.parent_id,
+                Person.is_deleted.is_(False)
+            ).first()
+            if not parent_person:
+                return PaymentServiceResponse(
+                    data=None,
+                    message="Parent account not found.",
+                    status_code=400
+                ).model_dump()
+
+        # 3) Check uniqueness constraints: account_number/ifsc_code or
+        # phone_number/upi_number
+        # We only apply a uniqueness check if the user
+        # is actually updating these fields.
+
+        # 3a) If updating account_number or ifsc_code:
+        if (request_data.account_number or request_data.ifsc_code):
+            conflict = db.query(Person).filter(
+                (
+                    (Person.account_number == request_data.account_number)
+                    | (Person.ifsc_code == request_data.ifsc_code)
+                ),
+                Person.uuid != person_id,  # exclude self
+                Person.is_deleted.is_(False)
+            ).first()
+            if conflict:
+                return PaymentServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message="A person with the same account number or IFSC code already exists."
+                ).model_dump()
+
+        # 3b) If updating phone_number or upi_number:
+        if (request_data.phone_number or request_data.upi_number):
+            conflict = db.query(Person).filter(
+                (
+                    (Person.phone_number == request_data.phone_number)
+                    | (Person.upi_number == request_data.upi_number)
+                ),
+                Person.uuid != person_id,
+                Person.is_deleted.is_(False)
+            ).first()
+            if conflict:
+                return PaymentServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message="A person with the same phone number or UPI number already exists."
+                ).model_dump()
+
+        # 4) Update the fields that were provided
+        if request_data.name is not None:
+            person_record.name = request_data.name
+        if request_data.account_number is not None:
+            person_record.account_number = request_data.account_number
+        if request_data.ifsc_code is not None:
+            person_record.ifsc_code = request_data.ifsc_code
+        if request_data.phone_number is not None:
+            person_record.phone_number = request_data.phone_number
+        if request_data.upi_number is not None:
+            person_record.upi_number = request_data.upi_number
+        if request_data.parent_id is not None:
+            person_record.parent_id = request_data.parent_id
+
+        db.commit()
+        return PaymentServiceResponse(
+            data=str(person_record.uuid),
+            message="Person updated successfully.",
+            status_code=200
+        ).model_dump()
 
     except Exception as e:
         db.rollback()

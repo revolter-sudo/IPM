@@ -54,6 +54,35 @@ class CreatePerson(BaseModel):
     parent_id: Optional[UUID] = None
 
 
+class UpdatePerson(BaseModel):
+    name: Optional[str] = None
+    account_number: Optional[str] = Field(
+        None,
+        min_length=7,
+        max_length=17,
+        description="Account number must be 7 to 17 digits long",
+    )
+    ifsc_code: Optional[str] = Field(
+        None,
+        min_length=11,
+        max_length=11,
+        description="IFSC code must be exactly 11 characters long",
+    )
+    phone_number: Optional[str] = Field(
+        None,
+        min_length=10,
+        max_length=10,
+        description="Phone number must be exactly 10 digits",
+    )
+    upi_number: Optional[str] = Field(
+        None,
+        min_length=10,
+        max_length=10,
+        description="UPI number must be exactly 10 digits",
+    )
+    parent_id: Optional[UUID] = None
+
+
 class PaymentUpdateSchema(BaseModel):
     amount: float = Field(..., description="New payment amount")
     remark: str = Field(..., description="Remark for this update")
