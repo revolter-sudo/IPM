@@ -96,12 +96,18 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
-    phone = Column(BigInteger, unique=True, nullable=False)
+    phone = Column(BigInteger, unique=False, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(30), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
     photo_path = Column(String(255), nullable=True)
+
+    token_maps = relationship(
+        "UserTokenMap",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
 
     # Relationship to Person
     person = relationship(
@@ -109,6 +115,25 @@ class User(Base):
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan"
+    )
+
+
+class UserTokenMap(Base):
+    __tablename__ = "user_token_map"
+
+    id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    fcm_token = Column(String(500), nullable=False)
+    device_id = Column(String(255), nullable=True)
+    created_at = Column(
+        TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"), nullable=False
+    )
+
+    # Relationship back to User
+    user = relationship(
+        "User",
+        back_populates="token_maps",
     )
 
 
@@ -127,7 +152,7 @@ class Person(Base):
     ifsc_code = Column(String(11), nullable=False)
     phone_number = Column(String(10), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
-    upi_number = Column(String(50), nullable=True)      # New field
+    upi_number = Column(String(50), nullable=True)
     user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.uuid"),
@@ -203,7 +228,7 @@ class Payment(Base):
 
     # Flag if this payment is "self-payment"
     self_payment = Column(Boolean, nullable=False, default=False)
-
+    decline_remark = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at = Column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False

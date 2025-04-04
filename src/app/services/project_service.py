@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
+from decimal import Decimal
 
 from src.app.database.database import get_db
 from src.app.database.models import (
@@ -324,11 +325,12 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
     tags=["Bank Balance"]
 )
 def create_balance(
-    balance_amount: str,
+    balance_amount: Decimal,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     try:
+        logging.info(f"Initial Balance: {balance_amount}")
         if user.role not in [
             UserRole.ACCOUNTANT.value,
             UserRole.SUPER_ADMIN.value
@@ -340,8 +342,10 @@ def create_balance(
             ).model_dump()
         balance_obj = db.query(BalanceDetail).first()
         if balance_obj:
+            logging.info(f"Balance amount existing case: {balance_amount}")
             balance_obj.balance = balance_amount
         else:
+            logging.info(f"Balance amount not fount case: {balance_amount}")
             balance_obj = BalanceDetail(balance=balance_amount)
             db.add(balance_obj)
         db.commit()
@@ -362,9 +366,12 @@ def create_balance(
 
 def get_total_transferred_payments_sum(db):
     total_sum = db.query(func.sum(Payment.amount))\
-                  .filter(Payment.status == 'transferred', Payment.is_deleted == False)\
+                  .filter(Payment.status == 'transferred', Payment.is_deleted.is_(False))\
                   .scalar()
-    return total_sum or 0.0
+    if total_sum:
+        return total_sum
+    else:
+        return 0.0
 
 
 @balance_router.get(
@@ -377,6 +384,7 @@ def get_bank_balance(
     try:
         balance_obj = db.query(BalanceDetail).first()
         balance = balance_obj.balance
+        logging.info(f"Balance before subtraction: {balance}")
         if not balance_obj:
             return ProjectServiceResponse(
                 data=None,
@@ -384,8 +392,10 @@ def get_bank_balance(
                 message="Balance Not Found"
             ).model_dump()
         recorded_balance = get_total_transferred_payments_sum(db=db)
+        logging.info(f"Total records: {recorded_balance}")
         remaining_balance = balance - recorded_balance
         result = {"balance": remaining_balance}
+        logging.info(f"Remaining Balance: {result}")
         return ProjectServiceResponse(
             data=result,
             status_code=200,
@@ -397,4 +407,59 @@ def get_bank_balance(
             data=None,
             status_code=500,
             message="An error occurred while getting balance"
+        ).model_dump()
+
+
+@project_router.delete("/{project_uuid}", status_code=status.HTTP_200_OK, tags=["Projects"])
+def delete_project(
+    project_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        project = (
+            db.query(
+                Project
+            ).filter(
+                Project.uuid == project_uuid,
+                Project.is_deleted.is_(False)
+            ).first()
+        )
+        if not project:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Project not found"
+            ).model_dump()
+
+        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Unauthorized to delete project"
+            ).model_dump()
+
+        project.is_deleted = True
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="Project",
+            action="Delete",
+            entity_id=project_uuid,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
+        db.commit()
+
+        return ProjectServiceResponse(
+            data=None,
+            message="Project deleted successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in delete_project API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while deleting the project"
         ).model_dump()

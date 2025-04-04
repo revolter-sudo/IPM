@@ -1,7 +1,15 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Security, status, UploadFile, File
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Security,
+    status,
+    UploadFile,
+    File
+)
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     HTTPBearer,
@@ -13,14 +21,19 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session
 from uuid import uuid4
 from src.app.database.database import get_db
-from src.app.database.models import User, Log, Person
+from src.app.database.models import User, Log, Person, UserTokenMap
 from src.app.schemas.auth_service_schamas import (
     UserCreate,
     UserLogin,
     UserResponse,
     UserRole,
     AuthServiceResponse,
-    ForgotPasswordRequest
+    ForgotPasswordRequest,
+    UserLogout
+)
+from src.app.notification.notification_service import (
+    subscribe_news,
+    unsubscribe_news
 )
 from src.app.schemas import constants
 import os
@@ -191,7 +204,10 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
 
     # 3) Return success
     return AuthServiceResponse(
-        data={"uuid": str(user.uuid), "phone": user.phone},
+        data={
+            "uuid": str(user.uuid),
+            "phone": user.phone
+        },
         message="Password reset successfully",
         status_code=200
     ).model_dump()
@@ -257,6 +273,35 @@ def register_user(
     ).model_dump()
 
 
+def check_or_add_token(
+    user_id: UUID,
+    fcm_token: str,
+    device_id: int,
+    db: Session
+):
+    try:
+        data = db.query(UserTokenMap).filter(
+            UserTokenMap.device_id == device_id
+        ).first()
+        if data:
+            data.fcm_token = fcm_token
+        else:
+            user_token_data = UserTokenMap(
+                user_id=user_id,
+                fcm_token=fcm_token,
+                device_id=device_id,
+            )
+            db.add(user_token_data)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return AuthServiceResponse(
+            data=None,
+            message=f"Error while check_or_add_token: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+
 @auth_router.post(
     "/login",
     status_code=status.HTTP_200_OK,
@@ -292,6 +337,17 @@ def login(
         photo_path=db_user.photo_path
     ).to_dict()
     access_token = create_access_token(data={"sub": str(db_user.uuid)})
+    if login_data.fcm_token:
+        check_or_add_token(
+            user_id=db_user.uuid,
+            fcm_token=login_data.fcm_token,
+            device_id=login_data.device_id,
+            db=db
+        )
+        subscribe_news(
+            tokens=login_data.fcm_token,
+            topic=db_user.uuid
+        )
     response = {
         "access_token": access_token,
         "token_type": "bearer",
@@ -357,6 +413,51 @@ def delete_user(
             data=None,
             status_code=500,
             message=f"Error in delete_user API: {str(e)}"
+        ).model_dump()
+
+
+@auth_router.post(
+        "/logout",
+        status_code=status.HTTP_201_CREATED,
+        tags=["Users"]
+)
+def logout_user(
+    user_data: UserLogout,
+    db: Session = Depends(get_db)
+):
+    try:
+        user = db.query(User).filter(
+            User.uuid == user_data.user_id,
+            User.is_deleted.is_(False)
+        ).first()
+        if not user:
+            return AuthServiceResponse(
+                data=None,
+                message="User Does not exist",
+                status_code=404
+            ).model_dump()
+        user_token = db.query(UserTokenMap.fcm_token).filter(
+            UserTokenMap.device_id == user_data.device_id
+        ).first()
+        if user_token:
+            unsubscribe_news(
+                tokens=user_token[0],
+                topic=str(user.uuid)
+            )
+            logging.info("User unsubscribed successfully.")
+        else:
+            logging.info("Issue in unsubscribing user.")
+        return AuthServiceResponse(
+            data=None,
+            message="User Logged Out Successfully!",
+            status_code=201
+        ).model_dump()
+
+    except Exception as e:
+        return AuthServiceResponse(
+            data=None,
+            message=f"Error in logout_user API: {str(e)}",
+            status_code=200
         ).model_dump()
 
 
@@ -476,7 +577,10 @@ def activate_user(
 @auth_router.get("/users", status_code=status.HTTP_200_OK, tags=["Users"])
 def list_all_active_users(db: Session = Depends(get_db)):
     try:
-        users = db.query(User).filter(User.is_active.is_(True)).all()
+        users = db.query(User).filter(
+            User.is_active.is_(True),
+            User.is_deleted.is_(False)
+        ).all()
 
         user_response_data = []
         for user in users:
