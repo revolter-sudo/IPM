@@ -577,7 +577,10 @@ def activate_user(
 @auth_router.get("/users", status_code=status.HTTP_200_OK, tags=["Users"])
 def list_all_active_users(db: Session = Depends(get_db)):
     try:
-        users = db.query(User).filter(User.is_active.is_(True)).all()
+        users = db.query(User).filter(
+            User.is_active.is_(True),
+            User.is_deleted.is_(False)
+        ).all()
 
         user_response_data = []
         for user in users:
