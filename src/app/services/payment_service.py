@@ -1309,6 +1309,7 @@ def delete_person(person_uuid: UUID, db: Session = Depends(get_db), current_user
 @payment_router.post("/items", tags=["Items"], status_code=201)
 def create_item(
     name: str,
+    has_additional_info: bool,
     list_tag: Optional[ItemListTag] = None,
     category: Optional[str] = None,
     db: Session = Depends(get_db)
@@ -1317,7 +1318,8 @@ def create_item(
         new_item = Item(
             name=name,
             category=category,
-            list_tag=list_tag
+            list_tag=list_tag,
+            has_additional_info=has_additional_info
         )
         db.add(new_item)
         db.commit()
@@ -1371,7 +1373,8 @@ def list_items(
                 "uuid": str(item.uuid),
                 "name": item.name,
                 "category": item.category,
-                "list_tag": item.list_tag
+                "list_tag": item.list_tag,
+                "has_additional_info": item.has_additional_info
             } for item in items
         ]
 
