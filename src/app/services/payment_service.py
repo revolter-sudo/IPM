@@ -317,7 +317,7 @@ def get_all_payments(
     db: Session = Depends(get_db),
     amount: Optional[float] = Query(None),
     project_id: Optional[UUID] = Query(None),
-    status: Optional[str] = Query(None),
+    status: Optional[list] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     recent: Optional[bool] = Query(False),
@@ -418,7 +418,7 @@ def get_all_payments(
         if project_id is not None:
             query = query.filter(Payment.project_id == project_id)
         if status is not None:
-            query = query.filter(Payment.status == status)
+            query = query.filter(Payment.status.in_(status))
 
         # Handle date-range filters properly
         if start_date is not None and end_date is not None:
