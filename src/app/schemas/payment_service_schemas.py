@@ -130,6 +130,7 @@ class PersonDetail(BaseModel):
 class StatusDatePair(BaseModel):
     status: str
     date: str  # We'll store a string like "04-03-2025"
+    created_by: str
 
 
 class PaymentsResponse(BaseModel):
