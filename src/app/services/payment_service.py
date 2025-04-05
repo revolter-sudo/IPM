@@ -14,7 +14,7 @@ from fastapi import (
 )
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from src.app.database.database import get_db
 from src.app.database.models import (
     Payment,
@@ -364,6 +364,40 @@ def get_all_payments(
         EditUser = aliased(User)
 
         # MAIN query: join everything we need (Projects, Person, Priority, PaymentFile, PaymentItem, etc.)
+        # query = (
+        #     db.query(
+        #         Payment,
+        #         Project.name.label("project_name"),
+        #         Person.name.label("person_name"),
+        #         Person.account_number,
+        #         Person.ifsc_code,
+        #         Person.upi_number,
+        #         User.name.label("user_name"),
+        #         PaymentStatusHistory.status.label("history_status"),
+        #         PaymentStatusHistory.created_at.label("history_created_at"),
+        #         PaymentEditHistory.old_amount.label("edit_old_amount"),
+        #         PaymentEditHistory.new_amount.label("edit_new_amount"),
+        #         PaymentEditHistory.remarks.label("edit_remarks"),
+        #         PaymentEditHistory.updated_at.label("edit_updated_at"),
+        #         EditUser.name.label("edit_updated_by_name"),
+        #         EditUser.role.label("edit_updated_by_role"),
+        #         Priority.priority.label("priority_name"),
+        #     )
+        #     .outerjoin(Project, Payment.project_id == Project.uuid)
+        #     .outerjoin(Person, Payment.person == Person.uuid)
+        #     .outerjoin(User, Payment.created_by == User.uuid)
+        #     .outerjoin(PaymentFile)
+        #     .outerjoin(PaymentItem, Payment.uuid == PaymentItem.payment_id)
+        #     .outerjoin(Item, PaymentItem.item_id == Item.uuid)
+        #     .outerjoin(PaymentStatusHistory, Payment.uuid == PaymentStatusHistory.payment_id)
+        #     .outerjoin(PaymentEditHistory, Payment.uuid == PaymentEditHistory.payment_id)
+        #     .outerjoin(EditUser, PaymentEditHistory.updated_by == EditUser.uuid)
+        #     # NEW: join Priority so we can display priority name
+        #     .outerjoin(Priority, Payment.priority_id == Priority.uuid)
+        #     .filter(Payment.is_deleted.is_(False))
+        #     .order_by(Payment.created_at.desc())
+        # )
+
         query = (
             db.query(
                 Payment,
@@ -383,17 +417,59 @@ def get_all_payments(
                 EditUser.role.label("edit_updated_by_role"),
                 Priority.priority.label("priority_name"),
             )
+            # If you also want to exclude soft-deleted Projects, Persons, or Users,
+            # you can add them in an AND condition, e.g.:
+            # .outerjoin(Project, and_(Payment.project_id == Project.uuid, Project.is_deleted.is_(False)))
             .outerjoin(Project, Payment.project_id == Project.uuid)
             .outerjoin(Person, Payment.person == Person.uuid)
             .outerjoin(User, Payment.created_by == User.uuid)
-            .outerjoin(PaymentFile)
-            .outerjoin(PaymentItem, Payment.uuid == PaymentItem.payment_id)
+
+            # Now filter out soft-deleted PaymentFile rows
+            .outerjoin(
+                PaymentFile,
+                and_(
+                    PaymentFile.payment_id == Payment.uuid,
+                    PaymentFile.is_deleted.is_(False)
+                )
+            )
+            # Filter out soft-deleted PaymentItem rows
+            .outerjoin(
+                PaymentItem,
+                and_(
+                    PaymentItem.payment_id == Payment.uuid,
+                    PaymentItem.is_deleted.is_(False)
+                )
+            )
             .outerjoin(Item, PaymentItem.item_id == Item.uuid)
-            .outerjoin(PaymentStatusHistory, Payment.uuid == PaymentStatusHistory.payment_id)
-            .outerjoin(PaymentEditHistory, Payment.uuid == PaymentEditHistory.payment_id)
+
+            # Filter out soft-deleted PaymentStatusHistory rows
+            .outerjoin(
+                PaymentStatusHistory,
+                and_(
+                    PaymentStatusHistory.payment_id == Payment.uuid,
+                    PaymentStatusHistory.is_deleted.is_(False)
+                )
+            )
+            # Filter out soft-deleted PaymentEditHistory rows
+            .outerjoin(
+                PaymentEditHistory,
+                and_(
+                    PaymentEditHistory.payment_id == Payment.uuid,
+                    PaymentEditHistory.is_deleted.is_(False)
+                )
+            )
             .outerjoin(EditUser, PaymentEditHistory.updated_by == EditUser.uuid)
-            # NEW: join Priority so we can display priority name
-            .outerjoin(Priority, Payment.priority_id == Priority.uuid)
+
+            # Filter out soft-deleted Priority rows if you have is_deleted there as well
+            .outerjoin(
+                Priority,
+                and_(
+                    Payment.priority_id == Priority.uuid,
+                    Priority.is_deleted.is_(False)
+                )
+            )
+
+            # Finally, exclude soft-deleted Payment rows
             .filter(Payment.is_deleted.is_(False))
             .order_by(Payment.created_at.desc())
         )
@@ -497,7 +573,7 @@ def get_all_payments(
 
         # Build final list of payments
         payments_data = []
-        
+
         for payment_uuid, data in grouped_data.items():
             data["edits"].reverse()
             row = data["row_data"]
@@ -519,9 +595,8 @@ def get_all_payments(
                 for f in payment.payment_files:
                     if f.is_approval_upload:
                         # Only add approval files if user is Site Engineer or Sub Contractor  # noqa
-                        if current_user.role not in [UserRole.ADMIN.value]:  # noqa
-                            file_url = f"{constants.HOST_URL}/{f.file_path}"
-                            appoval_files.append(file_url)
+                        file_url = f"{constants.HOST_URL}/{f.file_path}"
+                        appoval_files.append(file_url)
                     else:
                         # Normal files are visible to all roles
                         file_url = f"{constants.HOST_URL}/{f.file_path}"
@@ -591,6 +666,61 @@ def get_all_payments(
 
     except Exception as e:
         print(f"Error in get_all_payments API: {str(e)}")
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+
+@payment_router.delete("")
+def delete_payment(
+    payment_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
+        if not payment:
+            return PaymentServiceResponse(
+                data=None,
+                status_code=404,
+                message="Payment not found."
+            ).model_dump()
+
+        # Soft-delete the Payment
+        payment.is_deleted = True
+
+        # Soft-delete PaymentFile
+        db.query(PaymentFile).filter(PaymentFile.payment_id == payment.uuid).update(
+            {PaymentFile.is_deleted: True}
+        )
+
+        # Soft-delete PaymentItem
+        db.query(PaymentItem).filter(PaymentItem.payment_id == payment.uuid).update(
+            {PaymentItem.is_deleted: True}
+        )
+
+        # Soft-delete PaymentStatusHistory
+        db.query(PaymentStatusHistory).filter(
+            PaymentStatusHistory.payment_id == payment.uuid
+        ).update({PaymentStatusHistory.is_deleted: True})
+
+        # Soft-delete PaymentEditHistory
+        db.query(PaymentEditHistory).filter(
+            PaymentEditHistory.payment_id == payment.uuid
+        ).update({PaymentEditHistory.is_deleted: True})
+
+        db.commit()
+
+        return PaymentServiceResponse(
+            data=None,
+            message="Payment deleted successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
         return PaymentServiceResponse(
             data=None,
             message=f"An Error Occurred: {str(e)}",
@@ -968,37 +1098,6 @@ def decline_payment(
         ).model_dump()
 
 
-@payment_router.delete("")
-def delete_payment(
-    payment_id: UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    try:
-        """Delete a payment request."""
-        payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
-        if not payment:
-            return PaymentServiceResponse(
-                data=None,
-                status_code=404,
-                message=constants.PAYMENT_NOT_FOUND
-            )
-
-        payment.is_deleted = True
-        db.commit()
-        return PaymentServiceResponse(
-            data=None,
-            message="Payment request deleted successfully",
-            status_code=200
-        ).model_dump()
-    except Exception as e:
-        print(f"Error in delete_payment API: {str(e)}")
-        return PaymentServiceResponse(
-            data=None,
-            message=f"An Error Occurred: {str(e)}",
-            status_code=500
-        ).model_dump()
-
 
 @payment_router.post(
     "/person", status_code=h_status.HTTP_201_CREATED, tags=["Payments"]
@@ -1133,9 +1232,12 @@ def update_person(
         # is actually updating these fields.
 
         # 3a) If updating account_number or ifsc_code:
-        if (request_data.account_number or request_data.ifsc_code):
+        if (request_data.account_number or request_data.phone_number):
             conflict = db.query(Person).filter(
-                (Person.account_number == request_data.account_number),
+                and_(
+                    Person.account_number == request_data.account_number,
+                    Person.phone_number == request_data.phone_number
+                ),
                 Person.uuid != person_id,  # exclude self
                 Person.is_deleted.is_(False)
             ).first()
@@ -1143,24 +1245,7 @@ def update_person(
                 return PaymentServiceResponse(
                     data=None,
                     status_code=400,
-                    message="A person with the same account number or IFSC code already exists."
-                ).model_dump()
-
-        # 3b) If updating phone_number or upi_number:
-        if (request_data.phone_number or request_data.upi_number):
-            conflict = db.query(Person).filter(
-                (
-                    (Person.phone_number == request_data.phone_number)
-                    | (Person.upi_number == request_data.upi_number)
-                ),
-                Person.uuid != person_id,
-                Person.is_deleted.is_(False)
-            ).first()
-            if conflict:
-                return PaymentServiceResponse(
-                    data=None,
-                    status_code=400,
-                    message="A person with the same phone number or UPI number already exists."
+                    message="A person with the same account number already exists."
                 ).model_dump()
 
         # 4) Update the fields that were provided
