@@ -652,6 +652,9 @@ def get_all_payments(
     person_id: Optional[UUID] = Query(None),
     item_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
+    # NEW optional filters
+    from_name: Optional[str] = Query(None, description="Name of the user who created the payment"),
+    to_name: Optional[str] = Query(None, description="Name of the person receiving the payment"),
 ):
     """
     Fetches payments, optionally filtering by:
@@ -662,6 +665,8 @@ def get_all_payments(
       - person_id
       - item_id
       - 'recent' (last 5, excluding 'transferred')
+      - from_name (the user.name of whoever created the payment)
+      - to_name (the person.name of whoever receives the payment)
 
     Returns structured data with:
       - Payment details (description, remarks, date, etc.)
@@ -689,7 +694,7 @@ def get_all_payments(
 
         # 2) Aliases for user tables
         EditUser = aliased(User)
-        StatusUser = aliased(User)  # <-- NEW: for PaymentStatusHistory.created_by
+        StatusUser = aliased(User)  # for PaymentStatusHistory.created_by
 
         # 3) Main query: join everything we need, filtering out soft-deleted rows
         query = (
@@ -703,8 +708,7 @@ def get_all_payments(
                 User.name.label("user_name"),  # The user who created Payment
                 PaymentStatusHistory.status.label("history_status"),
                 PaymentStatusHistory.created_at.label("history_created_at"),
-                # NEW: get name of the user who created the status
-                StatusUser.name.label("status_created_by_name"),
+                StatusUser.name.label("status_created_by_name"),  # user who created the status
                 PaymentEditHistory.old_amount.label("edit_old_amount"),
                 PaymentEditHistory.new_amount.label("edit_new_amount"),
                 PaymentEditHistory.remarks.label("edit_remarks"),
@@ -716,7 +720,6 @@ def get_all_payments(
             .outerjoin(Project, Payment.project_id == Project.uuid)
             .outerjoin(Person, Payment.person == Person.uuid)
             .outerjoin(User, Payment.created_by == User.uuid)
-            # Soft-delete filter for PaymentFile
             .outerjoin(
                 PaymentFile,
                 and_(
@@ -724,7 +727,6 @@ def get_all_payments(
                     PaymentFile.is_deleted.is_(False)
                 )
             )
-            # Soft-delete filter for PaymentItem
             .outerjoin(
                 PaymentItem,
                 and_(
@@ -733,7 +735,6 @@ def get_all_payments(
                 )
             )
             .outerjoin(Item, PaymentItem.item_id == Item.uuid)
-            # Soft-delete filter for PaymentStatusHistory
             .outerjoin(
                 PaymentStatusHistory,
                 and_(
@@ -741,12 +742,7 @@ def get_all_payments(
                     PaymentStatusHistory.is_deleted.is_(False)
                 )
             )
-            # NEW: join PaymentStatusHistory.created_by -> StatusUser
-            .outerjoin(
-                StatusUser,
-                StatusUser.uuid == PaymentStatusHistory.created_by
-            )
-            # Soft-delete filter for PaymentEditHistory
+            .outerjoin(StatusUser, StatusUser.uuid == PaymentStatusHistory.created_by)
             .outerjoin(
                 PaymentEditHistory,
                 and_(
@@ -755,7 +751,6 @@ def get_all_payments(
                 )
             )
             .outerjoin(EditUser, EditUser.uuid == PaymentEditHistory.updated_by)
-            # Soft-delete filter for Priority
             .outerjoin(
                 Priority,
                 and_(
@@ -807,6 +802,15 @@ def get_all_payments(
         if item_id is not None:
             query = query.filter(PaymentItem.item_id == item_id)
 
+        # NEW optional filters
+        # from_name => match user_name (from the "User" table) ignoring case
+        if from_name:
+            query = query.filter(User.name.ilike(f"%{from_name}%"))
+
+        # to_name => match person_name (from the "Person" table) ignoring case
+        if to_name:
+            query = query.filter(Person.name.ilike(f"%{to_name}%"))
+
         # 5) Execute the query and group the results
         results = query.all()
 
@@ -829,18 +833,16 @@ def get_all_payments(
             # Collect status history
             history_status = row.history_status
             history_created_at = row.history_created_at
-            status_created_by_name = row.status_created_by_name  # <-- The user name from alias
+            status_created_by_name = row.status_created_by_name  # user name from alias
 
             if history_status and history_created_at:
                 date_str = history_created_at.strftime("%Y-%m-%d %H:%M:%S")
-                # Use a uniqueness key that includes who created it
                 status_key = (history_status, date_str, status_created_by_name)
                 if status_key not in grouped_data[payment_obj.uuid]["status_seen"]:
                     grouped_data[payment_obj.uuid]["status_seen"].add(status_key)
                     grouped_data[payment_obj.uuid]["statuses"].append({
                         "status": history_status,
                         "date": date_str,
-                        # NEW: include the name of user who created this status
                         "created_by": status_created_by_name
                     })
 
@@ -884,19 +886,16 @@ def get_all_payments(
             project_name = row.project_name
             person_name = row.person_name
             user_name = row.user_name
-
-            # priority name from joined table
             priority_name = row.priority_name
 
-            # Handle Payment files
+            # Payment files
             file_urls = []
-            appoval_files = []
+            approval_files = []
             if payment.payment_files:
                 for f in payment.payment_files:
                     if f.is_approval_upload:
-                        # Only add approval files if user is Site Engineer or Sub Contractor
                         file_url = f"{constants.HOST_URL}/{f.file_path}"
-                        appoval_files.append(file_url)
+                        approval_files.append(file_url)
                     else:
                         file_url = f"{constants.HOST_URL}/{f.file_path}"
                         file_urls.append(file_url)
@@ -904,14 +903,10 @@ def get_all_payments(
             # Items
             item_names = []
             if payment.payment_items:
-                item_names = [
-                    p_item.item.name for p_item in payment.payment_items if p_item.item
-                ]
+                item_names = [p_item.item.name for p_item in payment.payment_items if p_item.item]
 
             # Return parent's data if any
-            parent_data = get_parent_account_data(
-                person_id=payment.person, db=db
-            )
+            parent_data = get_parent_account_data(person_id=payment.person, db=db)
 
             # Construct final payment dict
             payments_data.append({
@@ -941,7 +936,6 @@ def get_all_payments(
                     files=file_urls,
                     items=item_names,
                     remarks=payment.remarks,
-                    # Convert statuses to StatusDatePair objects
                     status_history=[StatusDatePair(**h) for h in data["statuses"]],
                     current_status=payment.status,
                     created_at=payment.created_at.strftime("%Y-%m-%d"),
@@ -950,15 +944,14 @@ def get_all_payments(
                     longitude=payment.longitude,
                     transferred_date=(
                         payment.transferred_date.strftime("%Y-%m-%d")
-                        if payment.transferred_date
-                        else None
+                        if payment.transferred_date else None
                     ),
                     payment_history=data["edits"]
                 ).model_dump(),
                 "priority_name": priority_name,
                 "edit": can_edit_payment(status_list, current_user.role),
                 "decline_remark": payment.decline_remark,
-                "approval_files": appoval_files
+                "approval_files": approval_files
             })
 
         return PaymentServiceResponse(
