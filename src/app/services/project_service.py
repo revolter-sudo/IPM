@@ -391,10 +391,10 @@ def get_bank_balance(
                 status_code=404,
                 message="Balance Not Found"
             ).model_dump()
-        recorded_balance = get_total_transferred_payments_sum(db=db)
-        logging.info(f"Total records: {recorded_balance}")
-        remaining_balance = balance - recorded_balance
-        result = {"balance": remaining_balance}
+        # recorded_balance = get_total_transferred_payments_sum(db=db)
+        # logging.info(f"Total records: {recorded_balance}")
+        # remaining_balance = balance - recorded_balance
+        result = {"balance": balance}
         logging.info(f"Remaining Balance: {result}")
         return ProjectServiceResponse(
             data=result,
