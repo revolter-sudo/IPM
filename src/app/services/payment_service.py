@@ -28,7 +28,8 @@ from src.app.database.models import (
     Log,
     KhatabookBalance,
     PaymentEditHistory,
-    Priority
+    Priority,
+    BalanceDetail
 )
 import logging
 from src.app.schemas.auth_service_schamas import UserRole
@@ -1163,6 +1164,143 @@ def cancel_payment_status(
         ).model_dump()
 
 
+# @payment_router.put("/approve")
+# def approve_payment(
+#     payment_id: UUID,
+#     files: Optional[List[UploadFile]] = File(None),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """
+#     Approve payment and optionally upload files (pdf, images, etc.) related to approval.
+#     """
+#     try:
+#         # 1) Check user role
+#         if current_user.role not in [
+#             UserRole.SUPER_ADMIN.value,
+#             UserRole.ADMIN.value,
+#             UserRole.PROJECT_MANAGER.value,
+#             UserRole.SITE_ENGINEER.value,
+#             UserRole.ACCOUNTANT.value
+#         ]:
+#             return PaymentServiceResponse(
+#                 data=None,
+#                 message=constants.CANT_APPROVE_PAYMENT,
+#                 status_code=403
+#             ).model_dump()
+
+#         # 2) Find the payment
+#         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
+#         if not payment:
+#             return PaymentServiceResponse(
+#                 data=None,
+#                 message=constants.PAYMENT_NOT_FOUND,
+#                 status_code=404
+#             ).model_dump()
+
+#         # 3) Get the next status from the mapping
+#         status = constants.RoleStatusMapping.get(current_user.role)
+#         if not status:
+#             return PaymentServiceResponse(
+#                 data=None,
+#                 message="Invalid role for updating payment status.",
+#                 status_code=400
+#             ).model_dump()
+
+#         # 3a) Check if this status already exists for this payment
+#         existing_status_entry = (
+#             db.query(PaymentStatusHistory)
+#             .filter(
+#                 PaymentStatusHistory.payment_id == payment.uuid,
+#                 PaymentStatusHistory.status == status
+#             )
+#             .first()
+#         )
+#         if existing_status_entry:
+#             return PaymentServiceResponse(
+#                 data=None,
+#                 message=f"Status '{status}' has already been set once for this payment.",
+#                 status_code=400
+#             ).model_dump()
+
+#         # 4) Create a status history entry
+#         payment_status = PaymentStatusHistory(
+#             payment_id=payment_id,
+#             status=status,
+#             created_by=current_user.uuid
+#         )
+#         db.add(payment_status)
+
+#         # 5) Update Payment table's status
+#         payment.status = status
+#         if status == "transferred":
+#             payment.transferred_date = datetime.now()
+#             # If it's a self-payment, update khatabook balance
+#             if payment.self_payment:
+#                 user_balance = db.query(KhatabookBalance).filter(
+#                     KhatabookBalance.user_uuid == payment.created_by
+#                 ).first()
+#                 if not user_balance:
+#                     user_balance = KhatabookBalance(
+#                         user_uuid=payment.created_by,
+#                         balance=0.0
+#                     )
+#                     db.add(user_balance)
+#                 user_balance.balance += payment.amount
+
+#         # 6) Handle optional file uploads
+#         if files:
+#             # or wherever you store admin approval files
+#             upload_dir = constants.UPLOAD_DIR_ADMIN
+#             os.makedirs(upload_dir, exist_ok=True)
+#             for file in files:
+#                 file_path = os.path.join(upload_dir, file.filename)
+#                 with open(file_path, "wb") as buffer:
+#                     buffer.write(file.file.read())
+
+#                 # Mark these files as approval uploads
+#                 db.add(
+#                     PaymentFile(
+#                         payment_id=payment.uuid,
+#                         file_path=file_path,
+#                         is_approval_upload=True  # <-- Flag it here
+#                     )
+#                 )
+
+#         # 7) Add a log entry
+#         log_entry = Log(
+#             uuid=str(uuid4()),
+#             entity="Payment",
+#             action=status,
+#             entity_id=payment_id,
+#             performed_by=current_user.uuid,
+#         )
+#         db.add(log_entry)
+
+#         # Commit everything
+#         db.commit()
+#         notify_payment_status_update(
+#             amount=payment.amount,
+#             status=status,
+#             user=current_user,
+#             payment_user=payment.created_by,
+#             db=db
+#         )
+#         return PaymentServiceResponse(
+#             data=None,
+#             message="Payment approved successfully",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         db.rollback()
+#         return PaymentServiceResponse(
+#             data=None,
+#             message=f"An Error Occurred: {str(e)}",
+#             status_code=500
+#         ).model_dump()
+
+
 @payment_router.put("/approve")
 def approve_payment(
     payment_id: UUID,
@@ -1172,6 +1310,7 @@ def approve_payment(
 ):
     """
     Approve payment and optionally upload files (pdf, images, etc.) related to approval.
+    If the status resolves to 'transferred', deduct that amount from BalanceDetails.
     """
     try:
         # 1) Check user role
@@ -1206,7 +1345,7 @@ def approve_payment(
                 status_code=400
             ).model_dump()
 
-        # 3a) Check if this status already exists for this payment
+        # 3a) Check if this status already exists
         existing_status_entry = (
             db.query(PaymentStatusHistory)
             .filter(
@@ -1232,9 +1371,11 @@ def approve_payment(
 
         # 5) Update Payment table's status
         payment.status = status
+
         if status == "transferred":
             payment.transferred_date = datetime.now()
-            # If it's a self-payment, update khatabook balance
+
+            # 5a) If it's a self-payment, update Khatabook balance
             if payment.self_payment:
                 user_balance = db.query(KhatabookBalance).filter(
                     KhatabookBalance.user_uuid == payment.created_by
@@ -1247,9 +1388,21 @@ def approve_payment(
                     db.add(user_balance)
                 user_balance.balance += payment.amount
 
+            # 5b) Deduct payment.amount from the single row in BalanceDetail
+            balance_obj = db.query(BalanceDetail).first()
+            if balance_obj:
+                balance_obj.balance -= payment.amount
+            else:
+                # If your logic assumes there's always 1 row, you might raise an error
+                # or create it automatically. For now, we'll just pass or raise an error:
+                return PaymentServiceResponse(
+                    data=None,
+                    message="No row found in BalanceDetail to deduct from.",
+                    status_code=400
+                ).model_dump()
+
         # 6) Handle optional file uploads
         if files:
-            # or wherever you store admin approval files
             upload_dir = constants.UPLOAD_DIR_ADMIN
             os.makedirs(upload_dir, exist_ok=True)
             for file in files:
@@ -1262,7 +1415,7 @@ def approve_payment(
                     PaymentFile(
                         payment_id=payment.uuid,
                         file_path=file_path,
-                        is_approval_upload=True  # <-- Flag it here
+                        is_approval_upload=True
                     )
                 )
 
@@ -1278,6 +1431,8 @@ def approve_payment(
 
         # Commit everything
         db.commit()
+
+        # Send notifications
         notify_payment_status_update(
             amount=payment.amount,
             status=status,
@@ -1285,6 +1440,7 @@ def approve_payment(
             payment_user=payment.created_by,
             db=db
         )
+
         return PaymentServiceResponse(
             data=None,
             message="Payment approved successfully",
