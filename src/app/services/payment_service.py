@@ -653,9 +653,10 @@ def get_all_payments(
     person_id: Optional[UUID] = Query(None),
     item_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
-    # NEW optional filters
-    from_name: Optional[str] = Query(None, description="Name of the user who created the payment"),
-    to_name: Optional[str] = Query(None, description="Name of the person receiving the payment"),
+    # Changed from_name -> from_uuid
+    from_uuid: Optional[UUID] = Query(None, description="UUID of the user who created the payment"),
+    # Changed to_name -> to_uuid
+    to_uuid: Optional[UUID] = Query(None, description="UUID of the person receiving the payment"),
 ):
     """
     Fetches payments, optionally filtering by:
@@ -666,8 +667,8 @@ def get_all_payments(
       - person_id
       - item_id
       - 'recent' (last 5, excluding 'transferred')
-      - from_name (the user.name of whoever created the payment)
-      - to_name (the person.name of whoever receives the payment)
+      - from_uuid (the Payment.created_by UUID)
+      - to_uuid (the Person.uuid)
 
     Returns structured data with:
       - Payment details (description, remarks, date, etc.)
@@ -803,14 +804,13 @@ def get_all_payments(
         if item_id is not None:
             query = query.filter(PaymentItem.item_id == item_id)
 
-        # NEW optional filters
-        # from_name => match user_name (from the "User" table) ignoring case
-        if from_name:
-            query = query.filter(User.name.ilike(f"%{from_name}%"))
+        # CHANGED: from_uuid => filter Payment.created_by
+        if from_uuid:
+            query = query.filter(Payment.created_by == from_uuid)
 
-        # to_name => match person_name (from the "Person" table) ignoring case
-        if to_name:
-            query = query.filter(Person.name.ilike(f"%{to_name}%"))
+        # CHANGED: to_uuid => filter Person.uuid
+        if to_uuid:
+            query = query.filter(Person.uuid == to_uuid)
 
         # 5) Execute the query and group the results
         results = query.all()
@@ -834,7 +834,7 @@ def get_all_payments(
             # Collect status history
             history_status = row.history_status
             history_created_at = row.history_created_at
-            status_created_by_name = row.status_created_by_name  # user name from alias
+            status_created_by_name = row.status_created_by_name
 
             if history_status and history_created_at:
                 date_str = history_created_at.strftime("%Y-%m-%d %H:%M:%S")
@@ -904,7 +904,9 @@ def get_all_payments(
             # Items
             item_names = []
             if payment.payment_items:
-                item_names = [p_item.item.name for p_item in payment.payment_items if p_item.item]
+                item_names = [
+                    p_item.item.name for p_item in payment.payment_items if p_item.item
+                ]
 
             # Return parent's data if any
             parent_data = get_parent_account_data(person_id=payment.person, db=db)
