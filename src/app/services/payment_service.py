@@ -44,7 +44,8 @@ from src.app.schemas.payment_service_schemas import (
     PaymentUpdateSchema,
     StatusDatePair,
     ItemListTag,
-    UpdatePerson
+    UpdatePerson,
+    UpdateItemSchema
 )
 from src.app.notification.notification_service import send_push_notification
 from src.app.notification.notification_schemas import NotificationMessage
@@ -1925,6 +1926,77 @@ def list_items(
         return PaymentServiceResponse(
             data=None,
             message=f"Error fetching items: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+
+
+@payment_router.put("/items/{item_uuid}", tags=["Items"], status_code=200)
+def update_item(
+    item_uuid: UUID,
+    payload: UpdateItemSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # if you want to enforce role checks
+):
+    """
+    Update an existing Item's details:
+      - name
+      - category
+      - list_tag
+      - has_additional_info
+
+    Returns 404 if item not found.
+    """
+    try:
+        item_record = db.query(Item).filter(Item.uuid == item_uuid).first()
+        if not item_record:
+            return PaymentServiceResponse(
+                data=None,
+                message="Item not found.",
+                status_code=404
+            ).model_dump()
+
+        # Example: Only certain roles can update item (uncomment/adjust as needed)
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+        ]:
+            return PaymentServiceResponse(
+                data=None,
+                status_code=403,
+                message="You are not authorized to update this item."
+            ).model_dump()
+
+        # Update each field if given
+        if payload.name is not None:
+            item_record.name = payload.name
+        if payload.category is not None:
+            item_record.category = payload.category
+        if payload.list_tag is not None:
+            item_record.list_tag = payload.list_tag
+        if payload.has_additional_info is not None:
+            item_record.has_additional_info = payload.has_additional_info
+
+        db.commit()
+        db.refresh(item_record)
+
+        return PaymentServiceResponse(
+            data={
+                "uuid": str(item_record.uuid),
+                "name": item_record.name,
+                "category": item_record.category,
+                "list_tag": item_record.list_tag,
+                "has_additional_info": item_record.has_additional_info
+            },
+            message="Item updated successfully.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error updating item: {str(e)}",
             status_code=500
         ).model_dump()
 

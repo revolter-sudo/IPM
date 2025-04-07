@@ -18,6 +18,13 @@ class ItemListTag(str, Enum):
     payment = "payment"
 
 
+class UpdateItemSchema(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    list_tag: Optional[str] = None
+    has_additional_info: Optional[bool] = None
+
+
 class PaymentRequest(BaseModel):
     amount: float
     description: Optional[str] = None

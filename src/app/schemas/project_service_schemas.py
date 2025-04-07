@@ -31,6 +31,12 @@ class ProjectCreateRequest(BaseModel):
     balance: int = None
 
 
+class UpdateProjectSchema(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
+
+
 class ProjectServiceResponse(BaseModel):
     data: Any = None
     message: str
