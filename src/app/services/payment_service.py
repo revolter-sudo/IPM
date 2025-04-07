@@ -128,16 +128,16 @@ def create_payment(
 
         # If it's a self-payment, overwrite the `person` field with current_user's Person (if any)
         # so you don't rely on the client to supply a person UUID
-        if payment_request.self_payment:
-            if not current_user.person:
-                # If user does not have a linked Person row, decide how to handle:
-                return PaymentServiceResponse(
-                    status_code=400,
-                    data=None,
-                    message="Cannot create self-payment because current user has no linked Person record."
-                ).model_dump()
-            # Force the Payment.person to the current_user’s Person.uuid
-            payment_request.person = current_user.person.uuid
+        # if payment_request.self_payment:
+        #     if not current_user.person:
+        #         # If user does not have a linked Person row, decide how to handle:
+        #         return PaymentServiceResponse(
+        #             status_code=400,
+        #             data=None,
+        #             message="Cannot create self-payment because current user has no linked Person record."
+        #         ).model_dump()
+        #     # Force the Payment.person to the current_user’s Person.uuid
+        #     payment_request.person = current_user.person.uuid
 
         # Create Payment
         new_payment = Payment(
@@ -203,8 +203,7 @@ def create_payment(
             db=db
         )
         if not notification:
-            logging.error(
-                f"Something Went wrong while sending create payment notification")
+            logging.error("Something Went wrong while sending create payment notification")
         return PaymentServiceResponse(
             data={"payment_uuid": current_payment_uuid},
             message="Payment created successfully.",
