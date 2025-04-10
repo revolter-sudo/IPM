@@ -1269,7 +1269,7 @@ def apply_pending_request_logic(query, pending_request: bool, current_user: User
     query = query.filter(Payment.status.in_(statuses))
 
     # Re-order by CASE first, then by created_at desc
-    query = query.order_by(status_order, Payment.created_at.desc())
+    # query = query.order_by(status_order, Payment.created_at.desc())
 
     return query
 
