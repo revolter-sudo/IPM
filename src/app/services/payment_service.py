@@ -1101,6 +1101,7 @@ def get_all_payments(
 #                             Helper Functions
 # ----------------------------------------------------------------------
 
+### ---------------------------------------------------------------------------------------------------------
 def build_recent_subquery(db: Session, current_user: User, recent: bool):
     """
     Builds a subquery of Payment UUIDs if `recent` is True.
@@ -1124,139 +1125,81 @@ def build_main_payments_query(db: Session, pending_request: bool):
     """
     Builds the main query that pulls Payment + joined entities, plus
     the columns we need for status/edit histories, person data, etc.
+
+    If pending_request=False, we add a default `.order_by(Payment.created_at.desc())`.
+    If pending_request=True, we do not apply that ordering here, because
+    we'll handle a custom multi-level ordering in `apply_pending_request_logic`.
     """
     EditUser = aliased(User)
     StatusUser = aliased(User)
-    if pending_request is False:
-        query = (
-            db.query(
-                Payment,
-                Project.name.label("project_name"),
-                Person.name.label("person_name"),
-                Person.account_number,
-                Person.ifsc_code,
-                Person.upi_number,
-                User.name.label("user_name"),  # The user who created Payment
-                PaymentStatusHistory.status.label("history_status"),
-                PaymentStatusHistory.created_at.label("history_created_at"),
-                StatusUser.name.label("status_created_by_name"),
-                PaymentEditHistory.old_amount.label("edit_old_amount"),
-                PaymentEditHistory.new_amount.label("edit_new_amount"),
-                PaymentEditHistory.remarks.label("edit_remarks"),
-                PaymentEditHistory.updated_at.label("edit_updated_at"),
-                EditUser.name.label("edit_updated_by_name"),
-                EditUser.role.label("edit_updated_by_role"),
-                Priority.priority.label("priority_name"),
-            )
-            .outerjoin(Project, Payment.project_id == Project.uuid)
-            .outerjoin(Person, Payment.person == Person.uuid)
-            .outerjoin(User, Payment.created_by == User.uuid)
-            .outerjoin(
-                PaymentFile,
-                and_(
-                    PaymentFile.payment_id == Payment.uuid,
-                    PaymentFile.is_deleted.is_(False),
-                ),
-            )
-            .outerjoin(
-                PaymentItem,
-                and_(
-                    PaymentItem.payment_id == Payment.uuid,
-                    PaymentItem.is_deleted.is_(False),
-                ),
-            )
-            .outerjoin(Item, PaymentItem.item_id == Item.uuid)
-            .outerjoin(
-                PaymentStatusHistory,
-                and_(
-                    PaymentStatusHistory.payment_id == Payment.uuid,
-                    PaymentStatusHistory.is_deleted.is_(False),
-                ),
-            )
-            .outerjoin(StatusUser, StatusUser.uuid == PaymentStatusHistory.created_by)
-            .outerjoin(
-                PaymentEditHistory,
-                and_(
-                    PaymentEditHistory.payment_id == Payment.uuid,
-                    PaymentEditHistory.is_deleted.is_(False),
-                ),
-            )
-            .outerjoin(EditUser, EditUser.uuid == PaymentEditHistory.updated_by)
-            .outerjoin(
-                Priority,
-                and_(
-                    Payment.priority_id == Priority.uuid,
-                    Priority.is_deleted.is_(False)
-                ),
-            )
-            .filter(Payment.is_deleted.is_(False))
-            # Default ordering
-            .order_by(Payment.created_at.desc())
+
+    query = (
+        db.query(
+            Payment,
+            Project.name.label("project_name"),
+            Person.name.label("person_name"),
+            Person.account_number,
+            Person.ifsc_code,
+            Person.upi_number,
+            User.name.label("user_name"),  # The user who created Payment
+            PaymentStatusHistory.status.label("history_status"),
+            PaymentStatusHistory.created_at.label("history_created_at"),
+            StatusUser.name.label("status_created_by_name"),
+            PaymentEditHistory.old_amount.label("edit_old_amount"),
+            PaymentEditHistory.new_amount.label("edit_new_amount"),
+            PaymentEditHistory.remarks.label("edit_remarks"),
+            PaymentEditHistory.updated_at.label("edit_updated_at"),
+            EditUser.name.label("edit_updated_by_name"),
+            EditUser.role.label("edit_updated_by_role"),
+            Priority.priority.label("priority_name"),
         )
-    elif pending_request is True:
-        query = (
-            db.query(
-                Payment,
-                Project.name.label("project_name"),
-                Person.name.label("person_name"),
-                Person.account_number,
-                Person.ifsc_code,
-                Person.upi_number,
-                User.name.label("user_name"),  # The user who created Payment
-                PaymentStatusHistory.status.label("history_status"),
-                PaymentStatusHistory.created_at.label("history_created_at"),
-                StatusUser.name.label("status_created_by_name"),
-                PaymentEditHistory.old_amount.label("edit_old_amount"),
-                PaymentEditHistory.new_amount.label("edit_new_amount"),
-                PaymentEditHistory.remarks.label("edit_remarks"),
-                PaymentEditHistory.updated_at.label("edit_updated_at"),
-                EditUser.name.label("edit_updated_by_name"),
-                EditUser.role.label("edit_updated_by_role"),
-                Priority.priority.label("priority_name"),
-            )
-            .outerjoin(Project, Payment.project_id == Project.uuid)
-            .outerjoin(Person, Payment.person == Person.uuid)
-            .outerjoin(User, Payment.created_by == User.uuid)
-            .outerjoin(
-                PaymentFile,
-                and_(
-                    PaymentFile.payment_id == Payment.uuid,
-                    PaymentFile.is_deleted.is_(False),
-                ),
-            )
-            .outerjoin(
-                PaymentItem,
-                and_(
-                    PaymentItem.payment_id == Payment.uuid,
-                    PaymentItem.is_deleted.is_(False),
-                ),
-            )
-            .outerjoin(Item, PaymentItem.item_id == Item.uuid)
-            .outerjoin(
-                PaymentStatusHistory,
-                and_(
-                    PaymentStatusHistory.payment_id == Payment.uuid,
-                    PaymentStatusHistory.is_deleted.is_(False),
-                ),
-            )
-            .outerjoin(StatusUser, StatusUser.uuid == PaymentStatusHistory.created_by)
-            .outerjoin(
-                PaymentEditHistory,
-                and_(
-                    PaymentEditHistory.payment_id == Payment.uuid,
-                    PaymentEditHistory.is_deleted.is_(False),
-                ),
-            )
-            .outerjoin(EditUser, EditUser.uuid == PaymentEditHistory.updated_by)
-            .outerjoin(
-                Priority,
-                and_(
-                    Payment.priority_id == Priority.uuid,
-                    Priority.is_deleted.is_(False)
-                ),
-            )
-            .filter(Payment.is_deleted.is_(False))
+        .outerjoin(Project, Payment.project_id == Project.uuid)
+        .outerjoin(Person, Payment.person == Person.uuid)
+        .outerjoin(User, Payment.created_by == User.uuid)
+        .outerjoin(
+            PaymentFile,
+            and_(
+                PaymentFile.payment_id == Payment.uuid,
+                PaymentFile.is_deleted.is_(False),
+            ),
         )
+        .outerjoin(
+            PaymentItem,
+            and_(
+                PaymentItem.payment_id == Payment.uuid,
+                PaymentItem.is_deleted.is_(False),
+            ),
+        )
+        .outerjoin(Item, PaymentItem.item_id == Item.uuid)
+        .outerjoin(
+            PaymentStatusHistory,
+            and_(
+                PaymentStatusHistory.payment_id == Payment.uuid,
+                PaymentStatusHistory.is_deleted.is_(False),
+            ),
+        )
+        .outerjoin(StatusUser, StatusUser.uuid == PaymentStatusHistory.created_by)
+        .outerjoin(
+            PaymentEditHistory,
+            and_(
+                PaymentEditHistory.payment_id == Payment.uuid,
+                PaymentEditHistory.is_deleted.is_(False),
+            ),
+        )
+        .outerjoin(EditUser, EditUser.uuid == PaymentEditHistory.updated_by)
+        .outerjoin(
+            Priority,
+            and_(
+                Payment.priority_id == Priority.uuid,
+                Priority.is_deleted.is_(False)
+            ),
+        )
+        .filter(Payment.is_deleted.is_(False))
+    )
+
+    # If not pending_request, default to date desc here
+    if not pending_request:
+        query = query.order_by(Payment.created_at.desc())
 
     return query
 
@@ -1288,11 +1231,15 @@ def exclude_transferred_if_recent(query, db: Session, recent: bool, base_subquer
 
 def apply_pending_request_logic(query, pending_request: bool, current_user: User):
     """
-    If pending_request == True, override Payment.status by role:
+    If pending_request == True, we filter + order by status:
       - Site Eng / SubCon / Project Mgr => only "requested"
+          * grouped (well, it's only one status)
       - Admin => "verified" first, then "requested"
       - Accountant / SuperAdmin => "approved", "verified", "requested"
-    Then order them accordingly using a CASE expression.
+
+    Then we do multi-level ordering: first by 'status_order' (ASC), 
+    then by Payment.created_at (DESC). This ensures that all of 
+    one status come first in descending date, followed by next status, etc.
     """
     if not pending_request:
         return query
@@ -1301,8 +1248,9 @@ def apply_pending_request_logic(query, pending_request: bool, current_user: User
     if role in [
         UserRole.SITE_ENGINEER.value,
         UserRole.SUB_CONTRACTOR.value,
-        UserRole.PROJECT_MANAGER.value
+        UserRole.PROJECT_MANAGER.value,
     ]:
+        # Only "requested"
         statuses = ["requested"]
         status_order = case(
             (Payment.status == "requested", 0),
@@ -1332,8 +1280,8 @@ def apply_pending_request_logic(query, pending_request: bool, current_user: User
     # Filter by those statuses
     query = query.filter(Payment.status.in_(statuses))
 
-    # Re-order by CASE first, then by created_at desc
-    # query = query.order_by(status_order, Payment.created_at.desc())
+    # Multi-level ordering: by status_order ascending, then date descending
+    query = query.order_by(status_order, Payment.created_at.desc())
 
     return query
 
@@ -1546,8 +1494,111 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
         })
 
     return payments_data
-### ---------------------------------------------------------------------------------------------------------
 
+
+@payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
+def get_all_payments(
+    db: Session = Depends(get_db),
+    amount: Optional[float] = Query(None),
+    project_id: Optional[UUID] = Query(None),
+    status: Optional[List[str]] = Query(None),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+    recent: Optional[bool] = Query(False),
+    person_id: Optional[UUID] = Query(None),
+    item_id: Optional[UUID] = Query(None),
+    current_user: User = Depends(get_current_user),
+    from_uuid: Optional[UUID] = Query(None, description="UUID of the user who created the payment"),
+    to_uuid: Optional[UUID] = Query(None, description="UUID of the person receiving the payment"),
+    pending_request: Optional[bool] = Query(False, description="If true, show only role-specific pending payments."),
+):
+    """
+    Fetches payments, optionally filtering by:
+      - amount
+      - project_id
+      - status
+      - date range (start_date, end_date)
+      - person_id
+      - item_id
+      - 'recent' (last 5, excluding 'transferred')
+      - from_uuid (Payment.created_by)
+      - to_uuid (Person.uuid)
+      - [NEW] pending_request (if True, show only role-specific pending payments, grouped by status, date desc)
+
+    ALSO:
+      - If (pending_request == True OR recent == True) AND user = ACCOUNTANT => only show payments <= 10000
+
+    Returns structured data with:
+      - Payment details (description, remarks, date, etc.)
+      - Project info (uuid, name)
+      - Person info (name, account_number, ifsc_code, upi_number)
+      - Created-by user info
+      - Files
+      - Items
+      - Priority name
+      - Status history (including user who created each status)
+      - Edit history
+      - Whether the current user can edit this payment
+    """
+    try:
+        # (A) Build subquery if 'recent' is True (for last 5).
+        base_query = build_recent_subquery(db, current_user, recent)
+
+        # (B) Build main query (if pending_request=False => order_by date desc,
+        #                       else we skip default ordering here).
+        query = build_main_payments_query(db, pending_request)
+
+        # (C) Apply role-based restrictions (e.g. site eng / sub con => only their own).
+        query = apply_role_restrictions(query, current_user)
+
+        # (D) Exclude 'transferred' if recent == True, and only keep Payment.uuids from base_subquery.
+        query = exclude_transferred_if_recent(query, db, recent, base_query)
+
+        # (E) If pending_request == True, do role-based status filtering + multi-level ordering.
+        query = apply_pending_request_logic(query, pending_request, current_user)
+
+        # (F) Apply user-supplied filters (amount, project_id, date range, etc.).
+        query = apply_filters(
+            query,
+            amount=amount,
+            project_id=project_id,
+            status=status,
+            start_date=start_date,
+            end_date=end_date,
+            person_id=person_id,
+            item_id=item_id,
+            from_uuid=from_uuid,
+            to_uuid=to_uuid,
+        )
+
+        # (G) If user is accountant and (pending_request or recent) => only payments <= 10000
+        query = apply_accountant_amount_restriction(query, current_user, pending_request, recent)
+
+        # Execute & group results
+        results = query.all()
+        grouped_data = group_query_results(results)
+
+        # (H) Assemble final response
+        payments_data = assemble_payments_response(grouped_data, db, current_user)
+
+        return PaymentServiceResponse(
+            data=payments_data,
+            message=(
+                "Recent Payments fetched successfully." if recent else
+                "Pending Payments fetched successfully." if pending_request else
+                "All Payments fetched successfully."
+            ),
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        print(f"Error in get_all_payments API: {str(e)}")
+        return PaymentServiceResponse(
+            data=None,
+            message=f"An Error Occurred: {str(e)}",
+            status_code=500
+        ).model_dump()
+### ------------------------------------------------------------------------------------------------------------------------
 
 @payment_router.delete("")
 def delete_payment(
