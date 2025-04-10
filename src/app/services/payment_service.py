@@ -1026,7 +1026,7 @@ def get_all_payments(
         # -----------------------------------------------------
         # (B) Build the main query with all required SELECTs/JOINS.
         # -----------------------------------------------------
-        query = build_main_payments_query(db)
+        query = build_main_payments_query(db=db, pending_request=pending_request)
 
         # -----------------------------------------------------
         # (C) Apply role-based restrictions (Site Eng / SubCon).
@@ -1120,79 +1120,143 @@ def build_recent_subquery(db: Session, current_user: User, recent: bool):
     return base_q.subquery()
 
 
-def build_main_payments_query(db: Session):
+def build_main_payments_query(db: Session, pending_request: bool):
     """
     Builds the main query that pulls Payment + joined entities, plus
     the columns we need for status/edit histories, person data, etc.
     """
     EditUser = aliased(User)
     StatusUser = aliased(User)
-
-    query = (
-        db.query(
-            Payment,
-            Project.name.label("project_name"),
-            Person.name.label("person_name"),
-            Person.account_number,
-            Person.ifsc_code,
-            Person.upi_number,
-            User.name.label("user_name"),  # The user who created Payment
-            PaymentStatusHistory.status.label("history_status"),
-            PaymentStatusHistory.created_at.label("history_created_at"),
-            StatusUser.name.label("status_created_by_name"),
-            PaymentEditHistory.old_amount.label("edit_old_amount"),
-            PaymentEditHistory.new_amount.label("edit_new_amount"),
-            PaymentEditHistory.remarks.label("edit_remarks"),
-            PaymentEditHistory.updated_at.label("edit_updated_at"),
-            EditUser.name.label("edit_updated_by_name"),
-            EditUser.role.label("edit_updated_by_role"),
-            Priority.priority.label("priority_name"),
+    if pending_request is False:
+        query = (
+            db.query(
+                Payment,
+                Project.name.label("project_name"),
+                Person.name.label("person_name"),
+                Person.account_number,
+                Person.ifsc_code,
+                Person.upi_number,
+                User.name.label("user_name"),  # The user who created Payment
+                PaymentStatusHistory.status.label("history_status"),
+                PaymentStatusHistory.created_at.label("history_created_at"),
+                StatusUser.name.label("status_created_by_name"),
+                PaymentEditHistory.old_amount.label("edit_old_amount"),
+                PaymentEditHistory.new_amount.label("edit_new_amount"),
+                PaymentEditHistory.remarks.label("edit_remarks"),
+                PaymentEditHistory.updated_at.label("edit_updated_at"),
+                EditUser.name.label("edit_updated_by_name"),
+                EditUser.role.label("edit_updated_by_role"),
+                Priority.priority.label("priority_name"),
+            )
+            .outerjoin(Project, Payment.project_id == Project.uuid)
+            .outerjoin(Person, Payment.person == Person.uuid)
+            .outerjoin(User, Payment.created_by == User.uuid)
+            .outerjoin(
+                PaymentFile,
+                and_(
+                    PaymentFile.payment_id == Payment.uuid,
+                    PaymentFile.is_deleted.is_(False),
+                ),
+            )
+            .outerjoin(
+                PaymentItem,
+                and_(
+                    PaymentItem.payment_id == Payment.uuid,
+                    PaymentItem.is_deleted.is_(False),
+                ),
+            )
+            .outerjoin(Item, PaymentItem.item_id == Item.uuid)
+            .outerjoin(
+                PaymentStatusHistory,
+                and_(
+                    PaymentStatusHistory.payment_id == Payment.uuid,
+                    PaymentStatusHistory.is_deleted.is_(False),
+                ),
+            )
+            .outerjoin(StatusUser, StatusUser.uuid == PaymentStatusHistory.created_by)
+            .outerjoin(
+                PaymentEditHistory,
+                and_(
+                    PaymentEditHistory.payment_id == Payment.uuid,
+                    PaymentEditHistory.is_deleted.is_(False),
+                ),
+            )
+            .outerjoin(EditUser, EditUser.uuid == PaymentEditHistory.updated_by)
+            .outerjoin(
+                Priority,
+                and_(
+                    Payment.priority_id == Priority.uuid,
+                    Priority.is_deleted.is_(False)
+                ),
+            )
+            .filter(Payment.is_deleted.is_(False))
+            # Default ordering
+            .order_by(Payment.created_at.desc())
         )
-        .outerjoin(Project, Payment.project_id == Project.uuid)
-        .outerjoin(Person, Payment.person == Person.uuid)
-        .outerjoin(User, Payment.created_by == User.uuid)
-        .outerjoin(
-            PaymentFile,
-            and_(
-                PaymentFile.payment_id == Payment.uuid,
-                PaymentFile.is_deleted.is_(False),
-            ),
+    elif pending_request is True:
+        query = (
+            db.query(
+                Payment,
+                Project.name.label("project_name"),
+                Person.name.label("person_name"),
+                Person.account_number,
+                Person.ifsc_code,
+                Person.upi_number,
+                User.name.label("user_name"),  # The user who created Payment
+                PaymentStatusHistory.status.label("history_status"),
+                PaymentStatusHistory.created_at.label("history_created_at"),
+                StatusUser.name.label("status_created_by_name"),
+                PaymentEditHistory.old_amount.label("edit_old_amount"),
+                PaymentEditHistory.new_amount.label("edit_new_amount"),
+                PaymentEditHistory.remarks.label("edit_remarks"),
+                PaymentEditHistory.updated_at.label("edit_updated_at"),
+                EditUser.name.label("edit_updated_by_name"),
+                EditUser.role.label("edit_updated_by_role"),
+                Priority.priority.label("priority_name"),
+            )
+            .outerjoin(Project, Payment.project_id == Project.uuid)
+            .outerjoin(Person, Payment.person == Person.uuid)
+            .outerjoin(User, Payment.created_by == User.uuid)
+            .outerjoin(
+                PaymentFile,
+                and_(
+                    PaymentFile.payment_id == Payment.uuid,
+                    PaymentFile.is_deleted.is_(False),
+                ),
+            )
+            .outerjoin(
+                PaymentItem,
+                and_(
+                    PaymentItem.payment_id == Payment.uuid,
+                    PaymentItem.is_deleted.is_(False),
+                ),
+            )
+            .outerjoin(Item, PaymentItem.item_id == Item.uuid)
+            .outerjoin(
+                PaymentStatusHistory,
+                and_(
+                    PaymentStatusHistory.payment_id == Payment.uuid,
+                    PaymentStatusHistory.is_deleted.is_(False),
+                ),
+            )
+            .outerjoin(StatusUser, StatusUser.uuid == PaymentStatusHistory.created_by)
+            .outerjoin(
+                PaymentEditHistory,
+                and_(
+                    PaymentEditHistory.payment_id == Payment.uuid,
+                    PaymentEditHistory.is_deleted.is_(False),
+                ),
+            )
+            .outerjoin(EditUser, EditUser.uuid == PaymentEditHistory.updated_by)
+            .outerjoin(
+                Priority,
+                and_(
+                    Payment.priority_id == Priority.uuid,
+                    Priority.is_deleted.is_(False)
+                ),
+            )
+            .filter(Payment.is_deleted.is_(False))
         )
-        .outerjoin(
-            PaymentItem,
-            and_(
-                PaymentItem.payment_id == Payment.uuid,
-                PaymentItem.is_deleted.is_(False),
-            ),
-        )
-        .outerjoin(Item, PaymentItem.item_id == Item.uuid)
-        .outerjoin(
-            PaymentStatusHistory,
-            and_(
-                PaymentStatusHistory.payment_id == Payment.uuid,
-                PaymentStatusHistory.is_deleted.is_(False),
-            ),
-        )
-        .outerjoin(StatusUser, StatusUser.uuid == PaymentStatusHistory.created_by)
-        .outerjoin(
-            PaymentEditHistory,
-            and_(
-                PaymentEditHistory.payment_id == Payment.uuid,
-                PaymentEditHistory.is_deleted.is_(False),
-            ),
-        )
-        .outerjoin(EditUser, EditUser.uuid == PaymentEditHistory.updated_by)
-        .outerjoin(
-            Priority,
-            and_(
-                Payment.priority_id == Priority.uuid,
-                Priority.is_deleted.is_(False)
-            ),
-        )
-        .filter(Payment.is_deleted.is_(False))
-        # Default ordering
-        .order_by(Payment.created_at.desc())
-    )
 
     return query
 
