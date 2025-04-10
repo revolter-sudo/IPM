@@ -1008,12 +1008,12 @@ def create_person(
     db: Session = Depends(get_db),
 ):
     try:
-        if request_data.account_number and request_data.ifsc_code:
+        if request_data.account_number:
             existing_person = db.query(Person).filter(
-                (Person.account_number == request_data.account_number) |
-                (Person.ifsc_code == request_data.ifsc_code)
+                (Person.account_number == request_data.account_number),
+                (Person.is_deleted.is_(False))
             ).first()
-            reason = "A person with the same account number or ifsc code already exists."
+            reason = "A person with the same account number already exists."
         else:
             if request_data.upi_number:
                 existing_person = db.query(Person).filter(
