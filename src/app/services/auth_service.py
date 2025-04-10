@@ -617,12 +617,66 @@ def list_all_active_users(db: Session = Depends(get_db)):
         ).model_dump()
 
 
+# @auth_router.get("/user", tags=["Users"])
+# def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
+#     try:
+#         user = (
+#             db.query(User)
+#             .filter(and_(User.uuid == user_uuid, User.is_active.is_(True)))
+#             .first()
+#         )
+
+#         if not user:
+#             return AuthServiceResponse(
+#                 data=None,
+#                 status_code=404,
+#                 message="User does not exist"
+#             ).model_dump()
+
+#         person_data = None
+#         if user.person:
+#             person_data = {
+#                 "uuid": str(user.person.uuid),
+#                 "name": user.person.name,
+#                 "account_number": user.person.account_number,
+#                 "ifsc_code": user.person.ifsc_code,
+#                 "phone_number": user.person.phone_number,
+#             }
+
+#         user_response = {
+#             "uuid": str(user.uuid),
+#             "name": user.name,
+#             "phone": user.phone,
+#             "role": user.role,
+#             "photo_path": user.photo_path,
+#             "person": person_data
+#         }
+
+#         return AuthServiceResponse(
+#             data=user_response,
+#             message="User info fetched successfully",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         logging.error(f"Error in get_user_info API: {str(e)}")
+#         return AuthServiceResponse(
+#             data=None,
+#             status_code=500,
+#             message=f"Error fetching user info: {str(e)}"
+#         ).model_dump()
+
+
 @auth_router.get("/user", tags=["Users"])
 def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
     try:
         user = (
             db.query(User)
-            .filter(and_(User.uuid == user_uuid, User.is_active.is_(True)))
+            .filter(
+                User.uuid == user_uuid,
+                User.is_active.is_(True),
+                User.is_deleted.is_(False)  # <- optionally ensure not deleted
+            )
             .first()
         )
 
@@ -633,14 +687,29 @@ def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
                 message="User does not exist"
             ).model_dump()
 
+        # If user has a linked Person row, gather its data (including children)
         person_data = None
         if user.person:
+            person_record = user.person
             person_data = {
-                "uuid": str(user.person.uuid),
-                "name": user.person.name,
-                "account_number": user.person.account_number,
-                "ifsc_code": user.person.ifsc_code,
-                "phone_number": user.person.phone_number,
+                "uuid": str(person_record.uuid),
+                "name": person_record.name,
+                "account_number": person_record.account_number,
+                "ifsc_code": person_record.ifsc_code,
+                "phone_number": person_record.phone_number,
+                "parent_id": person_record.parent_id,
+                "upi_number": person_record.upi_number,
+                "secondary_accounts": [
+                    {
+                        "uuid": str(child.uuid),
+                        "name": child.name,
+                        "account_number": child.account_number,
+                        "ifsc_code": child.ifsc_code,
+                        "phone_number": child.phone_number,
+                        "upi_number": child.upi_number
+                    }
+                    for child in person_record.children
+                ]
             }
 
         user_response = {
@@ -659,9 +728,9 @@ def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_user_info API: {str(e)}")
+        db.rollback()
         return AuthServiceResponse(
             data=None,
             status_code=500,
-            message=f"Error fetching user info: {str(e)}"
+            message=f"An error occurred: {str(e)}"
         ).model_dump()
