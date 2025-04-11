@@ -971,137 +971,9 @@ def can_edit_payment(status_history: List[str], current_user_role: str) -> bool:
 #             status_code=500
 #         ).model_dump()
 
-###### ---------------------------------------------------------------------------------------------------------
-
-@payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
-def get_all_payments(
-    db: Session = Depends(get_db),
-    amount: Optional[float] = Query(None),
-    project_id: Optional[UUID] = Query(None),
-    status: Optional[List[str]] = Query(None),
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
-    recent: Optional[bool] = Query(False),
-    person_id: Optional[UUID] = Query(None),
-    item_id: Optional[UUID] = Query(None),
-    current_user: User = Depends(get_current_user),
-    from_uuid: Optional[UUID] = Query(None, description="UUID of the user who created the payment"),
-    to_uuid: Optional[UUID] = Query(None, description="UUID of the person receiving the payment"),
-    pending_request: Optional[bool] = Query(False, description="If true, show only role-specific pending payments."),
-):
-    """
-    Fetches payments, optionally filtering by:
-      - amount
-      - project_id
-      - status
-      - date range (start_date, end_date)
-      - person_id
-      - item_id
-      - 'recent' (last 5, excluding 'transferred')
-      - from_uuid (Payment.created_by)
-      - to_uuid (Person.uuid)
-      - [NEW] pending_request (if True, show only role-specific pending payments)
-
-    ALSO:
-      - [NEW] If (pending_request == true OR recent == true) AND user is ACCOUNTANT => only show payments <= 10000
-
-    Returns structured data with:
-      - Payment details (description, remarks, date, etc.)
-      - Project info (uuid, name)
-      - Person info (name, account_number, ifsc_code, upi_number)
-      - Created-by user info
-      - Files
-      - Items
-      - Priority name
-      - Status history (including user who created each status)
-      - Edit history
-      - Whether the current user can edit this payment
-    """
-    try:
-        # -----------------------------------------------------
-        # (A) Build subquery if 'recent' is True (base_query).
-        # -----------------------------------------------------
-        base_query = build_recent_subquery(db, current_user, recent)
-
-        # -----------------------------------------------------
-        # (B) Build the main query with all required SELECTs/JOINS.
-        # -----------------------------------------------------
-        query = build_main_payments_query(db=db, pending_request=pending_request)
-
-        # -----------------------------------------------------
-        # (C) Apply role-based restrictions (Site Eng / SubCon).
-        # -----------------------------------------------------
-        query = apply_role_restrictions(query, current_user)
-
-        # -----------------------------------------------------
-        # (D) Exclude 'transferred' if recent == True and apply the base_query filtering.
-        # -----------------------------------------------------
-        query = exclude_transferred_if_recent(query, db, recent, base_query)
-
-        # -----------------------------------------------------
-        # (E) Apply new pending_request logic and ordering (role-based).
-        # -----------------------------------------------------
-        query = apply_pending_request_logic(query, pending_request, current_user)
-
-        # -----------------------------------------------------
-        # (F) Apply all other user-specified filters.
-        # -----------------------------------------------------
-        query = apply_filters(
-            query=query,
-            amount=amount,
-            project_id=project_id,
-            status=status,
-            start_date=start_date,
-            end_date=end_date,
-            person_id=person_id,
-            item_id=item_id,
-            from_uuid=from_uuid,
-            to_uuid=to_uuid
-        )
-
-        # -----------------------------------------------------
-        # (G) If (pending_request or recent) and user == ACCOUNTANT => only show <= 10000
-        # -----------------------------------------------------
-        query = apply_accountant_amount_restriction(query, current_user, pending_request, recent)
-
-        # Execute & group results
-        results = query.all()
-        grouped_data = group_query_results(results)
-
-        # -----------------------------------------------------
-        # (H) Build the final response list from grouped data.
-        # -----------------------------------------------------
-        payments_data = assemble_payments_response(
-            grouped_data=grouped_data,
-            db=db,
-            current_user=current_user
-        )
-
-        # Return final
-        return PaymentServiceResponse(
-            data=payments_data,
-            message=(
-                "Recent Payments fetched successfully."
-                if recent
-                else "All Payments fetched successfully."
-            ),
-            status_code=200
-        ).model_dump()
-
-    except Exception as e:
-        print(f"Error in get_all_payments API: {str(e)}")
-        return PaymentServiceResponse(
-            data=None,
-            message=f"An Error Occurred: {str(e)}",
-            status_code=500
-        ).model_dump()
-
-
-# ----------------------------------------------------------------------
-#                             Helper Functions
-# ----------------------------------------------------------------------
 
 ### ---------------------------------------------------------------------------------------------------------
+
 def build_recent_subquery(db: Session, current_user: User, recent: bool):
     """
     Builds a subquery of Payment UUIDs if `recent` is True.
@@ -1803,6 +1675,7 @@ def cancel_payment_status(
 # ):
 #     """
 #     Approve payment and optionally upload files (pdf, images, etc.) related to approval.
+#     If the status resolves to 'transferred', deduct that amount from BalanceDetails.
 #     """
 #     try:
 #         # 1) Check user role
@@ -1837,7 +1710,7 @@ def cancel_payment_status(
 #                 status_code=400
 #             ).model_dump()
 
-#         # 3a) Check if this status already exists for this payment
+#         # 3a) Check if this status already exists
 #         existing_status_entry = (
 #             db.query(PaymentStatusHistory)
 #             .filter(
@@ -1863,9 +1736,11 @@ def cancel_payment_status(
 
 #         # 5) Update Payment table's status
 #         payment.status = status
+
 #         if status == "transferred":
 #             payment.transferred_date = datetime.now()
-#             # If it's a self-payment, update khatabook balance
+
+#             # 5a) If it's a self-payment, update Khatabook balance
 #             if payment.self_payment:
 #                 user_balance = db.query(KhatabookBalance).filter(
 #                     KhatabookBalance.user_uuid == payment.created_by
@@ -1878,9 +1753,21 @@ def cancel_payment_status(
 #                     db.add(user_balance)
 #                 user_balance.balance += payment.amount
 
+#             # 5b) Deduct payment.amount from the single row in BalanceDetail
+#             balance_obj = db.query(BalanceDetail).first()
+#             if balance_obj:
+#                 balance_obj.balance -= payment.amount
+#             else:
+#                 # If your logic assumes there's always 1 row, you might raise an error
+#                 # or create it automatically. For now, we'll just pass or raise an error:
+#                 return PaymentServiceResponse(
+#                     data=None,
+#                     message="No row found in BalanceDetail to deduct from.",
+#                     status_code=400
+#                 ).model_dump()
+
 #         # 6) Handle optional file uploads
 #         if files:
-#             # or wherever you store admin approval files
 #             upload_dir = constants.UPLOAD_DIR_ADMIN
 #             os.makedirs(upload_dir, exist_ok=True)
 #             for file in files:
@@ -1893,7 +1780,7 @@ def cancel_payment_status(
 #                     PaymentFile(
 #                         payment_id=payment.uuid,
 #                         file_path=file_path,
-#                         is_approval_upload=True  # <-- Flag it here
+#                         is_approval_upload=True
 #                     )
 #                 )
 
@@ -1909,6 +1796,8 @@ def cancel_payment_status(
 
 #         # Commit everything
 #         db.commit()
+
+#         # Send notifications
 #         notify_payment_status_update(
 #             amount=payment.amount,
 #             status=status,
@@ -1916,6 +1805,7 @@ def cancel_payment_status(
 #             payment_user=payment.created_by,
 #             db=db
 #         )
+
 #         return PaymentServiceResponse(
 #             data=None,
 #             message="Payment approved successfully",
@@ -1931,6 +1821,7 @@ def cancel_payment_status(
 #         ).model_dump()
 
 
+
 @payment_router.put("/approve")
 def approve_payment(
     payment_id: UUID,
@@ -1940,7 +1831,12 @@ def approve_payment(
 ):
     """
     Approve payment and optionally upload files (pdf, images, etc.) related to approval.
-    If the status resolves to 'transferred', deduct that amount from BalanceDetails.
+    If the status resolves to 'transferred', deduct that amount from BalanceDetails, etc.
+
+    IMPORTANT CHANGE:
+    - We now allow adding a status entry even if the new status is "behind"
+      the current Payment.status. In that scenario, we do NOT overwrite
+      payment.status.
     """
     try:
         # 1) Check user role
@@ -1966,7 +1862,8 @@ def approve_payment(
                 status_code=404
             ).model_dump()
 
-        # 3) Get the next status from the mapping
+        # 3) Get the next status from the role -> status mapping
+        #    For example, Project Manager -> "verified", Admin -> "approved", Accountant -> "transferred", etc.
         status = constants.RoleStatusMapping.get(current_user.role)
         if not status:
             return PaymentServiceResponse(
@@ -1975,23 +1872,10 @@ def approve_payment(
                 status_code=400
             ).model_dump()
 
-        # 3a) Check if this status already exists
-        existing_status_entry = (
-            db.query(PaymentStatusHistory)
-            .filter(
-                PaymentStatusHistory.payment_id == payment.uuid,
-                PaymentStatusHistory.status == status
-            )
-            .first()
-        )
-        if existing_status_entry:
-            return PaymentServiceResponse(
-                data=None,
-                message=f"Status '{status}' has already been set once for this payment.",
-                status_code=400
-            ).model_dump()
+        # -- CHANGED: Remove any check that blocks setting the same status a second time.
+        #    We always allow a PaymentStatusHistory record to be created.
 
-        # 4) Create a status history entry
+        # 4) Always create a PaymentStatusHistory record
         payment_status = PaymentStatusHistory(
             payment_id=payment_id,
             status=status,
@@ -1999,37 +1883,51 @@ def approve_payment(
         )
         db.add(payment_status)
 
-        # 5) Update Payment table's status
-        payment.status = status
+        # 5) Only update payment table’s 'status' if `status` is chronologically ahead
+        #    of the current payment.status
+        status_order_map = {
+            "requested": 1,
+            "verified": 2,
+            "approved": 3,
+            "transferred": 4
+        }
 
-        if status == "transferred":
-            payment.transferred_date = datetime.now()
+        def get_order(s: str) -> int:
+            return status_order_map.get(s, 0)
 
-            # 5a) If it's a self-payment, update Khatabook balance
-            if payment.self_payment:
-                user_balance = db.query(KhatabookBalance).filter(
-                    KhatabookBalance.user_uuid == payment.created_by
-                ).first()
-                if not user_balance:
-                    user_balance = KhatabookBalance(
-                        user_uuid=payment.created_by,
-                        balance=0.0
-                    )
-                    db.add(user_balance)
-                user_balance.balance += payment.amount
+        current_order = get_order(payment.status)
+        new_order = get_order(status)
 
-            # 5b) Deduct payment.amount from the single row in BalanceDetail
-            balance_obj = db.query(BalanceDetail).first()
-            if balance_obj:
-                balance_obj.balance -= payment.amount
-            else:
-                # If your logic assumes there's always 1 row, you might raise an error
-                # or create it automatically. For now, we'll just pass or raise an error:
-                return PaymentServiceResponse(
-                    data=None,
-                    message="No row found in BalanceDetail to deduct from.",
-                    status_code=400
-                ).model_dump()
+        if new_order > current_order:
+            # It's a forward status change; update Payment table
+            payment.status = status
+
+            # If the new status is 'transferred', do the existing logic
+            if status == "transferred":
+                payment.transferred_date = datetime.now()
+
+                # For self-payment logic
+                if payment.self_payment:
+                    user_balance = db.query(KhatabookBalance).filter(
+                        KhatabookBalance.user_uuid == payment.created_by
+                    ).first()
+                    if not user_balance:
+                        user_balance = KhatabookBalance(
+                            user_uuid=payment.created_by,
+                            balance=0.0
+                        )
+                        db.add(user_balance)
+                    user_balance.balance += payment.amount
+
+                balance_obj = db.query(BalanceDetail).first()
+                if balance_obj:
+                    balance_obj.balance -= payment.amount
+                else:
+                    return PaymentServiceResponse(
+                        data=None,
+                        message="No row found in BalanceDetail to deduct from.",
+                        status_code=400
+                    ).model_dump()
 
         # 6) Handle optional file uploads
         if files:
@@ -2059,10 +1957,10 @@ def approve_payment(
         )
         db.add(log_entry)
 
-        # Commit everything
+        # 8) Commit changes
         db.commit()
 
-        # Send notifications
+        # 9) Send notifications
         notify_payment_status_update(
             amount=payment.amount,
             status=status,
@@ -2073,7 +1971,7 @@ def approve_payment(
 
         return PaymentServiceResponse(
             data=None,
-            message="Payment approved successfully",
+            message="Payment status updated successfully",
             status_code=200
         ).model_dump()
 
