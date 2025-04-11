@@ -284,7 +284,7 @@ class PaymentEditHistory(Base):
     remarks = Column(Text, nullable=True)
     updated_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
-
+    is_deleted = Column(Boolean, default=False, nullable=False)
     # Relationship back to Payment
     payment = relationship("Payment", back_populates="edit_histories")
 
@@ -306,6 +306,7 @@ class PaymentStatusHistory(Base):
     status = Column(String(20), nullable=False)      # e.g. "requested", "verified", "approved", "done"x``
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
 
     # Relationship back to Payment so we can do payment_status_history.payment to navigate
     payment = relationship("Payment", back_populates="status_entries")
@@ -331,6 +332,7 @@ class PaymentFile(Base):
 
     # NEW: A column to indicate files that came from the /approve endpoint
     is_approval_upload = Column(Boolean, default=False, nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
 
     payment = relationship("Payment", back_populates="payment_files")
 
@@ -366,6 +368,7 @@ class Item(Base):
     name = Column(String(100), nullable=False)
     category = Column(String(100), nullable=True)
     list_tag = Column(String(30), nullable=True)
+    has_additional_info = Column(Boolean, nullable=False, default=False)
 
     # Relationship for payments associated with this item
     payments = relationship("PaymentItem", back_populates="item", cascade="all, delete-orphan")
@@ -381,6 +384,7 @@ class PaymentItem(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
     item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid", ondelete="CASCADE"), nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
 
     # Relationships
     payment = relationship("Payment", back_populates="payment_items")

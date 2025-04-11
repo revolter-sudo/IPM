@@ -20,7 +20,8 @@ from src.app.schemas.auth_service_schamas import UserRole
 from src.app.schemas.project_service_schemas import (
     ProjectCreateRequest,
     ProjectResponse,
-    ProjectServiceResponse
+    ProjectServiceResponse,
+    UpdateProjectSchema
 )
 from src.app.services.auth_service import get_current_user
 
@@ -320,6 +321,87 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
         ).model_dump()
 
 
+
+@project_router.put("/{project_uuid}", tags=["Projects"], status_code=200)
+def update_project(
+    project_uuid: UUID,
+    payload: UpdateProjectSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Update an existing Project's details:
+      - name
+      - description
+      - location
+
+    Returns 404 if project not found.
+    """
+    try:
+        project = (
+            db.query(Project)
+            .filter(Project.uuid == project_uuid, Project.is_deleted.is_(False))
+            .first()
+        )
+        if not project:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Project not found"
+            ).model_dump()
+
+        # Example: Only Admin, SuperAdmin, or PM can update a project
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="You are not authorized to update projects"
+            ).model_dump()
+
+        # Update fields if provided
+        if payload.name is not None:
+            project.name = payload.name
+        if payload.description is not None:
+            project.description = payload.description
+        if payload.location is not None:
+            project.location = payload.location
+
+        # Optionally add a log entry
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="Project",
+            action="Update",
+            entity_id=project_uuid,
+            performed_by=current_user.uuid
+        )
+        db.add(log_entry)
+
+        db.commit()
+        db.refresh(project)
+
+        return ProjectServiceResponse(
+            data={
+                "uuid": str(project.uuid),
+                "name": project.name,
+                "description": project.description,
+                "location": project.location
+            },
+            message="Project updated successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while updating project: {str(e)}"
+        ).model_dump()
+
+
 @balance_router.post(
     "/create-balance",
     tags=["Bank Balance"]
@@ -391,10 +473,17 @@ def get_bank_balance(
                 status_code=404,
                 message="Balance Not Found"
             ).model_dump()
+<<<<<<< HEAD
         recorded_balance = get_total_transferred_payments_sum(db=db)
         logging.info(f"Total records: {recorded_balance}")
         remaining_balance = balance - recorded_balance
         result = {"balance": remaining_balance}
+=======
+        # recorded_balance = get_total_transferred_payments_sum(db=db)
+        # logging.info(f"Total records: {recorded_balance}")
+        # remaining_balance = balance - recorded_balance
+        result = {"balance": balance}
+>>>>>>> 4a66b38da5c0576bebd605e737fd485cc21f8890
         logging.info(f"Remaining Balance: {result}")
         return ProjectServiceResponse(
             data=result,

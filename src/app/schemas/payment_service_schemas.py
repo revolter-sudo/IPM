@@ -18,6 +18,13 @@ class ItemListTag(str, Enum):
     payment = "payment"
 
 
+class UpdateItemSchema(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    list_tag: Optional[str] = None
+    has_additional_info: Optional[bool] = None
+
+
 class PaymentRequest(BaseModel):
     amount: float
     description: Optional[str] = None
@@ -130,6 +137,7 @@ class PersonDetail(BaseModel):
 class StatusDatePair(BaseModel):
     status: str
     date: str  # We'll store a string like "04-03-2025"
+    created_by: str
 
 
 class PaymentsResponse(BaseModel):
