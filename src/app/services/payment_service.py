@@ -205,7 +205,6 @@ def create_payment(
             created_by=current_user.uuid,
             person=payment_request.person,            # might be overwritten for self_payment
             self_payment=payment_request.self_payment,  # store the flag
-            self_payment=payment_request.self_payment,  # store the flag
             latitude=payment_request.latitude,
             longitude=payment_request.longitude,
             priority_id=payment_request.priority_id,
@@ -253,7 +252,6 @@ def create_payment(
                     payment_id=new_payment.uuid,
                     file_path=file_path
                 ))
-                ))
 
         db.commit()
         notification = notify_create_payment(
@@ -272,7 +270,6 @@ def create_payment(
         if not notification:
             logging.error("Something Went wrong while sending create payment notification")
         return PaymentServiceResponse(
-            data={"payment_uuid": current_payment_uuid},
             data={"payment_uuid": current_payment_uuid},
             message="Payment created successfully.",
             status_code=201
@@ -294,8 +291,6 @@ def update_payment_amount(
     payment_uuid: UUID,
     payload: PaymentUpdateSchema,
     db: Session = Depends(get_db),
-    # <--- If you want to store who updated
-    current_user: User = Depends(get_current_user),
     # <--- If you want to store who updated
     current_user: User = Depends(get_current_user),
 ):
@@ -393,7 +388,11 @@ def build_recent_subquery(db: Session, current_user: User, recent: bool):
     Restricts site_eng / sub_con to only see their own Payment records.
     Returns a subquery object.
     """
-    base_q = db.query(Payment.uuid).filter(Payment.is_deleted.is_(False))
+    recent_status = [PaymentStatus.DECLINED.value]
+    base_q = db.query(Payment.uuid).filter(
+        Payment.is_deleted.is_(False),
+        Payment.status.not_in(recent_status)
+    )
 
     # Restrict to own payments if site eng / sub con
     if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
@@ -781,6 +780,110 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
     return payments_data
 
 
+# @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
+# def get_all_payments(
+#     db: Session = Depends(get_db),
+#     amount: Optional[float] = Query(None),
+#     project_id: Optional[UUID] = Query(None),
+#     status: Optional[List[str]] = Query(None),
+#     start_date: Optional[datetime] = Query(None),
+#     end_date: Optional[datetime] = Query(None),
+#     recent: Optional[bool] = Query(False),
+#     person_id: Optional[UUID] = Query(None),
+#     item_id: Optional[UUID] = Query(None),
+#     current_user: User = Depends(get_current_user),
+#     from_uuid: Optional[UUID] = Query(None, description="UUID of the user who created the payment"),
+#     to_uuid: Optional[UUID] = Query(None, description="UUID of the person receiving the payment"),
+#     pending_request: Optional[bool] = Query(False, description="If true, show only role-specific pending payments."),
+# ):
+#     """
+#     Fetches payments, optionally filtering by:
+#       - amount
+#       - project_id
+#       - status
+#       - date range (start_date, end_date)
+#       - person_id
+#       - item_id
+#       - 'recent' (last 5, excluding 'transferred')
+#       - from_uuid (Payment.created_by)
+#       - to_uuid (Person.uuid)
+#       - [NEW] pending_request (if True, show only role-specific pending payments, grouped by status, date desc)
+
+#     ALSO:
+#       - If (pending_request == True OR recent == True) AND user = ACCOUNTANT => only show payments <= 10000
+
+#     Returns structured data with:
+#       - Payment details (description, remarks, date, etc.)
+#       - Project info (uuid, name)
+#       - Person info (name, account_number, ifsc_code, upi_number)
+#       - Created-by user info
+#       - Files
+#       - Items
+#       - Priority name
+#       - Status history (including user who created each status)
+#       - Edit history
+#       - Whether the current user can edit this payment
+#     """
+#     try:
+#         # (A) Build subquery if 'recent' is True (for last 5).
+#         base_query = build_recent_subquery(db, current_user, recent)
+
+#         # (B) Build main query (if pending_request=False => order_by date desc,
+#         #                       else we skip default ordering here).
+#         query = build_main_payments_query(db, pending_request)
+
+#         # (C) Apply role-based restrictions (e.g. site eng / sub con => only their own).
+#         query = apply_role_restrictions(query, current_user)
+
+#         # (D) Exclude 'transferred' if recent == True, and only keep Payment.uuids from base_subquery.
+#         query = exclude_transferred_if_recent(query, db, recent, base_query)
+
+#         # (E) If pending_request == True, do role-based status filtering + multi-level ordering.
+#         query = apply_pending_request_logic(query, pending_request, current_user)
+
+#         # (F) Apply user-supplied filters (amount, project_id, date range, etc.).
+#         query = apply_filters(
+#             query,
+#             amount=amount,
+#             project_id=project_id,
+#             status=status,
+#             start_date=start_date,
+#             end_date=end_date,
+#             person_id=person_id,
+#             item_id=item_id,
+#             from_uuid=from_uuid,
+#             to_uuid=to_uuid,
+#         )
+
+#         # (G) If user is accountant and (pending_request or recent) => only payments <= 10000
+#         query = apply_accountant_amount_restriction(query, current_user, pending_request, recent)
+
+#         # Execute & group results
+#         results = query.all()
+#         grouped_data = group_query_results(results)
+
+#         # (H) Assemble final response
+#         payments_data = assemble_payments_response(grouped_data, db, current_user)
+
+#         return PaymentServiceResponse(
+#             data=payments_data,
+#             message=(
+#                 "Recent Payments fetched successfully." if recent else
+#                 "Pending Payments fetched successfully." if pending_request else
+#                 "All Payments fetched successfully."
+#             ),
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         print(f"Error in get_all_payments API: {str(e)}")
+#         return PaymentServiceResponse(
+#             data=None,
+#             message=f"An Error Occurred: {str(e)}",
+#             status_code=500
+#         ).model_dump()
+
+
 @payment_router.get("", tags=["Payments"], status_code=h_status.HTTP_200_OK)
 def get_all_payments(
     db: Session = Depends(get_db),
@@ -796,6 +899,7 @@ def get_all_payments(
     from_uuid: Optional[UUID] = Query(None, description="UUID of the user who created the payment"),
     to_uuid: Optional[UUID] = Query(None, description="UUID of the person receiving the payment"),
     pending_request: Optional[bool] = Query(False, description="If true, show only role-specific pending payments."),
+    page: Optional[int] = Query(None, ge=1, description="Page number for pagination (omit or null to fetch all)")
 ):
     """
     Fetches payments, optionally filtering by:
@@ -808,41 +912,29 @@ def get_all_payments(
       - 'recent' (last 5, excluding 'transferred')
       - from_uuid (Payment.created_by)
       - to_uuid (Person.uuid)
-      - [NEW] pending_request (if True, show only role-specific pending payments, grouped by status, date desc)
+      - pending_request (role-specific filter)
 
-    ALSO:
-      - If (pending_request == True OR recent == True) AND user = ACCOUNTANT => only show payments <= 10000
-
-    Returns structured data with:
-      - Payment details (description, remarks, date, etc.)
-      - Project info (uuid, name)
-      - Person info (name, account_number, ifsc_code, upi_number)
-      - Created-by user info
-      - Files
-      - Items
-      - Priority name
-      - Status history (including user who created each status)
-      - Edit history
-      - Whether the current user can edit this payment
+    PAGINATION (optional):
+      - If 'page' is provided (≥ 1), we paginate with limit=10
+      - If 'page' is omitted or None, we return all results
     """
     try:
-        # (A) Build subquery if 'recent' is True (for last 5).
+        # (A) Build subquery if 'recent' is True
         base_query = build_recent_subquery(db, current_user, recent)
 
-        # (B) Build main query (if pending_request=False => order_by date desc,
-        #                       else we skip default ordering here).
+        # (B) Build main query
         query = build_main_payments_query(db, pending_request)
 
-        # (C) Apply role-based restrictions (e.g. site eng / sub con => only their own).
+        # (C) Apply role-based restrictions
         query = apply_role_restrictions(query, current_user)
 
-        # (D) Exclude 'transferred' if recent == True, and only keep Payment.uuids from base_subquery.
+        # (D) Exclude 'transferred' if recent
         query = exclude_transferred_if_recent(query, db, recent, base_query)
 
-        # (E) If pending_request == True, do role-based status filtering + multi-level ordering.
+        # (E) Role-based status filtering (pending_request)
         query = apply_pending_request_logic(query, pending_request, current_user)
 
-        # (F) Apply user-supplied filters (amount, project_id, date range, etc.).
+        # (F) Apply user-supplied filters
         query = apply_filters(
             query,
             amount=amount,
@@ -856,25 +948,55 @@ def get_all_payments(
             to_uuid=to_uuid,
         )
 
-        # (G) If user is accountant and (pending_request or recent) => only payments <= 10000
+        # (G) Accountant filter if needed
         query = apply_accountant_amount_restriction(query, current_user, pending_request, recent)
 
-        # Execute & group results
+        # --- NEW: handle optional pagination ---
+        total_count = query.count()  # total before pagination
+
+        if page is not None:
+            # Apply pagination if page is specified
+            offset = (page - 1) * 10
+            query = query.offset(offset).limit(10)
+
+        # Execute & group
         results = query.all()
         grouped_data = group_query_results(results)
 
         # (H) Assemble final response
         payments_data = assemble_payments_response(grouped_data, db, current_user)
 
-        return PaymentServiceResponse(
-            data=payments_data,
-            message=(
-                "Recent Payments fetched successfully." if recent else
-                "Pending Payments fetched successfully." if pending_request else
-                "All Payments fetched successfully."
-            ),
-            status_code=200
-        ).model_dump()
+        # Build a response structure that includes pagination info only if used
+        if page is not None:
+            data_with_pagination = {
+                "records": payments_data,
+                "total_count": total_count,
+                "page": page,
+                "limit": 10
+            }
+            return PaymentServiceResponse(
+                data=data_with_pagination,
+                message=(
+                    "Recent Payments fetched successfully." if recent else
+                    "Pending Payments fetched successfully." if pending_request else
+                    "All Payments fetched successfully."
+                ),
+                status_code=200
+            ).model_dump()
+        else:
+            # No pagination => just return all records
+            return PaymentServiceResponse(
+                data={
+                    "records": payments_data,
+                    "total_count": total_count
+                },
+                message=(
+                    "Recent Payments fetched successfully." if recent else
+                    "Pending Payments fetched successfully." if pending_request else
+                    "All Payments fetched successfully."
+                ),
+                status_code=200
+            ).model_dump()
 
     except Exception as e:
         print(f"Error in get_all_payments API: {str(e)}")
@@ -883,6 +1005,7 @@ def get_all_payments(
             message=f"An Error Occurred: {str(e)}",
             status_code=500
         ).model_dump()
+
 ### ------------------------------------------------------------------------------------------------------------------------
 
 @payment_router.delete("")
@@ -1077,162 +1200,6 @@ def cancel_payment_status(
             message=f"An Error Occurred: {str(e)}",
             status_code=500,
         ).model_dump()
-
-
-# @payment_router.put("/approve")
-# def approve_payment(
-#     payment_id: UUID,
-#     files: Optional[List[UploadFile]] = File(None),
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(get_current_user),
-# ):
-#     """
-#     Approve payment and optionally upload files (pdf, images, etc.) related to approval.
-#     If the status resolves to 'transferred', deduct that amount from BalanceDetails.
-#     """
-#     try:
-#         # 1) Check user role
-#         if current_user.role not in [
-#             UserRole.SUPER_ADMIN.value,
-#             UserRole.ADMIN.value,
-#             UserRole.PROJECT_MANAGER.value,
-#             UserRole.SITE_ENGINEER.value,
-#             UserRole.ACCOUNTANT.value
-#         ]:
-#             return PaymentServiceResponse(
-#                 data=None,
-#                 message=constants.CANT_APPROVE_PAYMENT,
-#                 status_code=403
-#             ).model_dump()
-
-#         # 2) Find the payment
-#         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
-#         if not payment:
-#             return PaymentServiceResponse(
-#                 data=None,
-#                 message=constants.PAYMENT_NOT_FOUND,
-#                 status_code=404
-#             ).model_dump()
-
-#         # 3) Get the next status from the mapping
-#         status = constants.RoleStatusMapping.get(current_user.role)
-#         if not status:
-#             return PaymentServiceResponse(
-#                 data=None,
-#                 message="Invalid role for updating payment status.",
-#                 status_code=400
-#             ).model_dump()
-
-#         # 3a) Check if this status already exists
-#         existing_status_entry = (
-#             db.query(PaymentStatusHistory)
-#             .filter(
-#                 PaymentStatusHistory.payment_id == payment.uuid,
-#                 PaymentStatusHistory.status == status
-#             )
-#             .first()
-#         )
-#         if existing_status_entry:
-#             return PaymentServiceResponse(
-#                 data=None,
-#                 message=f"Status '{status}' has already been set once for this payment.",
-#                 status_code=400
-#             ).model_dump()
-
-#         # 4) Create a status history entry
-#         payment_status = PaymentStatusHistory(
-#             payment_id=payment_id,
-#             status=status,
-#             created_by=current_user.uuid
-#         )
-#         db.add(payment_status)
-
-#         # 5) Update Payment table's status
-#         payment.status = status
-
-#         if status == "transferred":
-#             payment.transferred_date = datetime.now()
-
-#             # 5a) If it's a self-payment, update Khatabook balance
-#             if payment.self_payment:
-#                 user_balance = db.query(KhatabookBalance).filter(
-#                     KhatabookBalance.user_uuid == payment.created_by
-#                 ).first()
-#                 if not user_balance:
-#                     user_balance = KhatabookBalance(
-#                         user_uuid=payment.created_by,
-#                         balance=0.0
-#                     )
-#                     db.add(user_balance)
-#                 user_balance.balance += payment.amount
-
-#             # 5b) Deduct payment.amount from the single row in BalanceDetail
-#             balance_obj = db.query(BalanceDetail).first()
-#             if balance_obj:
-#                 balance_obj.balance -= payment.amount
-#             else:
-#                 # If your logic assumes there's always 1 row, you might raise an error
-#                 # or create it automatically. For now, we'll just pass or raise an error:
-#                 return PaymentServiceResponse(
-#                     data=None,
-#                     message="No row found in BalanceDetail to deduct from.",
-#                     status_code=400
-#                 ).model_dump()
-
-#         # 6) Handle optional file uploads
-#         if files:
-#             upload_dir = constants.UPLOAD_DIR_ADMIN
-#             os.makedirs(upload_dir, exist_ok=True)
-#             for file in files:
-#                 file_path = os.path.join(upload_dir, file.filename)
-#                 with open(file_path, "wb") as buffer:
-#                     buffer.write(file.file.read())
-
-#                 # Mark these files as approval uploads
-#                 db.add(
-#                     PaymentFile(
-#                         payment_id=payment.uuid,
-#                         file_path=file_path,
-#                         is_approval_upload=True
-#                     )
-#                 )
-
-#         # 7) Add a log entry
-#         log_entry = Log(
-#             uuid=str(uuid4()),
-#             entity="Payment",
-#             action=status,
-#             entity_id=payment_id,
-#             performed_by=current_user.uuid,
-#         )
-#         db.add(log_entry)
-
-#         # Commit everything
-#         db.commit()
-
-#         # Send notifications
-#         notify_payment_status_update(
-#             amount=payment.amount,
-#             status=status,
-#             user=current_user,
-#             payment_user=payment.created_by,
-#             db=db
-#         )
-
-#         return PaymentServiceResponse(
-#             data=None,
-#             message="Payment approved successfully",
-#             status_code=200
-#         ).model_dump()
-
-#     except Exception as e:
-#         db.rollback()
-#         return PaymentServiceResponse(
-#             data=None,
-#             message=f"An Error Occurred: {str(e)}",
-#             status_code=500
-#         ).model_dump()
-
 
 
 @payment_router.put("/approve")
@@ -1542,7 +1509,6 @@ def create_person(
             return PaymentServiceResponse(
                 data=None,
                 status_code=400,
-                message=reason
                 message=reason
             ).model_dump()
 
@@ -1954,10 +1920,6 @@ def create_item(
 
 
 @payment_router.get("/items", tags=["Items"], status_code=200)
-def list_items(
-    list_tag: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
 def list_items(
     list_tag: Optional[str] = None,
     db: Session = Depends(get_db)
