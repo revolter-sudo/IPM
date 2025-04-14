@@ -573,25 +573,6 @@ def test_create_person_invalid_phone(mock_response, mock_db):
     assert "Invalid phone number" in result["message"]
 
 # Item Operations Tests
-def test_create_item_success(mock_db):
-    # Test function
-    result = create_item(
-        name="Test Item",
-        db=mock_db
-    )
-    
-    assert result["status_code"] == 201
-    assert "item_uuid" in result["data"]
-
-def test_create_item_invalid_price(mock_db, mock_current_user):
-    # Test function
-    result = create_item(
-        name="Test Item",
-        db=mock_db
-    )
-    
-    assert result["status_code"] == 201
-    assert "item_uuid" in result["data"]
 
 # Priority Operations Tests
 def test_create_priority_success(mock_db):

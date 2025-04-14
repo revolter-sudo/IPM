@@ -368,7 +368,7 @@ class Item(Base):
     name = Column(String(100), nullable=False)
     category = Column(String(100), nullable=True)
     list_tag = Column(String(30), nullable=True)
-    has_additional_info = Column(Boolean, nullable=False, default=False)
+    has_additional_info = Column(Boolean, nullable=False, default=False) 
 
     # Relationship for payments associated with this item
     payments = relationship("PaymentItem", back_populates="item", cascade="all, delete-orphan")

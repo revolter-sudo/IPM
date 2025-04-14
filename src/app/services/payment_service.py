@@ -45,7 +45,7 @@ from src.app.schemas.payment_service_schemas import (
     PaymentUpdateSchema,
     StatusDatePair,
     ItemListTag,
-    UpdatePerson
+    UpdatePerson,
     UpdatePerson,
     UpdateItemSchema
 )
@@ -118,7 +118,7 @@ def create_payment(
     try:
         request_data = json.loads(request)
         payment_request = CreatePaymentRequest(**request_data)
-
+    
         # Validate Project
         project = db.query(Project).filter(
             Project.uuid == payment_request.project_id).first()
@@ -482,14 +482,11 @@ def can_edit_payment(status_history: List[str], current_user_role: str) -> bool:
 #                 end_date = end_date.replace(
 #                     hour=23, minute=59, second=59, microsecond=999999)
 #                 query = query.filter(Payment.created_at <= end_date)
-
 #         if person_id is not None:
 #             query = query.filter(Payment.person == person_id)
 #         if item_id is not None:
 #             query = query.filter(PaymentItem.item_id == item_id)
-
 #         results = query.all()
-
 #         # We'll group our data by Payment UUID
 #         grouped_data = defaultdict(
 #             lambda: {
@@ -992,6 +989,14 @@ def get_all_payments(
     from_uuid: Optional[UUID] = Query(None, description="UUID of the user who created the payment"),
     to_uuid: Optional[UUID] = Query(None, description="UUID of the person receiving the payment"),
     pending_request: Optional[bool] = Query(False, description="If true, show only role-specific pending payments."),
+
+    # -- Pagination parameters --
+    page: int = Query(1, ge=1, description="Page number starting from 1"),
+    limit: int = Query(10, ge=1, le=100, description="Number of records per page"),
+    # sort_by: str = Query("created_at", description="Field to sort by (e.g., created_at, updated_at)"),
+    # sort_order: str = Query("desc", description="Sort order (asc or desc)"),
+    # skip: int = Query(0, description="Number of records to skip for pagination"),
+    # -- End of pagination parameters --
 ):
     """
     Fetches payments, optionally filtering by:
@@ -1155,6 +1160,9 @@ def get_all_payments(
         # (G) If (pending_request or recent) and user == ACCOUNTANT => only show <= 10000
         # -----------------------------------------------------
         query = apply_accountant_amount_restriction(query, current_user, pending_request, recent)
+
+        # --- PAGINATION ADDED ---
+        query = query.offset((page - 1) * limit).limit(limit)
 
         # Execute & group results
         results = query.all()
@@ -1744,6 +1752,9 @@ def get_all_payments(
     from_uuid: Optional[UUID] = Query(None, description="UUID of the user who created the payment"),
     to_uuid: Optional[UUID] = Query(None, description="UUID of the person receiving the payment"),
     pending_request: Optional[bool] = Query(False, description="If true, show only role-specific pending payments."),
+
+    page: int = Query(1, ge=1, description="Page number for pagination"),
+    limit: int = Query(10, ge=1, le=100, description="Number of records per page"),
 ):
     """
     Fetches payments, optionally filtering by:
@@ -1806,6 +1817,9 @@ def get_all_payments(
 
         # (G) If user is accountant and (pending_request or recent) => only payments <= 10000
         query = apply_accountant_amount_restriction(query, current_user, pending_request, recent)
+
+        # --- PAGINATION ADDED ---
+        query = query.offset((page - 1) * limit).limit(limit)
 
         # Execute & group results
         results = query.all()
@@ -2550,7 +2564,8 @@ def update_person(
         # 3a) If updating account_number or ifsc_code:
         if (request_data.account_number or request_data.ifsc_code):
             conflict = db.query(Person).filter(
-                (Person.account_number == request_data.account_number),
+                Person.account_number == request_data.account_number
+            ).first()
         if (request_data.account_number or request_data.phone_number):
             conflict = db.query(Person).filter(
                 and_(
@@ -2582,7 +2597,6 @@ def update_person(
                     data=None,
                     status_code=400,
                     message="A person with the same phone number or UPI number already exists."
-                    message="A person with the same account number already exists."
                 ).model_dump()
 
         # 4) Update the fields that were provided
@@ -2795,7 +2809,6 @@ def list_items(
                 "uuid": str(item.uuid),
                 "name": item.name,
                 "category": item.category,
-                "list_tag": item.list_tag
                 "list_tag": item.list_tag,
                 "has_additional_info": item.has_additional_info
             } for item in items
