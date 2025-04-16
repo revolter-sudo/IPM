@@ -37,6 +37,16 @@ class UpdateProjectSchema(BaseModel):
     location: Optional[str] = None
 
 
+class BankCreateSchema(BaseModel):
+    name: str
+    balance: float
+
+
+class BankEditSchema(BaseModel):
+    name: str
+    balance: float
+
+
 class ProjectServiceResponse(BaseModel):
     data: Any = None
     message: str

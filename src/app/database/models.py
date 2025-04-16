@@ -243,7 +243,17 @@ class Payment(Base):
         ForeignKey("priorities.uuid"),
         nullable=True  # or nullable=False if you want to make it mandatory
     )
+    deducted_from_bank_uuid = Column(
+        UUID(as_uuid=True),
+        ForeignKey("balance_details.uuid"),
+        nullable=True
+    )
 
+    deducted_from_bank = relationship(
+        "BalanceDetail",
+        foreign_keys=[deducted_from_bank_uuid],
+        lazy="joined"
+    )
     priority_rel = relationship("Priority", foreign_keys=[priority_id], lazy="joined")
 
     # NEW RELATIONSHIP: link to Person table for the 'person' FK
@@ -418,6 +428,7 @@ class BalanceDetail(Base):
         nullable=False,
         default=uuid.uuid4
     )
+    name = Column(String(255), nullable=False)
     balance = Column(Float, nullable=False)
 
 
