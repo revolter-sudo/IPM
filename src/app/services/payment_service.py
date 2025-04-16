@@ -952,7 +952,7 @@ def get_all_payments(
         query = apply_accountant_amount_restriction(query, current_user, pending_request, recent)
 
         # --- NEW: handle optional pagination ---
-        count_query = query.with_entities(Payment.uuid).distinct()
+        count_query = query.order_by(None).with_entities(Payment.uuid).distinct()
         total_count = count_query.count()
 
         if page is not None:
