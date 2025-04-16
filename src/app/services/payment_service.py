@@ -788,196 +788,406 @@ def get_all_payments(
     page: Optional[int] = Query(None, ge=1, description="Page number for pagination (omit or null to fetch all)")
 ):
     """
-    Fetches payments, optionally filtering by:
-      - amount
-      - project_id
-      - status
-      - date range (start_date, end_date)
-      - person_id
-      - item_id
-      - 'recent' (last 5, excluding 'transferred')
-      - from_uuid (Payment.created_by)
-      - to_uuid (Person.uuid)
-      - pending_request (role-specific filter)
+    Provides three main paths:
+      1) recent=True => Show last 5 (excluding declined & transferred).
+      2) pending_request=True => Show statuses relevant to the user role, 
+         with multi-level ordering (approved => verified => requested).
+      3) Otherwise => normal listing, grouping by Payment.uuid + date desc.
 
-    TWO-STEP PAGINATION (optional):
-      1) "Base" query selects Payment.uuid, grouped by Payment.uuid,
-         applying all filters and aggregator = MAX(Payment.created_at).
-         Then we can safely ORDER BY that aggregator DESC and do offset/limit.
-      2) A second query fetches the full Payment details (joined) only for the
-         Payment.uuid values from step 1.
+    The code uses a two-step approach:
+      - Step 1: minimal base query to find Payment.uuid
+      - Step 2: fetch full Payment details from the selected UUIDs.
     """
     try:
-        # ----------------------------------------------------------
-        # STEP 1: Build a "group by Payment.uuid" query for paging
-        # ----------------------------------------------------------
-        from sqlalchemy import func
+        from sqlalchemy import func, case
 
-        # A) If 'recent' => subquery
-        recent_subquery = build_recent_subquery(db, current_user, recent)
-
-        # Start by selecting Payment.uuid plus an aggregator for ordering
-        # We group by Payment.uuid
-        base_query = (
-            db.query(
-                Payment.uuid.label("pay_uuid"),
-                func.max(Payment.created_at).label("latest_created_at"),
-            )
-            .filter(Payment.is_deleted.is_(False))
-            .group_by(Payment.uuid)
-        )
-
-        # B) Restrict site engineer / sub contractor => only own
-        if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-            base_query = base_query.filter(Payment.created_by == current_user.uuid)
-
-        # C) If recent => exclude 'transferred' + intersect with 'recent_subquery'
+        # ===================================================================
+        # ========================= 1) RECENT MODE ===========================
+        # ===================================================================
         if recent:
-            transferred_sub = db.query(PaymentStatusHistory.payment_id).filter(
-                PaymentStatusHistory.status == "transferred"
-            ).subquery()
-            base_query = base_query.filter(~Payment.uuid.in_(transferred_sub))
-            base_query = base_query.filter(Payment.uuid.in_(recent_subquery))
+            # 1) Use build_recent_subquery => last 5 (excl. declined)
+            recent_sub = build_recent_subquery(db, current_user, recent=True)
 
-        # D) If pending_request => role-based status filter
-        if pending_request:
-            role = current_user.role
-            if role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value, UserRole.PROJECT_MANAGER.value]:
-                base_query = base_query.filter(Payment.status.in_(["requested"]))
-            elif role == UserRole.ADMIN.value:
-                base_query = base_query.filter(Payment.status.in_(["verified", "requested"]))
-            elif role in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
-                base_query = base_query.filter(Payment.status.in_(["approved", "verified", "requested"]))
+            # Also exclude 'transferred'
+            transferred_sub = (
+                db.query(PaymentStatusHistory.payment_id)
+                .filter(PaymentStatusHistory.status == "transferred")
+                .subquery()
+            )
 
-        # E) Additional filters that don't require bigger joins
-        if amount is not None:
-            base_query = base_query.filter(Payment.amount == amount)
-        if project_id is not None:
-            base_query = base_query.filter(Payment.project_id == project_id)
-        if status is not None:
-            base_query = base_query.filter(Payment.status.in_(status))
+            # base_query => Payment.uuid in that subquery
+            base_query = (
+                db.query(Payment.uuid)
+                .filter(
+                    Payment.is_deleted.is_(False),
+                    Payment.uuid.in_(recent_sub),
+                    ~Payment.uuid.in_(transferred_sub)
+                )
+            )
 
-        # Date range
-        if start_date and end_date:
-            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-            base_query = base_query.filter(Payment.created_at.between(start_date, end_date))
-        else:
-            if start_date:
-                base_query = base_query.filter(Payment.created_at >= start_date)
-            if end_date:
-                end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-                base_query = base_query.filter(Payment.created_at <= end_date)
+            # If user=ACCOUNTANT => Payment.amount <= 10000
+            if current_user.role == UserRole.ACCOUNTANT.value:
+                base_query = base_query.filter(Payment.amount <= 10000)
 
-        if from_uuid:
-            base_query = base_query.filter(Payment.created_by == from_uuid)
+            # Optionally apply other filters
+            if from_uuid:
+                base_query = base_query.filter(Payment.created_by == from_uuid)
+            if person_id or to_uuid:
+                base_query = base_query.join(Person, Payment.person == Person.uuid, isouter=True)
+                if person_id:
+                    base_query = base_query.filter(Payment.person == person_id)
+                if to_uuid:
+                    base_query = base_query.filter(Person.uuid == to_uuid)
+            if item_id:
+                base_query = base_query.join(PaymentItem, PaymentItem.payment_id == Payment.uuid, isouter=True)
+                base_query = base_query.filter(PaymentItem.is_deleted.is_(False), PaymentItem.item_id == item_id)
 
-        # If person_id or to_uuid => minimal join
-        if person_id or to_uuid:
-            base_query = base_query.join(Person, Payment.person == Person.uuid, isouter=True)
-            if person_id:
-                base_query = base_query.filter(Payment.person == person_id)
-            if to_uuid:
-                base_query = base_query.filter(Person.uuid == to_uuid)
+            # Distinct
+            base_query = base_query.distinct()
+            total_count = base_query.count()
 
-        # If item_id => minimal join to PaymentItem
-        if item_id:
-            base_query = base_query.join(PaymentItem, PaymentItem.payment_id == Payment.uuid, isouter=True)
-            base_query = base_query.filter(PaymentItem.is_deleted.is_(False), PaymentItem.item_id == item_id)
+            # Pagination if needed
+            if page is not None:
+                offset = (page - 1) * 10
+                uuid_rows = base_query.offset(offset).limit(10).all()
+            else:
+                uuid_rows = base_query.all()
 
-        # Accountant filter if needed
-        if current_user.role == UserRole.ACCOUNTANT.value and (pending_request or recent):
-            base_query = base_query.filter(Payment.amount <= 10000)
+            selected_uuids = [r.uuid for r in uuid_rows]
+            if not selected_uuids:
+                if page is not None:
+                    return PaymentServiceResponse(
+                        data={
+                            "records": [],
+                            "total_count": total_count,
+                            "page": page,
+                            "limit": 10
+                        },
+                        message="No recent payments found.",
+                        status_code=200
+                    ).model_dump()
+                else:
+                    return PaymentServiceResponse(
+                        data={
+                            "records": [],
+                            "total_count": total_count
+                        },
+                        message="No recent payments found.",
+                        status_code=200
+                    ).model_dump()
 
-        # E) Count how many Payment.uuid match => no ordering needed for counting
-        # count_query = base_query.with_entities(func.count("*")) 
-        # total_count = count_query.scalar()
-        grouped_subq = base_query.subquery()
-        total_count = db.query(func.count('*')).select_from(grouped_subq).scalar()
+            # Step 2 => fetch details
+            main_query = build_main_payments_query(db, pending_request=False)
+            main_query = apply_role_restrictions(main_query, current_user)
+            main_query = main_query.filter(Payment.uuid.in_(selected_uuids))
 
-        # F) Now order by "latest_created_at" descending
-        #    and fetch offset/limit for paging
-        ordered_base_query = base_query.order_by(func.max(Payment.created_at).desc())
+            results = main_query.all()
+            grouped_data = group_query_results(results)
+            payments_data = assemble_payments_response(grouped_data, db, current_user)
 
-        if page is not None:
-            offset = (page - 1) * 10
-            page_rows = ordered_base_query.offset(offset).limit(10).all()
-        else:
-            page_rows = ordered_base_query.all()
-
-        selected_uuids = [row.pay_uuid for row in page_rows]
-
-        if not selected_uuids:
-            # No results => return empty
+            # Return
             if page is not None:
                 data_paged = {
-                    "records": [],
+                    "records": payments_data,
                     "total_count": total_count,
                     "page": page,
                     "limit": 10
                 }
                 return PaymentServiceResponse(
                     data=data_paged,
-                    message="No matching payments found.",
+                    message="Recent Payments fetched successfully.",
                     status_code=200
                 ).model_dump()
             else:
                 return PaymentServiceResponse(
                     data={
-                        "records": [],
+                        "records": payments_data,
                         "total_count": total_count
                     },
-                    message="No matching payments found.",
+                    message="Recent Payments fetched successfully.",
                     status_code=200
                 ).model_dump()
 
-        # ----------------------------------------------------
-        # STEP 2: Full details using build_main_payments_query
-        # ----------------------------------------------------
-        main_query = build_main_payments_query(db, pending_request)
-        main_query = apply_role_restrictions(main_query, current_user)
-        main_query = exclude_transferred_if_recent(main_query, db, recent, recent_subquery)
-        main_query = apply_pending_request_logic(main_query, pending_request, current_user)
-        main_query = apply_accountant_amount_restriction(main_query, current_user, pending_request, recent)
+        # =====================================================================
+        # ==================== 2) PENDING_REQUEST MODE ========================
+        # =====================================================================
+        elif pending_request:
+            # Figure out statuses & ordering
+            statuses = None
+            status_order = None
 
-        # Only fetch Payment records for these UUIDs
-        main_query = main_query.filter(Payment.uuid.in_(selected_uuids))
+            # role-based statuses
+            if current_user.role in [
+                UserRole.SITE_ENGINEER.value,
+                UserRole.SUB_CONTRACTOR.value,
+                UserRole.PROJECT_MANAGER.value
+            ]:
+                # only requested
+                statuses = ["requested"]
+                status_order = case(
+                    (Payment.status == "requested", 0),
+                    else_=9999
+                )
+            elif current_user.role == UserRole.ADMIN.value:
+                # verified first, then requested
+                statuses = ["verified", "requested"]
+                status_order = case(
+                    (Payment.status == "verified", 0),
+                    (Payment.status == "requested", 1),
+                    else_=9999
+                )
+            elif current_user.role in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
+                # approved => verified => requested
+                statuses = ["approved", "verified", "requested"]
+                status_order = case(
+                    (Payment.status == "approved", 0),
+                    (Payment.status == "verified", 1),
+                    (Payment.status == "requested", 2),
+                    else_=9999
+                )
 
-        results = main_query.all()
-        grouped_data = group_query_results(results)
-        payments_data = assemble_payments_response(grouped_data, db, current_user)
+            # base group query => group by Payment.uuid, Payment.status
+            base_query = (
+                db.query(
+                    Payment.uuid.label("pay_uuid"),
+                    Payment.status.label("curr_status"),
+                    func.max(Payment.created_at).label("latest_created_at")
+                )
+                .filter(Payment.is_deleted.is_(False))
+                .group_by(Payment.uuid, Payment.status)
+            )
 
-        # ----------------------------------------------------
-        # Final response
-        # ----------------------------------------------------
-        if page is not None:
-            data_paged = {
-                "records": payments_data,
-                "total_count": total_count,
-                "page": page,
-                "limit": 10
-            }
-            return PaymentServiceResponse(
-                data=data_paged,
-                message=(
-                    "Recent Payments fetched successfully." if recent else
-                    "Pending Payments fetched successfully." if pending_request else
-                    "Payments page fetched successfully."
-                ),
-                status_code=200
-            ).model_dump()
-        else:
-            return PaymentServiceResponse(
-                data={
+            # filter statuses if defined
+            if statuses:
+                base_query = base_query.filter(Payment.status.in_(statuses))
+
+            # site engineer => only own
+            if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
+                base_query = base_query.filter(Payment.created_by == current_user.uuid)
+
+            # user-supplied filters
+            if amount is not None:
+                base_query = base_query.filter(Payment.amount == amount)
+            if project_id is not None:
+                base_query = base_query.filter(Payment.project_id == project_id)
+            if status is not None:
+                base_query = base_query.filter(Payment.status.in_(status))
+
+            if start_date and end_date:
+                end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                base_query = base_query.filter(Payment.created_at.between(start_date, end_date))
+            else:
+                if start_date:
+                    base_query = base_query.filter(Payment.created_at >= start_date)
+                if end_date:
+                    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                    base_query = base_query.filter(Payment.created_at <= end_date)
+
+            if from_uuid:
+                base_query = base_query.filter(Payment.created_by == from_uuid)
+
+            if person_id or to_uuid:
+                base_query = base_query.join(Person, Payment.person == Person.uuid, isouter=True)
+                if person_id:
+                    base_query = base_query.filter(Payment.person == person_id)
+                if to_uuid:
+                    base_query = base_query.filter(Person.uuid == to_uuid)
+
+            if item_id:
+                base_query = base_query.join(PaymentItem, PaymentItem.payment_id == Payment.uuid, isouter=True)
+                base_query = base_query.filter(PaymentItem.is_deleted.is_(False), PaymentItem.item_id == item_id)
+
+            # If accountant => Payment.amount <=10000
+            if current_user.role == UserRole.ACCOUNTANT.value:
+                base_query = base_query.filter(Payment.amount <= 10000)
+
+            # wrap subquery for counting
+            grouped_subq = base_query.subquery()
+            total_count = db.query(func.count("*")).select_from(grouped_subq).scalar()
+
+            # define final ordering => first by status_order asc, then date desc
+            if status_order is not None:
+                ordered_query = base_query.order_by(status_order, func.max(Payment.created_at).desc())
+            else:
+                # fallback => date desc
+                ordered_query = base_query.order_by(func.max(Payment.created_at).desc())
+
+            # pagination
+            if page is not None:
+                offset = (page - 1) * 10
+                page_rows = ordered_query.offset(offset).limit(10).all()
+            else:
+                page_rows = ordered_query.all()
+
+            selected_uuids = [r.pay_uuid for r in page_rows]
+            if not selected_uuids:
+                if page is not None:
+                    return PaymentServiceResponse(
+                        data={
+                            "records": [],
+                            "total_count": total_count,
+                            "page": page,
+                            "limit": 10
+                        },
+                        message="No matching pending payments.",
+                        status_code=200
+                    ).model_dump()
+                else:
+                    return PaymentServiceResponse(
+                        data={
+                            "records": [],
+                            "total_count": total_count
+                        },
+                        message="No matching pending payments.",
+                        status_code=200
+                    ).model_dump()
+
+            # Step 2 => fetch details
+            main_query = build_main_payments_query(db, pending_request=True)
+            main_query = apply_role_restrictions(main_query, current_user)
+            main_query = main_query.filter(Payment.uuid.in_(selected_uuids))
+
+            results = main_query.all()
+            grouped_data = group_query_results(results)
+            payments_data = assemble_payments_response(grouped_data, db, current_user)
+
+            if page is not None:
+                data_paged = {
                     "records": payments_data,
-                    "total_count": total_count
-                },
-                message=(
-                    "Recent Payments fetched successfully." if recent else
-                    "Pending Payments fetched successfully." if pending_request else
-                    "All Payments fetched successfully."
-                ),
-                status_code=200
-            ).model_dump()
+                    "total_count": total_count,
+                    "page": page,
+                    "limit": 10
+                }
+                return PaymentServiceResponse(
+                    data=data_paged,
+                    message="Pending Payments fetched successfully.",
+                    status_code=200
+                ).model_dump()
+            else:
+                return PaymentServiceResponse(
+                    data={
+                        "records": payments_data,
+                        "total_count": total_count
+                    },
+                    message="Pending Payments fetched successfully.",
+                    status_code=200
+                ).model_dump()
+
+        # =====================================================================
+        # ================ 3) NORMAL (no recent, no pending) ==================
+        # =====================================================================
+        else:
+            base_query = (
+                db.query(
+                    Payment.uuid.label("pay_uuid"),
+                    func.max(Payment.created_at).label("latest_created_at"),
+                )
+                .filter(Payment.is_deleted.is_(False))
+                .group_by(Payment.uuid)
+            )
+
+            # site eng / sub con => only own
+            if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
+                base_query = base_query.filter(Payment.created_by == current_user.uuid)
+
+            # user-supplied filters
+            if amount is not None:
+                base_query = base_query.filter(Payment.amount == amount)
+            if project_id is not None:
+                base_query = base_query.filter(Payment.project_id == project_id)
+            if status is not None:
+                base_query = base_query.filter(Payment.status.in_(status))
+
+            if start_date and end_date:
+                end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                base_query = base_query.filter(Payment.created_at.between(start_date, end_date))
+            else:
+                if start_date:
+                    base_query = base_query.filter(Payment.created_at >= start_date)
+                if end_date:
+                    end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                    base_query = base_query.filter(Payment.created_at <= end_date)
+
+            if from_uuid:
+                base_query = base_query.filter(Payment.created_by == from_uuid)
+            if person_id or to_uuid:
+                base_query = base_query.join(Person, Payment.person == Person.uuid, isouter=True)
+                if person_id:
+                    base_query = base_query.filter(Payment.person == person_id)
+                if to_uuid:
+                    base_query = base_query.filter(Person.uuid == to_uuid)
+            if item_id:
+                base_query = base_query.join(PaymentItem, PaymentItem.payment_id == Payment.uuid, isouter=True)
+                base_query = base_query.filter(PaymentItem.is_deleted.is_(False), PaymentItem.item_id == item_id)
+
+            # If you want accountants to see only <=10000 in normal mode, do so here:
+            # if current_user.role == UserRole.ACCOUNTANT.value:
+            #     base_query = base_query.filter(Payment.amount <= 10000)
+
+            grouped_subq = base_query.subquery()
+            total_count = db.query(func.count("*")).select_from(grouped_subq).scalar()
+
+            # order by date desc
+            ordered_query = base_query.order_by(func.max(Payment.created_at).desc())
+
+            if page is not None:
+                offset = (page - 1) * 10
+                page_rows = ordered_query.offset(offset).limit(10).all()
+            else:
+                page_rows = ordered_query.all()
+
+            selected_uuids = [r.pay_uuid for r in page_rows]
+            if not selected_uuids:
+                if page is not None:
+                    return PaymentServiceResponse(
+                        data={
+                            "records": [],
+                            "total_count": total_count,
+                            "page": page,
+                            "limit": 10
+                        },
+                        message="No payments found.",
+                        status_code=200
+                    ).model_dump()
+                else:
+                    return PaymentServiceResponse(
+                        data={
+                            "records": [],
+                            "total_count": total_count
+                        },
+                        message="No payments found.",
+                        status_code=200
+                    ).model_dump()
+
+            main_query = build_main_payments_query(db, pending_request=False)
+            main_query = apply_role_restrictions(main_query, current_user)
+            main_query = main_query.filter(Payment.uuid.in_(selected_uuids))
+
+            results = main_query.all()
+            grouped_data = group_query_results(results)
+            payments_data = assemble_payments_response(grouped_data, db, current_user)
+
+            if page is not None:
+                data_paged = {
+                    "records": payments_data,
+                    "total_count": total_count,
+                    "page": page,
+                    "limit": 10
+                }
+                return PaymentServiceResponse(
+                    data=data_paged,
+                    message="All Payments fetched successfully.",
+                    status_code=200
+                ).model_dump()
+            else:
+                return PaymentServiceResponse(
+                    data={
+                        "records": payments_data,
+                        "total_count": total_count
+                    },
+                    message="All Payments fetched successfully.",
+                    status_code=200
+                ).model_dump()
 
     except Exception as e:
         traceback.print_exc()
