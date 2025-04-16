@@ -888,12 +888,15 @@ def get_all_payments(
         base_query = base_query.distinct()
 
         # count total distinct Payment.uuid
-        total_count = base_query.count()
+        count_query = base_query.order_by(None).distinct()  
+
+        total_count = count_query.count()
+        paged_query = base_query.order_by(Payment.created_at.desc()).distinct()
 
         # apply pagination if page is provided
         if page is not None:
             offset = (page - 1) * 10
-            page_uuid_rows = base_query.offset(offset).limit(10).all()
+            page_uuid_rows = paged_query.offset(offset).limit(10).all()
         else:
             page_uuid_rows = base_query.all()
 
