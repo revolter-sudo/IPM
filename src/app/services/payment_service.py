@@ -801,29 +801,37 @@ def get_all_payments(
       - pending_request (role-specific filter)
 
     TWO-STEP PAGINATION (optional):
-      - 1) Query DISTINCT Payment.uuid with all filters => get total_count
-           (and offset/limit for the page).
-      - 2) Join for full Payment details only on that subset of Payment UUIDs.
-
-      If 'page' is provided (≥ 1), we return up to 10 Payments for that page.
-      If 'page' is omitted or None, we return all matching results.
+      1) "Base" query selects Payment.uuid, grouped by Payment.uuid,
+         applying all filters and aggregator = MAX(Payment.created_at).
+         Then we can safely ORDER BY that aggregator DESC and do offset/limit.
+      2) A second query fetches the full Payment details (joined) only for the
+         Payment.uuid values from step 1.
     """
     try:
-        # --------------------------------------------------
-        # STEP 1: Query distinct Payment.uuid with filters
-        # --------------------------------------------------
+        # ----------------------------------------------------------
+        # STEP 1: Build a "group by Payment.uuid" query for paging
+        # ----------------------------------------------------------
+        from sqlalchemy import func
 
-        # (A) Subquery for 'recent' if needed
+        # A) If 'recent' => subquery
         recent_subquery = build_recent_subquery(db, current_user, recent)
 
-        # Start with Payment.uuid only
-        base_query = db.query(Payment.uuid).filter(Payment.is_deleted.is_(False))
+        # Start by selecting Payment.uuid plus an aggregator for ordering
+        # We group by Payment.uuid
+        base_query = (
+            db.query(
+                Payment.uuid.label("pay_uuid"),
+                func.max(Payment.created_at).label("latest_created_at"),
+            )
+            .filter(Payment.is_deleted.is_(False))
+            .group_by(Payment.uuid)
+        )
 
-        # (C) If user is site eng/subcon => only their own
+        # B) Restrict site engineer / sub contractor => only own
         if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
             base_query = base_query.filter(Payment.created_by == current_user.uuid)
 
-        # (D) If recent => exclude 'transferred' + restrict to the recent_subquery
+        # C) If recent => exclude 'transferred' + intersect with 'recent_subquery'
         if recent:
             transferred_sub = db.query(PaymentStatusHistory.payment_id).filter(
                 PaymentStatusHistory.status == "transferred"
@@ -831,7 +839,7 @@ def get_all_payments(
             base_query = base_query.filter(~Payment.uuid.in_(transferred_sub))
             base_query = base_query.filter(Payment.uuid.in_(recent_subquery))
 
-        # (E) If pending_request => role-based status filter
+        # D) If pending_request => role-based status filter
         if pending_request:
             role = current_user.role
             if role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value, UserRole.PROJECT_MANAGER.value]:
@@ -840,9 +848,8 @@ def get_all_payments(
                 base_query = base_query.filter(Payment.status.in_(["verified", "requested"]))
             elif role in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
                 base_query = base_query.filter(Payment.status.in_(["approved", "verified", "requested"]))
-            # else: no special filter for other roles
 
-        # (F) Additional filters that do NOT require big joins:
+        # E) Additional filters that don't require bigger joins
         if amount is not None:
             base_query = base_query.filter(Payment.amount == amount)
         if project_id is not None:
@@ -850,7 +857,7 @@ def get_all_payments(
         if status is not None:
             base_query = base_query.filter(Payment.status.in_(status))
 
-        # date range
+        # Date range
         if start_date and end_date:
             end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
             base_query = base_query.filter(Payment.created_at.between(start_date, end_date))
@@ -861,49 +868,46 @@ def get_all_payments(
                 end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
                 base_query = base_query.filter(Payment.created_at <= end_date)
 
-        if from_uuid is not None:
+        if from_uuid:
             base_query = base_query.filter(Payment.created_by == from_uuid)
 
-        # If we need to filter by Person.uuid or item, we can do minimal joins:
+        # If person_id or to_uuid => minimal join
         if person_id or to_uuid:
-            # join Person
             base_query = base_query.join(Person, Payment.person == Person.uuid, isouter=True)
             if person_id:
                 base_query = base_query.filter(Payment.person == person_id)
             if to_uuid:
                 base_query = base_query.filter(Person.uuid == to_uuid)
 
+        # If item_id => minimal join to PaymentItem
         if item_id:
-            # join PaymentItem
             base_query = base_query.join(PaymentItem, PaymentItem.payment_id == Payment.uuid, isouter=True)
             base_query = base_query.filter(PaymentItem.is_deleted.is_(False), PaymentItem.item_id == item_id)
 
-        # (G) Accountant filter if needed
+        # Accountant filter if needed
         if current_user.role == UserRole.ACCOUNTANT.value and (pending_request or recent):
             base_query = base_query.filter(Payment.amount <= 10000)
 
-        # For consistent ordering, let’s default to Payment.created_at desc
-        # (So that page=1 is the newest, page=2 is older, etc.)
-        base_query = base_query.order_by(Payment.created_at.desc())
-        base_query = base_query.distinct()
+        # E) Count how many Payment.uuid match => no ordering needed for counting
+        # count_query = base_query.with_entities(func.count("*")) 
+        # total_count = count_query.scalar()
+        grouped_subq = base_query.subquery()
+        total_count = db.query(func.count('*')).select_from(grouped_subq).scalar()
 
-        # count total distinct Payment.uuid
-        count_query = base_query.order_by(None).distinct()  
+        # F) Now order by "latest_created_at" descending
+        #    and fetch offset/limit for paging
+        ordered_base_query = base_query.order_by(func.max(Payment.created_at).desc())
 
-        total_count = count_query.count()
-        paged_query = base_query.order_by(Payment.created_at.desc()).distinct()
-
-        # apply pagination if page is provided
         if page is not None:
             offset = (page - 1) * 10
-            page_uuid_rows = paged_query.offset(offset).limit(10).all()
+            page_rows = ordered_base_query.offset(offset).limit(10).all()
         else:
-            page_uuid_rows = base_query.all()
+            page_rows = ordered_base_query.all()
 
-        selected_uuids = [r.uuid for r in page_uuid_rows]
+        selected_uuids = [row.pay_uuid for row in page_rows]
 
         if not selected_uuids:
-            # No matching Payment found
+            # No results => return empty
             if page is not None:
                 data_paged = {
                     "records": [],
@@ -926,28 +930,25 @@ def get_all_payments(
                     status_code=200
                 ).model_dump()
 
-        # --------------------------------------------------
-        # STEP 2: Use the main joined query for full details
-        # --------------------------------------------------
+        # ----------------------------------------------------
+        # STEP 2: Full details using build_main_payments_query
+        # ----------------------------------------------------
         main_query = build_main_payments_query(db, pending_request)
-
-        # Reapply the same role-based filters to ensure consistency
         main_query = apply_role_restrictions(main_query, current_user)
         main_query = exclude_transferred_if_recent(main_query, db, recent, recent_subquery)
         main_query = apply_pending_request_logic(main_query, pending_request, current_user)
         main_query = apply_accountant_amount_restriction(main_query, current_user, pending_request, recent)
 
-        # The crucial step: filter only the Payment.uuid in our selected set
+        # Only fetch Payment records for these UUIDs
         main_query = main_query.filter(Payment.uuid.in_(selected_uuids))
 
-        # Now we fetch and group
         results = main_query.all()
         grouped_data = group_query_results(results)
         payments_data = assemble_payments_response(grouped_data, db, current_user)
 
-        # --------------------------------------------------
-        # Build final response
-        # --------------------------------------------------
+        # ----------------------------------------------------
+        # Final response
+        # ----------------------------------------------------
         if page is not None:
             data_paged = {
                 "records": payments_data,
@@ -979,6 +980,7 @@ def get_all_payments(
             ).model_dump()
 
     except Exception as e:
+        traceback.print_exc()
         print(f"Error in get_all_payments API: {str(e)}")
         return PaymentServiceResponse(
             data=None,
