@@ -58,3 +58,4 @@ class ProjectServiceResponse(BaseModel):
             "message": self.message,
             "status_code": self.status_code
         }
+

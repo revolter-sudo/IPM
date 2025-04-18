@@ -14,3 +14,20 @@ class AdminPanelResponse(BaseModel):
             "message": self.message,
             "status_code": self.status_code
         }
+
+class ProjectUserMap(BaseModel):
+    uuid: UUID
+    user_id: UUID
+    project_id: UUID
+
+class ProjectItemMap(BaseModel):
+    uuid: UUID
+    project_id: UUID
+    item_id: UUID
+
+class ProjectItemResponse(BaseModel):
+    uuid: UUID
+    name: Optional[str] = None
+    category: Optional[str] = None
+    list_tag: Optional[str] = None
+    has_additional_info: Optional[bool] = None
