@@ -12,18 +12,9 @@ from fastapi import (
     UploadFile,
     Form
 )
-from fastapi import (
-    APIRouter,
-    Depends,
-    File,
-    HTTPException,
-    Query,
-    UploadFile,
-    Form
-)
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_, and_, case
+from sqlalchemy import or_, and_, case, func
 from src.app.database.database import get_db
 from src.app.database.models import (
     Payment,
@@ -703,26 +694,29 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
         user_name = row.user_name
         priority_name = row.priority_name
 
-        # Payment files
-        file_urls = []
-        approval_files = []
+        # ----------------------------------------------------------- files
+        file_urls, approval_files = [], []
         if payment.payment_files:
             for f in payment.payment_files:
                 file_url = f"{constants.HOST_URL}/{f.file_path}"
-                if f.is_approval_upload:
-                    approval_files.append(file_url)
-                else:
-                    file_urls.append(file_url)
+                (approval_files if f.is_approval_upload else file_urls).append(file_url)
 
-        # Items
-        item_names = []
-        if payment.payment_items:
-            item_names = [p_item.item.name for p_item in payment.payment_items if p_item.item]
+        # ----------------------------------------------------------- items
+        item_names = [
+            p_item.item.name for p_item in payment.payment_items if p_item.item
+        ] if payment.payment_items else []
 
-        # Return parent's data if any
+        # ----------------------------------------------------------- parent account
         parent_data = get_parent_account_data(person_id=payment.person, db=db)
 
-        # Build final single payment dict
+        # ----------------------------------------------------------- NEW → bank name
+        bank_name = (
+            payment.deducted_from_bank.name
+            if payment.deducted_from_bank and payment.deducted_from_bank.name
+            else None
+        )
+
+        # ----------------------------------------------------------- build response
         payments_data.append({
             **PaymentsResponse(
                 uuid=payment.uuid,
@@ -765,11 +759,12 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
             "priority_name": priority_name,
             "edit": can_edit_payment(status_list, current_user.role),
             "decline_remark": payment.decline_remark,
-            "approval_files": approval_files
+            "approval_files": approval_files,
+            # ---------- NEW KEY ----------
+            "transferred_from_bank": bank_name
         })
 
     return payments_data
-
 
 @payment_router.get("", tags=["Payments"], status_code=200)
 def get_all_payments(
@@ -799,7 +794,6 @@ def get_all_payments(
       • fetch full rows & assemble the response
       • return records in that exact order
     """
-    from sqlalchemy import func, case
 
     # ------------------------------------------------------------------ helpers
     def paginate(q):
