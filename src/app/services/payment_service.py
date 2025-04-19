@@ -2281,4 +2281,3 @@ def list_priorities(db: Session = Depends(get_db)):
         message="priorities fetched successfully.",
         status_code=200
     ).model_dump()
-

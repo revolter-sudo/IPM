@@ -1,4 +1,4 @@
-from typing import Optional, Any
+from typing import Optional, Any, List
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -7,8 +7,8 @@ from pydantic import BaseModel
 class ProjectResponse(BaseModel):
     uuid: UUID
     name: str
-    description: str = None
-    location: str = None
+    description: Optional[str] = None
+    location: Optional[str] = None
     balance: float
 
     def to_dict(self):
@@ -20,8 +20,20 @@ class ProjectResponse(BaseModel):
             "name": self.name,
             "description": self.description,
             "location": self.location,
-            "float": self.balance,
+            "balance": self.balance,
         }
+
+
+class ItemResponse(BaseModel):
+    uuid: UUID
+    name: str
+    category: Optional[str] = None
+    list_tag: Optional[str] = None
+    has_additional_info: Optional[bool] = False
+
+
+class ProjectWithItemsResponse(ProjectResponse):
+    items: List[ItemResponse] = []
 
 
 class ProjectCreateRequest(BaseModel):

@@ -1,6 +1,6 @@
 import logging
 from uuid import UUID, uuid4
-from typing import Optional
+from typing import Optional,List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
@@ -241,11 +241,27 @@ def create_project(
 
 
 @project_router.get("", status_code=status.HTTP_200_OK, tags=["Projects"])
-def list_all_projects(db: Session = Depends(get_db)):
+def list_all_projects(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     try:
-        projects_data = (
-            db.query(Project).filter(Project.is_deleted.is_(False)).all()
-        )
+        # If user is admin or super admin, return all projects
+        if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            projects_data = (
+                db.query(Project).filter(Project.is_deleted.is_(False)).all()
+            )
+        else:
+            # Filter projects where user is mapped in ProjectUserMap
+            projects_data = (
+                db.query(Project)
+                .join(ProjectUserMap, Project.uuid == ProjectUserMap.project_id)
+                .filter(
+                    Project.is_deleted.is_(False),
+                    ProjectUserMap.user_id == current_user.uuid,
+                )
+                .all()
+            )
 
         projects_response_data = []
         for project in projects_data:
@@ -255,14 +271,35 @@ def list_all_projects(db: Session = Depends(get_db)):
                 .scalar()
             ) or 0.0
 
+            # Fetch items related to the project
+            items = (
+                db.query(Item)
+                .join(ProjectItemMap, Item.uuid == ProjectItemMap.item_id)
+                .filter(ProjectItemMap.project_id == project.uuid)
+                .all()
+            )
+
+            item_responses = []
+            for item in items:
+                item_responses.append(
+                    {
+                        "uuid": item.uuid,
+                        "name": item.name,
+                        "category": item.category,
+                        "list_tag": item.list_tag,
+                        "has_additional_info": item.has_additional_info,
+                    }
+                )
+
             projects_response_data.append(
-                ProjectResponse(
-                    uuid=project.uuid,
-                    name=project.name,
-                    description=project.description,
-                    location=project.location,
-                    balance=total_balance,
-                ).to_dict()
+                {
+                    "uuid": project.uuid,
+                    "name": project.name,
+                    "description": project.description,
+                    "location": project.location,
+                    "balance": total_balance,
+                    "items": item_responses,
+                }
             )
         return ProjectServiceResponse(
             data=projects_response_data,
@@ -618,67 +655,3 @@ def delete_project(
             status_code=500,
             message="An error occurred while deleting the project"
         ).model_dump()
-
-# @project_router.post(
-#     "/item_mapping/{item_id}/{project_id}",
-#     tags=["admin_panel"]
-# )
-# def map_item_to_project(
-#     item_id: UUID,
-#     project_id: UUID,
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(get_current_user),
-# ):
-#     try:
-#         if current_user.role not in [
-#             UserRole.SUPER_ADMIN.value,
-#             UserRole.ADMIN.value,
-#             UserRole.PROJECT_MANAGER.value,
-#         ]:
-#             return ProjectServiceResponse(
-#                 data=None,
-#                 status_code=403,
-#                 message="Unauthorized to assign project to user"
-#             ).model_dump()
-
-#         # Instead, check if item exists
-#         item = db.query(Item).filter(Item.uuid == item_id).first()
-#         if not item:
-#             return ProjectServiceResponse(
-#                 data=None,
-#                 status_code=404,
-#                 message="Item not found"
-#             ).model_dump()
-
-#         project = db.query(Project).filter(Project.uuid == project_id).first()
-#         if not project:
-#             return ProjectServiceResponse(
-#                 data=None,
-#                 status_code=404,
-#                 message="Project not found"
-#             ).model_dump()
-
-#         try:
-#             create_project_item_mapping(db=db, item_id=item_id, project_id=project_id)
-#         except Exception as db_error:
-#             db.rollback()
-#             logging.error(f"Database error in create_project_item_mapping: {str(db_error)}")
-#             return ProjectServiceResponse(
-#                 data=None,
-#                 status_code=500,
-#                 message=f"Database error while mapping item to project: {str(db_error)}"
-#             ).model_dump()
-
-#         return ProjectServiceResponse(
-#             data=None,
-#             message="Item mapped to project successfully",
-#             status_code=200
-#         ).model_dump()
-#     except Exception as e:
-#         db.rollback()
-#         logging.error(f"Error in map_item_to_project API: {str(e)}")
-#         return ProjectServiceResponse(
-#             data=None,
-#             status_code=500,
-#             message="An error occurred while mapping item to project"
-#         ).model_dump()
