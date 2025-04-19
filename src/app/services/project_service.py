@@ -1,6 +1,6 @@
 import logging
 from uuid import UUID, uuid4
-
+from typing import Optional,List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
@@ -13,7 +13,10 @@ from src.app.database.models import (
     ProjectBalance,
     User,
     BalanceDetail,
-    Payment
+    Payment,
+    ProjectUserMap,
+    Item,
+    ProjectItemMap
 )
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
@@ -21,7 +24,9 @@ from src.app.schemas.project_service_schemas import (
     ProjectCreateRequest,
     ProjectResponse,
     ProjectServiceResponse,
-    UpdateProjectSchema
+    UpdateProjectSchema,
+    BankCreateSchema,
+    BankEditSchema
 )
 from src.app.services.auth_service import get_current_user
 
@@ -236,11 +241,27 @@ def create_project(
 
 
 @project_router.get("", status_code=status.HTTP_200_OK, tags=["Projects"])
-def list_all_projects(db: Session = Depends(get_db)):
+def list_all_projects(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     try:
-        projects_data = (
-            db.query(Project).filter(Project.is_deleted.is_(False)).all()
-        )
+        # If user is admin or super admin, return all projects
+        if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            projects_data = (
+                db.query(Project).filter(Project.is_deleted.is_(False)).all()
+            )
+        else:
+            # Filter projects where user is mapped in ProjectUserMap
+            projects_data = (
+                db.query(Project)
+                .join(ProjectUserMap, Project.uuid == ProjectUserMap.project_id)
+                .filter(
+                    Project.is_deleted.is_(False),
+                    ProjectUserMap.user_id == current_user.uuid,
+                )
+                .all()
+            )
 
         projects_response_data = []
         for project in projects_data:
@@ -250,14 +271,35 @@ def list_all_projects(db: Session = Depends(get_db)):
                 .scalar()
             ) or 0.0
 
+            # Fetch items related to the project
+            items = (
+                db.query(Item)
+                .join(ProjectItemMap, Item.uuid == ProjectItemMap.item_id)
+                .filter(ProjectItemMap.project_id == project.uuid)
+                .all()
+            )
+
+            item_responses = []
+            for item in items:
+                item_responses.append(
+                    {
+                        "uuid": item.uuid,
+                        "name": item.name,
+                        "category": item.category,
+                        "list_tag": item.list_tag,
+                        "has_additional_info": item.has_additional_info,
+                    }
+                )
+
             projects_response_data.append(
-                ProjectResponse(
-                    uuid=project.uuid,
-                    name=project.name,
-                    description=project.description,
-                    location=project.location,
-                    balance=total_balance,
-                ).to_dict()
+                {
+                    "uuid": project.uuid,
+                    "name": project.name,
+                    "description": project.description,
+                    "location": project.location,
+                    "balance": total_balance,
+                    "items": item_responses,
+                }
             )
         return ProjectServiceResponse(
             data=projects_response_data,
@@ -402,50 +444,6 @@ def update_project(
         ).model_dump()
 
 
-@balance_router.post(
-    "/create-balance",
-    tags=["Bank Balance"]
-)
-def create_balance(
-    balance_amount: Decimal,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    try:
-        logging.info(f"Initial Balance: {balance_amount}")
-        if user.role not in [
-            UserRole.ACCOUNTANT.value,
-            UserRole.SUPER_ADMIN.value
-        ]:
-            return ProjectServiceResponse(
-                data=None,
-                status_code=400,
-                message="Only Accountant or Super Admin can update Balance"
-            ).model_dump()
-        balance_obj = db.query(BalanceDetail).first()
-        if balance_obj:
-            logging.info(f"Balance amount existing case: {balance_amount}")
-            balance_obj.balance = balance_amount
-        else:
-            logging.info(f"Balance amount not fount case: {balance_amount}")
-            balance_obj = BalanceDetail(balance=balance_amount)
-            db.add(balance_obj)
-        db.commit()
-        db.refresh(balance_obj)
-        return ProjectServiceResponse(
-            data=balance_obj,
-            status_code=201,
-            message="Balance Updated Successfully"
-        ).model_dump()
-    except Exception as e:
-        logging.error(f"Error in create_balance API: {str(e)}")
-        return ProjectServiceResponse(
-            data=None,
-            status_code=500,
-            message="An error occurred while creating balance"
-        ).model_dump()
-
-
 def get_total_transferred_payments_sum(db):
     total_sum = db.query(func.sum(Payment.amount))\
                   .filter(Payment.status == 'transferred', Payment.is_deleted.is_(False))\
@@ -456,39 +454,151 @@ def get_total_transferred_payments_sum(db):
         return 0.0
 
 
-@balance_router.get(
-    "/balance",
-    tags=["Bank Balance"]
-)
-def get_bank_balance(
-    db: Session = Depends(get_db)
+@balance_router.post("/bank", tags=["Bank Balance"])
+def add_bank(
+    bank_data: BankCreateSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
+    """
+    Create a new bank/cash entry.
+    Only Accountant or Super Admin can do this.
+    """
     try:
-        balance_obj = db.query(BalanceDetail).first()
-        balance = balance_obj.balance
-        logging.info(f"Balance before subtraction: {balance}")
-        if not balance_obj:
+        if current_user.role not in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Only Accountant or Super Admin can add bank balance"
+            ).model_dump()
+
+        new_bank = BalanceDetail(
+            name=bank_data.name,
+            balance=bank_data.balance
+        )
+        db.add(new_bank)
+        db.commit()
+        db.refresh(new_bank)
+
+        response_data = {
+            "uuid": str(new_bank.uuid),
+            "name": new_bank.name,
+            "balance": new_bank.balance
+        }
+        return ProjectServiceResponse(
+            data=response_data,
+            status_code=201,
+            message="Bank created successfully"
+        ).model_dump()
+
+    except Exception as e:
+        logging.error(f"Error in add_bank: {e}")
+        db.rollback()
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while creating bank"
+        ).model_dump()
+
+
+@balance_router.put("/bank/{bank_uuid}", tags=["Bank Balance"])
+def edit_bank(
+    bank_uuid: UUID,
+    bank_data: BankEditSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Edit an existing bank/cash entry.
+    Only Accountant or Super Admin can do this.
+    """
+    try:
+        if current_user.role not in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Only Accountant or Super Admin can update bank balance"
+            ).model_dump()
+
+        bank_obj = db.query(BalanceDetail).filter(BalanceDetail.uuid == bank_uuid).first()
+        if not bank_obj:
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
-                message="Balance Not Found"
+                message=f"No bank found with uuid={bank_uuid}"
             ).model_dump()
-        # recorded_balance = get_total_transferred_payments_sum(db=db)
-        # logging.info(f"Total records: {recorded_balance}")
-        # remaining_balance = balance - recorded_balance
-        result = {"balance": balance}
-        logging.info(f"Remaining Balance: {result}")
+
+        bank_obj.name = bank_data.name
+        bank_obj.balance = bank_data.balance
+        db.commit()
+        db.refresh(bank_obj)
+
+        response_data = {
+            "uuid": str(bank_obj.uuid),
+            "name": bank_obj.name,
+            "balance": bank_obj.balance
+        }
         return ProjectServiceResponse(
-            data=result,
+            data=response_data,
             status_code=200,
-            message="Balance Fetched Successfully."
+            message="Bank updated successfully"
         ).model_dump()
+
+    except Exception as e:
+        logging.error(f"Error in edit_bank: {e}")
+        db.rollback()
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while updating bank"
+        ).model_dump()
+
+
+@balance_router.get("/balance", tags=["Bank Balance"])
+def get_bank_balance(
+    bank_uuid: Optional[UUID] = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    If 'bank_uuid' is given, return that specific bank's details;
+    otherwise, return all banks/cash accounts.
+    Everyone can view this, or restrict as needed.
+    """
+    try:
+        query = db.query(BalanceDetail)
+        if bank_uuid:
+            query = query.filter(BalanceDetail.uuid == bank_uuid)
+
+        results = query.all()
+        if not results:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="No bank balance found (check bank_uuid?)"
+            ).model_dump()
+
+        # Build a list of dict
+        data_out = []
+        for b in results:
+            data_out.append({
+                "uuid": str(b.uuid),
+                "name": b.name,
+                "balance": b.balance
+            })
+
+        return ProjectServiceResponse(
+            data=data_out,
+            status_code=200,
+            message="Bank Balance(s) fetched successfully."
+        ).model_dump()
+
     except Exception as e:
         logging.error(f"Error in get_bank_balance API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while getting balance"
+            message="An error occurred while getting bank balances"
         ).model_dump()
 
 
