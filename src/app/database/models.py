@@ -117,6 +117,11 @@ class User(Base):
         cascade="all, delete-orphan"
     )
 
+    project_user_map = relationship(
+        "ProjectUserMap",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
 
 class UserTokenMap(Base):
     __tablename__ = "user_token_map"
@@ -182,9 +187,20 @@ class Project(Base):
     location = Column(Text, nullable=True)
     is_deleted = Column(Boolean, nullable=False, default=False)
 
+    project_user_map = relationship(
+        "ProjectUserMap",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+
+    projecct_items = relationship(
+        "ProjectItemMap",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+
     def __repr__(self):
         return f"<Project(id={self.id}, uuid={self.uuid}, name={self.name})>"
-
 
 class Log(Base):
     __tablename__ = "logs"
@@ -243,7 +259,17 @@ class Payment(Base):
         ForeignKey("priorities.uuid"),
         nullable=True  # or nullable=False if you want to make it mandatory
     )
+    deducted_from_bank_uuid = Column(
+        UUID(as_uuid=True),
+        ForeignKey("balance_details.uuid"),
+        nullable=True
+    )
 
+    deducted_from_bank = relationship(
+        "BalanceDetail",
+        foreign_keys=[deducted_from_bank_uuid],
+        lazy="joined"
+    )
     priority_rel = relationship("Priority", foreign_keys=[priority_id], lazy="joined")
 
     # NEW RELATIONSHIP: link to Person table for the 'person' FK
@@ -377,6 +403,12 @@ class Item(Base):
     def __repr__(self):
         return f"<Item(id={self.id}, name={self.name}, category={self.category})>"
 
+    project_items = relationship(
+        "ProjectItemMap",
+        back_populates="item",
+        cascade="all, delete-orphan"
+    )
+
 
 class PaymentItem(Base):
     __tablename__ = "payment_items"
@@ -418,6 +450,7 @@ class BalanceDetail(Base):
         nullable=False,
         default=uuid.uuid4
     )
+    name = Column(String(255), nullable=False)
     balance = Column(Float, nullable=False)
 
 
@@ -433,3 +466,36 @@ class Priority(Base):
 
     def __repr__(self):
         return f"<Priority(id={self.id}, uuid={self.uuid}, priority={self.priority})>"
+
+from sqlalchemy import UniqueConstraint
+
+class ProjectUserMap(Base):
+    __tablename__ = "project_user_map"
+    __table_args__ = (
+        UniqueConstraint('user_id', 'project_id', name='uq_user_project'),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+
+    project = relationship("Project", back_populates="project_user_map")
+    user = relationship("User", back_populates="project_user_map")
+
+    def __repr__(self):
+        return f"<ProjectUserMap(project_id={self.project_id}, user_id={self.user_id})>"
+
+class ProjectItemMap(Base):
+    __tablename__ = "project_item_map"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
+
+    project = relationship("Project")
+    item = relationship("Item")
+
+    def __repr__(self):
+        return f"<ProjectItemMap(project_id={self.project_id}, item_id={self.item_id})>"
