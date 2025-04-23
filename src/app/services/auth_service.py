@@ -43,7 +43,11 @@ auth_router = APIRouter(prefix="/auth")
 
 # Password Hashing
 pwd_context = CryptContext(
-    schemes=["bcrypt"], bcrypt__default_rounds=12, deprecated="auto"
+    schemes=["bcrypt"],
+    bcrypt__default_rounds=12,
+    deprecated="auto",
+    # Add bcrypt ident to ensure compatibility with newer bcrypt versions
+    bcrypt__ident="2b"
 )
 # print("================================")
 # print(f"Password Hash -> {pwd_context.hash('supersecurepassword')}")
@@ -149,9 +153,9 @@ def upload_user_photo(
         with open(file_path, "wb") as buffer:
             buffer.write(file.file.read())
 
-        # 4) Update user.photo_path. 
+        # 4) Update user.photo_path.
         #    If you have a HOST_URL to build a public URL, you can do that too.
-        # current_user.photo_path = file_path  
+        # current_user.photo_path = file_path
         current_user.photo_path = f"{constants.HOST_URL}/uploads/payments/users/{unique_filename}"
         # Alternatively, you can store the final URL if you have a static server for images:
 

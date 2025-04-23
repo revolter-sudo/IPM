@@ -215,7 +215,8 @@ def create_project(
         db.add(new_project)
         db.commit()
         db.refresh(new_project)
-
+        import pdb
+        pdb.set_trace()
         # Initialize project balance with the given amount or default to 0.0
         create_project_balance_entry(
             db=db,
