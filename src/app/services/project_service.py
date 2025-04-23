@@ -2,8 +2,8 @@ import logging
 from uuid import UUID, uuid4
 from typing import Optional,List
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, func
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, desc
+from sqlalchemy.orm import Session, joinedload, aliased
 from decimal import Decimal
 
 from src.app.database.database import get_db
@@ -29,6 +29,8 @@ from src.app.schemas.project_service_schemas import (
     BankEditSchema
 )
 from src.app.services.auth_service import get_current_user
+from fastapi_cache.decorator import cache
+from src.app.middleware.performance import QueryPerformanceTracker
 
 project_router = APIRouter(prefix="/projects")
 
@@ -241,66 +243,101 @@ def create_project(
 
 
 @project_router.get("", status_code=status.HTTP_200_OK, tags=["Projects"])
+@cache(expire=300)  # Cache for 5 minutes
 def list_all_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     try:
-        # If user is admin or super admin, return all projects
-        if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
-            projects_data = (
-                db.query(Project).filter(Project.is_deleted.is_(False)).all()
-            )
-        else:
-            # Filter projects where user is mapped in ProjectUserMap
-            projects_data = (
+        # Optimize query to fetch projects with their balances and items in a single query
+        # First, get project IDs based on user role
+        with QueryPerformanceTracker("list_projects_get_uuids"):
+            if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+                project_query = (
+                    db.query(Project.uuid)
+                    .filter(Project.is_deleted.is_(False))
+                )
+            else:
+                # Filter projects where user is mapped in ProjectUserMap
+                project_query = (
+                    db.query(Project.uuid)
+                    .join(ProjectUserMap, Project.uuid == ProjectUserMap.project_id)
+                    .filter(
+                        Project.is_deleted.is_(False),
+                        ProjectUserMap.user_id == current_user.uuid,
+                    )
+                )
+
+            # Get all project UUIDs
+            project_uuids = [uuid for (uuid,) in project_query.all()]
+
+        if not project_uuids:
+            return ProjectServiceResponse(
+                data=[],
+                message="No projects found.",
+                status_code=200
+            ).model_dump()
+
+        # Get all projects in a single query
+        with QueryPerformanceTracker("list_projects_get_projects"):
+            projects = (
                 db.query(Project)
-                .join(ProjectUserMap, Project.uuid == ProjectUserMap.project_id)
-                .filter(
-                    Project.is_deleted.is_(False),
-                    ProjectUserMap.user_id == current_user.uuid,
-                )
+                .filter(Project.uuid.in_(project_uuids))
                 .all()
             )
 
+        # Get all balances for these projects in a single query
+        with QueryPerformanceTracker("list_projects_get_balances"):
+            balances = (
+                db.query(
+                    ProjectBalance.project_id,
+                    func.sum(ProjectBalance.adjustment).label('total_balance')
+                )
+                .filter(ProjectBalance.project_id.in_(project_uuids))
+                .group_by(ProjectBalance.project_id)
+                .all()
+            )
+
+        # Create a dict for quick balance lookup
+        balance_dict = {str(project_id): total or 0.0
+                       for project_id, total in balances}
+
+        # Get all items for these projects in a single query
+        with QueryPerformanceTracker("list_projects_get_items"):
+            project_items = (
+                db.query(ProjectItemMap.project_id, Item)
+                .join(Item, ProjectItemMap.item_id == Item.uuid)
+                .filter(ProjectItemMap.project_id.in_(project_uuids))
+                .all()
+            )
+
+        # Group items by project
+        items_by_project = {}
+        for project_id, item in project_items:
+            if str(project_id) not in items_by_project:
+                items_by_project[str(project_id)] = []
+
+            items_by_project[str(project_id)].append({
+                "uuid": item.uuid,
+                "name": item.name,
+                "category": item.category,
+                "list_tag": item.list_tag,
+                "has_additional_info": item.has_additional_info,
+            })
+
+        # Build the response
         projects_response_data = []
-        for project in projects_data:
-            total_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(ProjectBalance.project_id == project.uuid)
-                .scalar()
-            ) or 0.0
+        for project in projects:
+            project_uuid_str = str(project.uuid)
+            projects_response_data.append({
+                "uuid": project.uuid,
+                "name": project.name,
+                "description": project.description,
+                "location": project.location,
+                "balance": balance_dict.get(project_uuid_str, 0.0),
+                "items": items_by_project.get(project_uuid_str, []),
+            })
 
-            # Fetch items related to the project
-            items = (
-                db.query(Item)
-                .join(ProjectItemMap, Item.uuid == ProjectItemMap.item_id)
-                .filter(ProjectItemMap.project_id == project.uuid)
-                .all()
-            )
-
-            item_responses = []
-            for item in items:
-                item_responses.append(
-                    {
-                        "uuid": item.uuid,
-                        "name": item.name,
-                        "category": item.category,
-                        "list_tag": item.list_tag,
-                        "has_additional_info": item.has_additional_info,
-                    }
-                )
-
-            projects_response_data.append(
-                {
-                    "uuid": project.uuid,
-                    "name": project.name,
-                    "description": project.description,
-                    "location": project.location,
-                    "balance": total_balance,
-                    "items": item_responses,
-                }
-            )
         return ProjectServiceResponse(
             data=projects_response_data,
             message="Projects data fetched successfully.",
@@ -318,17 +355,19 @@ def list_all_projects(
 @project_router.get(
     "/project", status_code=status.HTTP_200_OK, tags=["Projects"]
 )
+@cache(expire=300)  # Cache for 5 minutes
 def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
     try:
-        project = (
-            db.query(Project)
-            .filter(
-                and_(
-                    Project.uuid == project_uuid, Project.is_deleted.is_(False)
+        with QueryPerformanceTracker("get_project_info_query"):
+            project = (
+                db.query(Project)
+                .filter(
+                    and_(
+                        Project.uuid == project_uuid, Project.is_deleted.is_(False)
+                    )
                 )
+                .first()
             )
-            .first()
-        )
         if not project:
             return ProjectServiceResponse(
                 data=None,
@@ -336,11 +375,12 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
                 message=constants.PROJECT_NOT_FOUND
             ).model_dump()
 
-        total_balance = (
-            db.query(func.sum(ProjectBalance.adjustment))
-            .filter(ProjectBalance.project_id == project_uuid)
-            .scalar()
-        ) or 0.0
+        with QueryPerformanceTracker("get_project_balance_query"):
+            total_balance = (
+                db.query(func.sum(ProjectBalance.adjustment))
+                .filter(ProjectBalance.project_id == project_uuid)
+                .scalar()
+            ) or 0.0
 
         project_response_data = ProjectResponse(
             uuid=project.uuid,
@@ -361,7 +401,6 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             status_code=500,
             message="An error occurred while fetching project details"
         ).model_dump()
-
 
 
 @project_router.put("/{project_uuid}", tags=["Projects"], status_code=200)

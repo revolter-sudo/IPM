@@ -6,9 +6,11 @@ alembic
 fastapi-sqlalchemy
 pydantic-settings
 pydantic
-alembic
 passlib
 python-jose
 python-multipart
 firebase-admin
 bcrypt
+redis
+fastapi-cache2[redis]
+python-dotenv
