@@ -215,8 +215,6 @@ def create_project(
         db.add(new_project)
         db.commit()
         db.refresh(new_project)
-        import pdb
-        pdb.set_trace()
         # Initialize project balance with the given amount or default to 0.0
         create_project_balance_entry(
             db=db,
@@ -229,7 +227,7 @@ def create_project(
         # Create a log entry for project creation
         db.commit()
         return ProjectServiceResponse(
-            data=None,
+            data={"project_uuid": new_project.uuid},
             message="Project Created Successfully",
             status_code=201
         ).model_dump()
