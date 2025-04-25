@@ -249,15 +249,31 @@ def list_all_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Fetch all projects visible to the current user.
+
+    • Super-Admin / Admin → every non-deleted project  
+    • Everyone else      → only projects they’re mapped to (ProjectUserMap)
+
+    Response schema
+    ----------------
+    [
+        {
+            "uuid": <project-uuid>,
+            "name": "<project-name>",
+            "description": "<project-description>",
+            "location": "<project-location>",
+            "balance": <current_balance_float>
+        },
+        ...
+    ]
+    """
     try:
-        # If user is admin or super admin, return all projects
+        # 1. Base project list depending on role
         if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
-            projects_data = (
-                db.query(Project).filter(Project.is_deleted.is_(False)).all()
-            )
+            projects = db.query(Project).filter(Project.is_deleted.is_(False)).all()
         else:
-            # Filter projects where user is mapped in ProjectUserMap
-            projects_data = (
+            projects = (
                 db.query(Project)
                 .join(ProjectUserMap, Project.uuid == ProjectUserMap.project_id)
                 .filter(
@@ -267,33 +283,14 @@ def list_all_projects(
                 .all()
             )
 
+        # 2. Build response (balance only; no items)
         projects_response_data = []
-        for project in projects_data:
+        for project in projects:
             total_balance = (
                 db.query(func.sum(ProjectBalance.adjustment))
                 .filter(ProjectBalance.project_id == project.uuid)
                 .scalar()
             ) or 0.0
-
-            # Fetch items related to the project
-            items = (
-                db.query(Item)
-                .join(ProjectItemMap, Item.uuid == ProjectItemMap.item_id)
-                .filter(ProjectItemMap.project_id == project.uuid)
-                .all()
-            )
-
-            item_responses = []
-            for item in items:
-                item_responses.append(
-                    {
-                        "uuid": item.uuid,
-                        "name": item.name,
-                        "category": item.category,
-                        "list_tag": item.list_tag,
-                        "has_additional_info": item.has_additional_info,
-                    }
-                )
 
             projects_response_data.append(
                 {
@@ -302,20 +299,21 @@ def list_all_projects(
                     "description": project.description,
                     "location": project.location,
                     "balance": total_balance,
-                    "items": item_responses,
                 }
             )
+
         return ProjectServiceResponse(
             data=projects_response_data,
-            message="Projects data fetched successfully.",
+            message="Projects fetched successfully.",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         logging.error(f"Error in list_all_projects API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while fetching project details"
+            message="An error occurred while fetching project details."
         ).model_dump()
 
 
