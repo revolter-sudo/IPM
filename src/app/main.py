@@ -6,6 +6,7 @@ from fastapi_sqlalchemy import DBSessionMiddleware
 import os
 import uvicorn
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from src.app.database.database import settings
 from src.app.services.auth_service import auth_router
 from src.app.services.payment_service import payment_router
@@ -25,6 +26,22 @@ SERVICE_FILE = os.getenv("SERVICE_FILE")
 
 # FastAPI App
 app = FastAPI()
+
+# Add CORS middleware
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    # Add other frontend origins if needed
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 # Local
 # os.makedirs("uploads", exist_ok=True)

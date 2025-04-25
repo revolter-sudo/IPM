@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Optional, Any, List, Dict
 from uuid import UUID
 from datetime import date
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PaymentStatus(str, Enum):
@@ -36,9 +36,10 @@ class CreatePerson(BaseModel):
     name: str
     account_number: Optional[str] = Field(
         None,
-        min_length=7,
-        max_length=17,
-        description="Account number must be 7 to 17 digits long",
+        min_length=11,
+        max_length=16,
+        pattern=r'^\d+$',
+        description="Account number must be 11 to 16 digits long and contain only numbers",
     )
     ifsc_code: Optional[str] = Field(
         None,
@@ -60,14 +61,26 @@ class CreatePerson(BaseModel):
     )
     parent_id: Optional[UUID] = None
 
+    @field_validator('account_number')
+    def validate_account_number(cls, v):
+        if v is None:
+            return v
+        if not v.isdigit():
+            raise ValueError("Account number must contain only digits")
+        # Additional validation for common Indian bank account number lengths
+        if len(v) < 11 or len(v) > 16:
+            raise ValueError("Account number must be between 11 and 16 digits")
+        return v
+
 
 class UpdatePerson(BaseModel):
     name: Optional[str] = None
     account_number: Optional[str] = Field(
         None,
-        min_length=7,
-        max_length=17,
-        description="Account number must be 7 to 17 digits long",
+        min_length=11,
+        max_length=16,
+        pattern=r'^\d+$',
+        description="Account number must be 11 to 16 digits long and contain only numbers",
     )
     ifsc_code: Optional[str] = Field(
         None,
@@ -88,6 +101,17 @@ class UpdatePerson(BaseModel):
         description="UPI number must be exactly 10 digits",
     )
     parent_id: Optional[UUID] = None
+
+    @field_validator('account_number')
+    def validate_account_number(cls, v):
+        if v is None:
+            return v
+        if not v.isdigit():
+            raise ValueError("Account number must contain only digits")
+        # Additional validation for common Indian bank account number lengths
+        if len(v) < 11 or len(v) > 16:
+            raise ValueError("Account number must be between 11 and 16 digits")
+        return v
 
 
 class PaymentUpdateSchema(BaseModel):

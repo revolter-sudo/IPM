@@ -92,7 +92,7 @@ def create_khatabook_entry_service(
         kb_entry = Khatabook(
             amount=amount,
             remarks=data.get("remarks"),
-            person_id=data.get("person_id"),
+            person_id=data.get("person_id"),    
             expense_date=data.get("expense_date"),
             created_by=user_id,
             balance_after_entry=new_balance,  # Snapshot at time of creation

@@ -381,3 +381,89 @@ def get_user_projects(
             status_code=500,
             message="An error occurred while fetching user projects"
         ).model_dump()
+
+@admin_app.get(
+    "/user/{user_id}/details",
+    tags=["admin_panel"]
+)
+def get_user_details(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Unauthorized to view user details"
+            ).model_dump()
+
+        user = db.query(User).filter(User.uuid == user_id).first()
+        if not user:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="User not found"
+            ).model_dump()
+
+        # Get all projects mapped to this user
+        project_mappings = (
+            db.query(Project, ProjectUserMap)
+            .join(ProjectUserMap, Project.uuid == ProjectUserMap.project_id)
+            .filter(ProjectUserMap.user_id == user_id)
+            .all()
+        )
+
+        projects_list = []
+        for project, mapping in project_mappings:
+            # Get items for each project
+            project_items = (
+                db.query(Item)
+                .join(ProjectItemMap, Item.uuid == ProjectItemMap.item_id)
+                .filter(ProjectItemMap.project_id == project.uuid)
+                .all()
+            )
+
+            items_list = [{
+                "uuid": str(item.uuid),
+                "name": item.name,
+                "category": item.category,
+                "list_tag": item.list_tag,
+                "has_additional_info": item.has_additional_info
+            } for item in project_items]
+
+            projects_list.append({
+                "uuid": str(project.uuid),
+                "name": project.name,
+                "description": project.description,
+                "location": project.location,
+                "items": items_list
+            })
+
+        user_details = {
+            "uuid": str(user.uuid),
+            "name": user.name,
+            "phone": user.phone,
+            "role": user.role,
+            "projects": projects_list
+        }
+
+        return ProjectServiceResponse(
+            data=user_details,
+            message="User details fetched successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in get_user_details API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while fetching user details"
+        ).model_dump()

@@ -8,7 +8,8 @@ from fastapi import (
     Security,
     status,
     UploadFile,
-    File
+    File,
+    Query
 )
 from fastapi.security import (
     HTTPAuthorizationCredentials,
@@ -37,6 +38,7 @@ from src.app.notification.notification_service import (
 )
 from src.app.schemas import constants
 import os
+from typing import Optional
 
 # Router Setup
 auth_router = APIRouter(prefix="/auth")
@@ -329,6 +331,15 @@ def login(
                 status_code=400,
                 message="Incorrect phone or password"
             ).model_dump()
+
+    # Restrict login to only superadmin and admin roles
+    if db_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+        return AuthServiceResponse(
+            data=None,
+            status_code=403,
+            message="Only admin can access"
+        ).model_dump()
+
     user_data = UserResponse(
         uuid=db_user.uuid,
         name=db_user.name,
@@ -734,3 +745,54 @@ def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
             status_code=500,
             message=f"An error occurred: {str(e)}"
         ).model_dump()
+
+
+@auth_router.get("/persons", status_code=status.HTTP_200_OK, tags=["Persons"])
+def get_persons(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    name: Optional[str] = Query(None, description="Filter by name"),
+    phone: Optional[str] = Query(None, description="Filter by phone number"),
+):
+    """
+    Get all persons with optional filters. This endpoint provides a simplified view
+    of persons for frontend dropdowns and selections.
+    """
+    try:
+        query = db.query(Person).filter(
+            Person.is_deleted.is_(False),
+        )
+
+        # Apply filters if provided
+        if name:
+            query = query.filter(Person.name.ilike(f"%{name}%"))
+        if phone:
+            query = query.filter(Person.phone_number == phone)
+
+        persons = query.all()
+        persons_data = []
+
+        for person in persons:
+            persons_data.append({
+                "uuid": str(person.uuid),
+                "name": person.name,
+                "phone_number": person.phone_number,
+                "account_number": person.account_number,
+                "ifsc_code": person.ifsc_code,
+                "upi_number": person.upi_number
+            })
+
+        return AuthServiceResponse(
+            data=persons_data,
+            message="Persons fetched successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in get_persons API: {str(e)}")
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error fetching persons: {str(e)}"
+        ).model_dump()
+

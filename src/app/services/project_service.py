@@ -188,7 +188,11 @@ def create_project(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        if current_user.role not in [
+        logging.info(f"Create project request received: {request}")
+        # Fix: current_user might be dict, access role accordingly
+        user_role = current_user.role if hasattr(current_user, 'role') else current_user.get('role')
+        logging.info(f"Current user role: {user_role}")
+        if user_role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
             UserRole.PROJECT_MANAGER.value,

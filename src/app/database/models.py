@@ -338,7 +338,7 @@ class PaymentStatusHistory(Base):
     payment = relationship("Payment", back_populates="status_entries")
 
     def __repr__(self):
-        return (
+        return ( 
             f"<PaymentStatusHistory(id={self.id}, "
             f"payment_id={self.payment_id}, status={self.status})>"
         )
