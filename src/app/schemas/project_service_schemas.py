@@ -9,7 +9,11 @@ class ProjectResponse(BaseModel):
     name: str
     description: Optional[str] = None
     location: Optional[str] = None
-    balance: float
+    balance: float  # For backward compatibility
+    po_balance: float = 0.0
+    estimated_balance: float = 0.0
+    actual_balance: float = 0.0
+    po_document_path: Optional[str] = None
 
     def to_dict(self):
         """
@@ -20,7 +24,11 @@ class ProjectResponse(BaseModel):
             "name": self.name,
             "description": self.description,
             "location": self.location,
-            "balance": self.balance,
+            "balance": self.balance,  # For backward compatibility
+            "po_balance": self.po_balance,
+            "estimated_balance": self.estimated_balance,
+            "actual_balance": self.actual_balance,
+            "po_document_path": self.po_document_path,
         }
 
 
@@ -40,7 +48,10 @@ class ProjectCreateRequest(BaseModel):
     name: str
     description: Optional[str] = None
     location: Optional[str] = None
-    balance: int = None
+    balance: float = 0.0  # For backward compatibility
+    po_balance: float = 0.0
+    estimated_balance: float = 0.0
+    actual_balance: float = 0.0
 
 
 class UpdateProjectSchema(BaseModel):
@@ -59,6 +70,27 @@ class BankEditSchema(BaseModel):
     balance: float
 
 
+class InvoiceCreateRequest(BaseModel):
+    project_id: UUID
+    amount: float
+    description: Optional[str] = None
+
+
+class InvoiceResponse(BaseModel):
+    uuid: UUID
+    project_id: UUID
+    amount: float
+    description: Optional[str] = None
+    file_path: Optional[str] = None
+    status: str
+    created_at: str
+
+
+class InvoiceStatusUpdateRequest(BaseModel):
+    invoice_id: UUID
+    status: str = "received"
+
+
 class ProjectServiceResponse(BaseModel):
     data: Any = None
     message: str
@@ -70,4 +102,3 @@ class ProjectServiceResponse(BaseModel):
             "message": self.message,
             "status_code": self.status_code
         }
-

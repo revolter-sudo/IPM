@@ -6,7 +6,12 @@ from src.app.database.database import settings
 from src.app.services.auth_service import get_current_user
 from src.app.schemas.auth_service_schamas import UserRole
 from src.app.admin_panel.services import create_project_user_mapping
-from src.app.schemas.project_service_schemas import ProjectServiceResponse
+from src.app.schemas.project_service_schemas import (
+    ProjectServiceResponse,
+    InvoiceCreateRequest,
+    InvoiceResponse,
+    InvoiceStatusUpdateRequest
+)
 from typing import Optional, List
 from uuid import UUID, uuid4
 from datetime import datetime
@@ -18,7 +23,8 @@ from fastapi import (
     HTTPException,
     Query,
     UploadFile,
-    Form
+    Form,
+    Body
 )
 from src.app.database.models import (
     Log,
@@ -29,7 +35,8 @@ from src.app.database.models import (
     Payment,
     ProjectUserMap,
     Item,
-    ProjectItemMap
+    ProjectItemMap,
+    Invoice
 )
 from sqlalchemy.orm import Session
 from src.app.admin_panel.services import get_default_config_service, create_project_item_mapping
@@ -284,7 +291,7 @@ def get_project_items_list(
 def get_project_users(
     project_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user), 
+    current_user: User = Depends(get_current_user),
 ):
 
     try:
@@ -295,7 +302,7 @@ def get_project_users(
                 status_code=404,
                 message="Project not found"
             ).model_dump()
-        
+
         user_mappings = db.query(ProjectUserMap).filter(ProjectUserMap.project_id == project_id).all()
 
         user_ids = [mapping.user_id for mapping in user_mappings]
@@ -327,7 +334,7 @@ def get_project_users(
             message="Project users fetched successfully",
             status_code=200
         ).model_dump()
-    
+
     except Exception as e:
         db.rollback()
         logging.error(f"Error in get_project_users API: {str(e)}")
@@ -355,9 +362,9 @@ def get_user_projects(
                 status_code=404,
                 message="User not found"
             ).model_dump()
-        
+
         project_mappings = db.query(ProjectUserMap).filter(ProjectUserMap.user_id == user_id).all()
-        
+
         project_ids = [mapping.project_id for mapping in project_mappings]
         projects = db.query(Project).filter(Project.uuid.in_(project_ids)).all()
 
@@ -474,4 +481,295 @@ def get_user_details(
             data=None,
             status_code=500,
             message="An error occurred while fetching user details"
+        ).model_dump()
+
+
+# Invoice APIs
+@admin_app.post(
+    "/invoices",
+    tags=["Invoices"],
+    status_code=201,
+    description="""
+    Upload a new invoice with optional file attachment.
+
+    Request body should be sent as a form with 'request' field containing a JSON string with the following structure:
+    ```json
+    {
+        "project_id": "123e4567-e89b-12d3-a456-426614174000",
+        "amount": 500.0,
+        "description": "Invoice for materials"
+    }
+    ```
+
+    The invoice file can be uploaded as a file in the 'invoice_file' field.
+    """
+)
+def upload_invoice(
+    request: str = Form(..., description="JSON string containing invoice details (project_id, amount, description)"),
+    invoice_file: Optional[UploadFile] = File(None, description="Invoice file to upload"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Upload a new invoice with optional file attachment.
+    """
+    try:
+        # Parse the request data from form
+        import json
+        request_data = json.loads(request)
+        invoice_request = InvoiceCreateRequest(**request_data)
+
+        # Verify project exists
+        project = db.query(Project).filter(
+            Project.uuid == invoice_request.project_id,
+            Project.is_deleted.is_(False)
+        ).first()
+
+        if not project:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Project not found"
+            ).model_dump()
+
+        # Handle invoice file upload if provided
+        file_path = None
+        if invoice_file:
+            upload_dir = "uploads/invoices"
+            os.makedirs(upload_dir, exist_ok=True)
+            file_path = os.path.join(upload_dir, f"Invoice_{str(uuid4())}_{invoice_file.filename}")
+            with open(file_path, "wb") as buffer:
+                buffer.write(invoice_file.file.read())
+
+        # Create new invoice
+        new_invoice = Invoice(
+            project_id=invoice_request.project_id,
+            amount=invoice_request.amount,
+            description=invoice_request.description,
+            file_path=file_path,
+            status="uploaded",
+            created_by=current_user.uuid
+        )
+        db.add(new_invoice)
+
+        # Create log entry
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="Invoice",
+            action="Create",
+            entity_id=new_invoice.uuid,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
+        db.commit()
+        db.refresh(new_invoice)
+
+        return ProjectServiceResponse(
+            data={
+                "uuid": str(new_invoice.uuid),
+                "project_id": str(new_invoice.project_id),
+                "amount": new_invoice.amount,
+                "description": new_invoice.description,
+                "file_path": new_invoice.file_path,
+                "status": new_invoice.status,
+                "created_at": new_invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            },
+            message="Invoice uploaded successfully",
+            status_code=201
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in upload_invoice API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while uploading invoice: {str(e)}"
+        ).model_dump()
+
+
+@admin_app.put(
+    "/invoices/{invoice_id}/status",
+    tags=["Invoices"],
+    description="""
+    Update the status of an invoice (e.g., mark as received).
+
+    Request body should contain:
+    ```json
+    {
+        "status": "received"
+    }
+    ```
+
+    Possible status values: "uploaded", "received"
+    """
+)
+def update_invoice_status(
+    invoice_id: UUID,
+    status_request: InvoiceStatusUpdateRequest = Body(..., description="Status update information",
+        example={"status": "received"}),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Update the status of an invoice (e.g., mark as received).
+    """
+    try:
+        # Verify user has permission
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Not authorized to update invoice status"
+            ).model_dump()
+
+        # Find the invoice
+        invoice = db.query(Invoice).filter(
+            Invoice.uuid == invoice_id,
+            Invoice.is_deleted.is_(False)
+        ).first()
+
+        if not invoice:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Invoice not found"
+            ).model_dump()
+
+        # Update status
+        invoice.status = status_request.status
+
+        # Create log entry
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="Invoice",
+            action="Status Update",
+            entity_id=invoice_id,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
+        db.commit()
+
+        return ProjectServiceResponse(
+            data={
+                "uuid": str(invoice.uuid),
+                "status": invoice.status
+            },
+            message="Invoice status updated successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in update_invoice_status API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while updating invoice status: {str(e)}"
+        ).model_dump()
+
+
+@admin_app.get(
+    "/invoices",
+    tags=["Invoices"]
+)
+def list_invoices(
+    project_id: Optional[UUID] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    List all invoices, optionally filtered by project_id and/or status.
+    """
+    try:
+        query = db.query(Invoice).filter(Invoice.is_deleted.is_(False))
+
+        # Apply filters if provided
+        if project_id:
+            query = query.filter(Invoice.project_id == project_id)
+
+        if status:
+            query = query.filter(Invoice.status == status)
+
+        invoices = query.all()
+
+        # Format response
+        invoice_list = []
+        for invoice in invoices:
+            invoice_list.append({
+                "uuid": str(invoice.uuid),
+                "project_id": str(invoice.project_id),
+                "amount": invoice.amount,
+                "description": invoice.description,
+                "file_path": invoice.file_path,
+                "status": invoice.status,
+                "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            })
+
+        return ProjectServiceResponse(
+            data=invoice_list,
+            message="Invoices fetched successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        logging.error(f"Error in list_invoices API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while fetching invoices: {str(e)}"
+        ).model_dump()
+
+
+@admin_app.get(
+    "/invoices/{invoice_id}",
+    tags=["Invoices"]
+)
+def get_invoice(
+    invoice_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get details of a specific invoice.
+    """
+    try:
+        invoice = db.query(Invoice).filter(
+            Invoice.uuid == invoice_id,
+            Invoice.is_deleted.is_(False)
+        ).first()
+
+        if not invoice:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Invoice not found"
+            ).model_dump()
+
+        # Get project details
+        project = db.query(Project).filter(Project.uuid == invoice.project_id).first()
+
+        return ProjectServiceResponse(
+            data={
+                "uuid": str(invoice.uuid),
+                "project_id": str(invoice.project_id),
+                "project_name": project.name if project else None,
+                "amount": invoice.amount,
+                "description": invoice.description,
+                "file_path": invoice.file_path,
+                "status": invoice.status,
+                "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "created_by": str(invoice.created_by)
+            },
+            message="Invoice fetched successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        logging.error(f"Error in get_invoice API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while fetching invoice: {str(e)}"
         ).model_dump()

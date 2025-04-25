@@ -1,7 +1,9 @@
 import logging
+import os
+import json
 from uuid import UUID, uuid4
-from typing import Optional,List
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional, List
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 from decimal import Decimal
@@ -16,7 +18,8 @@ from src.app.database.models import (
     Payment,
     ProjectUserMap,
     Item,
-    ProjectItemMap
+    ProjectItemMap,
+    Invoice
 )
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
@@ -26,7 +29,10 @@ from src.app.schemas.project_service_schemas import (
     ProjectServiceResponse,
     UpdateProjectSchema,
     BankCreateSchema,
-    BankEditSchema
+    BankEditSchema,
+    InvoiceCreateRequest,
+    InvoiceResponse,
+    InvoiceStatusUpdateRequest
 )
 from src.app.services.auth_service import get_current_user
 
@@ -36,16 +42,20 @@ balance_router = APIRouter(prefix="")
 
 
 def create_project_balance_entry(
-    db, current_user, project_id: UUID, adjustment: float, description: str = None
+    db, current_user, project_id: UUID, adjustment: float,
+    description: str = None, balance_type: str = "actual"
 ):
     balance_entry = ProjectBalance(
-        project_id=project_id, adjustment=adjustment, description=description
+        project_id=project_id,
+        adjustment=adjustment,
+        description=description,
+        balance_type=balance_type
     )
     db.add(balance_entry)
     log_entry = Log(
             uuid=str(uuid4()),
-            entity="User",
-            action="Deactivate",
+            entity="Project",
+            action="Balance Adjustment",
             entity_id=project_id,
             performed_by=current_user.uuid,
         )
@@ -180,15 +190,37 @@ def adjust_project_balance(
 
 
 @project_router.post(
-    "/create", status_code=status.HTTP_201_CREATED, tags=["Projects"]
+    "/create", status_code=status.HTTP_201_CREATED, tags=["Projects"],
+    description="""
+    Create a new project with optional PO document upload.
+
+    Request body should be sent as a form with 'request' field containing a JSON string with the following structure:
+    ```json
+    {
+        "name": "Project Name",
+        "description": "Project Description",
+        "location": "Project Location",
+        "po_balance": 1000.0,
+        "estimated_balance": 1500.0,
+        "actual_balance": 500.0
+    }
+    ```
+
+    The PO document can be uploaded as a file in the 'po_document' field.
+    """
 )
 def create_project(
-    request: ProjectCreateRequest,
+    request: str = Form(..., description="JSON string containing project details (name, description, location, po_balance, estimated_balance, actual_balance)"),
+    po_document: Optional[UploadFile] = File(None, description="PO document file to upload"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     try:
-        logging.info(f"Create project request received: {request}")
+        # Parse the request data from form
+        request_data = json.loads(request)
+        project_request = ProjectCreateRequest(**request_data)
+
+        logging.info(f"Create project request received: {project_request}")
         # Fix: current_user might be dict, access role accordingly
         user_role = current_user.role if hasattr(current_user, 'role') else current_user.get('role')
         logging.info(f"Current user role: {user_role}")
@@ -204,33 +236,88 @@ def create_project(
             ).model_dump()
 
         project_uuid = str(uuid4())
-        initial_balance = (
-            request.balance if request.balance is not None else 0.0
-        )
 
+        # Handle PO document upload if provided
+        po_document_path = None
+        if po_document:
+            upload_dir = constants.UPLOAD_DIR
+            os.makedirs(upload_dir, exist_ok=True)
+            file_path = os.path.join(upload_dir, f"PO_{project_uuid}_{po_document.filename}")
+            with open(file_path, "wb") as buffer:
+                buffer.write(po_document.file.read())
+            po_document_path = file_path
+
+        # Create new project with all balance types
         new_project = Project(
             uuid=project_uuid,
-            name=request.name,
-            description=request.description,
-            location=request.location,
+            name=project_request.name,
+            description=project_request.description,
+            location=project_request.location,
+            po_balance=project_request.po_balance,
+            estimated_balance=project_request.estimated_balance,
+            actual_balance=project_request.actual_balance,
+            po_document_path=po_document_path
         )
         db.add(new_project)
         db.commit()
         db.refresh(new_project)
 
-        # Initialize project balance with the given amount or default to 0.0
-        create_project_balance_entry(
-            db=db,
-            project_id=new_project.uuid,
-            adjustment=initial_balance,
-            description="Initial project balance",
-            current_user=current_user
-        )
+        # Initialize project balances with the given amounts
+        # PO Balance
+        if project_request.po_balance > 0:
+            create_project_balance_entry(
+                db=db,
+                project_id=new_project.uuid,
+                adjustment=project_request.po_balance,
+                description="Initial PO balance",
+                current_user=current_user,
+                balance_type="po"
+            )
+
+        # Estimated Balance
+        if project_request.estimated_balance > 0:
+            create_project_balance_entry(
+                db=db,
+                project_id=new_project.uuid,
+                adjustment=project_request.estimated_balance,
+                description="Initial estimated balance",
+                current_user=current_user,
+                balance_type="estimated"
+            )
+
+        # Actual Balance
+        if project_request.actual_balance > 0:
+            create_project_balance_entry(
+                db=db,
+                project_id=new_project.uuid,
+                adjustment=project_request.actual_balance,
+                description="Initial actual balance",
+                current_user=current_user,
+                balance_type="actual"
+            )
 
         # Create a log entry for project creation
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="Project",
+            action="Create",
+            entity_id=project_uuid,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
         db.commit()
+
         return ProjectServiceResponse(
-            data=None,
+            data={
+                "uuid": str(new_project.uuid),
+                "name": new_project.name,
+                "description": new_project.description,
+                "location": new_project.location,
+                "po_balance": new_project.po_balance,
+                "estimated_balance": new_project.estimated_balance,
+                "actual_balance": new_project.actual_balance,
+                "po_document_path": new_project.po_document_path
+            },
             message="Project Created Successfully",
             status_code=201
         ).model_dump()
@@ -240,7 +327,7 @@ def create_project(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while fetching project details"
+            message=f"An error occurred while creating project: {str(e)}"
         ).model_dump()
 
 
@@ -252,7 +339,7 @@ def list_all_projects(
     """
     Fetch all projects visible to the current user.
 
-    • Super-Admin / Admin → every non-deleted project  
+    • Super-Admin / Admin → every non-deleted project
     • Everyone else      → only projects they’re mapped to (ProjectUserMap)
 
     Response schema
@@ -263,7 +350,11 @@ def list_all_projects(
             "name": "<project-name>",
             "description": "<project-description>",
             "location": "<project-location>",
-            "balance": <current_balance_float>
+            "balance": <current_balance_float>,  # For backward compatibility
+            "po_balance": <po_balance_float>,
+            "estimated_balance": <estimated_balance_float>,
+            "actual_balance": <actual_balance_float>,
+            "po_document_path": <po_document_path_string>
         },
         ...
     ]
@@ -283,14 +374,45 @@ def list_all_projects(
                 .all()
             )
 
-        # 2. Build response (balance only; no items)
+        # 2. Build response with all balance types
         projects_response_data = []
         for project in projects:
+            # Get total balance (for backward compatibility)
             total_balance = (
                 db.query(func.sum(ProjectBalance.adjustment))
                 .filter(ProjectBalance.project_id == project.uuid)
                 .scalar()
             ) or 0.0
+
+            # Get PO balance
+            po_balance = (
+                db.query(func.sum(ProjectBalance.adjustment))
+                .filter(
+                    ProjectBalance.project_id == project.uuid,
+                    ProjectBalance.balance_type == "po"
+                )
+                .scalar()
+            ) or project.po_balance
+
+            # Get estimated balance
+            estimated_balance = (
+                db.query(func.sum(ProjectBalance.adjustment))
+                .filter(
+                    ProjectBalance.project_id == project.uuid,
+                    ProjectBalance.balance_type == "estimated"
+                )
+                .scalar()
+            ) or project.estimated_balance
+
+            # Get actual balance
+            actual_balance = (
+                db.query(func.sum(ProjectBalance.adjustment))
+                .filter(
+                    ProjectBalance.project_id == project.uuid,
+                    ProjectBalance.balance_type == "actual"
+                )
+                .scalar()
+            ) or project.actual_balance
 
             projects_response_data.append(
                 {
@@ -298,7 +420,11 @@ def list_all_projects(
                     "name": project.name,
                     "description": project.description,
                     "location": project.location,
-                    "balance": total_balance,
+                    "balance": total_balance,  # For backward compatibility
+                    "po_balance": po_balance,
+                    "estimated_balance": estimated_balance,
+                    "actual_balance": actual_balance,
+                    "po_document_path": project.po_document_path
                 }
             )
 
@@ -338,11 +464,42 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
                 message=constants.PROJECT_NOT_FOUND
             ).model_dump()
 
+        # Get total balance (for backward compatibility)
         total_balance = (
             db.query(func.sum(ProjectBalance.adjustment))
             .filter(ProjectBalance.project_id == project_uuid)
             .scalar()
         ) or 0.0
+
+        # Get PO balance
+        po_balance = (
+            db.query(func.sum(ProjectBalance.adjustment))
+            .filter(
+                ProjectBalance.project_id == project_uuid,
+                ProjectBalance.balance_type == "po"
+            )
+            .scalar()
+        ) or project.po_balance
+
+        # Get estimated balance
+        estimated_balance = (
+            db.query(func.sum(ProjectBalance.adjustment))
+            .filter(
+                ProjectBalance.project_id == project_uuid,
+                ProjectBalance.balance_type == "estimated"
+            )
+            .scalar()
+        ) or project.estimated_balance
+
+        # Get actual balance
+        actual_balance = (
+            db.query(func.sum(ProjectBalance.adjustment))
+            .filter(
+                ProjectBalance.project_id == project_uuid,
+                ProjectBalance.balance_type == "actual"
+            )
+            .scalar()
+        ) or project.actual_balance
 
         project_response_data = ProjectResponse(
             uuid=project.uuid,
@@ -350,6 +507,10 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             name=project.name,
             location=project.location,
             balance=total_balance,
+            po_balance=po_balance,
+            estimated_balance=estimated_balance,
+            actual_balance=actual_balance,
+            po_document_path=project.po_document_path
         ).to_dict()
         return ProjectServiceResponse(
             data=project_response_data,
@@ -361,7 +522,7 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while fetching project details"
+            message=f"An error occurred while fetching project details: {str(e)}"
         ).model_dump()
 
 

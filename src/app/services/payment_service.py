@@ -528,7 +528,7 @@ def apply_pending_request_logic(query, pending_request: bool, current_user: User
       - Admin => "verified" first, then "requested"
       - Accountant / SuperAdmin => "approved", "verified", "requested"
 
-    Then we do multi-level ordering: first by 'status_order' (ASC), 
+    Then we do multi-level ordering: first by 'status_order' (ASC),
     then by Payment.created_at (DESC).
     """
     if not pending_request:
@@ -1721,6 +1721,37 @@ def approve_payment(
 
                 # Record in Payment which bank/cash account was used
                 payment.deducted_from_bank_uuid = bank_uuid
+
+                # Deduct from project's actual balance
+                project = db.query(Project).filter(Project.uuid == payment.project_id).first()
+                if project:
+                    project.actual_balance -= payment.amount
+                    # Create project balance entry for actual balance
+                    create_project_balance_entry(
+                        db=db,
+                        project_id=payment.project_id,
+                        adjustment=-payment.amount,
+                        description=f"Payment deduction for payment {payment.uuid}",
+                        current_user=current_user,
+                        balance_type="actual"
+                    )
+
+                # Deduct from item balances if items are associated with this payment
+                payment_items = db.query(PaymentItem).filter(
+                    PaymentItem.payment_id == payment.uuid,
+                    PaymentItem.is_deleted.is_(False)
+                ).all()
+
+                for payment_item in payment_items:
+                    item = db.query(Item).filter(Item.uuid == payment_item.item_id).first()
+                    if item:
+                        # Calculate the proportion of the payment amount for this item
+                        # For now, we'll distribute the amount equally among all items
+                        item_count = len(payment_items)
+                        item_amount = payment.amount / item_count if item_count > 0 else 0
+
+                        # Update item balance
+                        item.balance -= item_amount
 
         # 6) Handle optional file uploads
         if files:
