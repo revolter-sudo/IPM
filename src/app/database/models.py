@@ -486,6 +486,7 @@ class ProjectUserMap(Base):
     def __repr__(self):
         return f"<ProjectUserMap(project_id={self.project_id}, user_id={self.user_id})>"
 
+
 class ProjectItemMap(Base):
     __tablename__ = "project_item_map"
 
@@ -493,6 +494,7 @@ class ProjectItemMap(Base):
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
     item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
+    item_balance = Column(Float, nullable=True, server_default="0.0")
 
     project = relationship("Project")
     item = relationship("Item")

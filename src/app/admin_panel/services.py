@@ -8,7 +8,6 @@ from src.app.admin_panel import constants
 from sqlalchemy import func
 
 
-
 def get_default_config_service() -> dict:
     db: Session = SessionLocal()
     item_data = (
@@ -56,8 +55,9 @@ def create_project_user_mapping(
     db.refresh(project_user_mapping)
     return project_user_mapping
 
+
 def create_project_item_mapping(
-    db: Session, item_id: UUID, project_id: UUID
+    db: Session, item_id: UUID, project_id: UUID, item_balance: float
 ):
 
     # Check if mapping already exists
@@ -72,6 +72,7 @@ def create_project_item_mapping(
         uuid=str(uuid4()),
         item_id=item_id,
         project_id=project_id,
+        item_balance=item_balance
     )
     db.add(project_item_mapping)
     db.commit()

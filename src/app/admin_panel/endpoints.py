@@ -147,6 +147,7 @@ def map_user_to_project(
 def map_item_to_project(
     item_id: UUID,
     project_id: UUID,
+    item_balance: float,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -180,7 +181,12 @@ def map_item_to_project(
             ).model_dump()
 
         try:
-            create_project_item_mapping(db=db, item_id=item_id, project_id=project_id)
+            create_project_item_mapping(
+                db=db,
+                item_id=item_id,
+                project_id=project_id,
+                item_balance=item_balance
+            )
         except Exception as db_error:
             db.rollback()
             logging.error(f"Database error in create_project_item_mapping: {str(db_error)}")
@@ -246,13 +252,14 @@ def get_project_items_list(
         )
 
         items_list = [
-        {
-            "uuid": str(item.Item.uuid),
-            "name": item.Item.name,
-            "category": item.Item.category,
-            "list_tag": item.Item.list_tag,
-            "has_additional_info": item.Item.has_additional_info
-        } for item in project_items
+            {
+                "uuid": str(item.Item.uuid),
+                "name": item.Item.name,
+                "category": item.Item.category,
+                "remaining_balance": item.ProjectItemMap.item_balance,
+                "list_tag": item.Item.list_tag,
+                "has_additional_info": item.Item.has_additional_info
+            } for item in project_items
         ]
 
         return ProjectServiceResponse(
@@ -268,6 +275,7 @@ def get_project_items_list(
             status_code=500,
             message="An error occurred while fetching project items"
         ).model_dump()
+
 
 @admin_app.get(
     "/{project_id}/users",
