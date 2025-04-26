@@ -31,3 +31,11 @@ class ProjectItemResponse(BaseModel):
     category: Optional[str] = None
     list_tag: Optional[str] = None
     has_additional_info: Optional[bool] = None
+
+class UserItemMapResponse(BaseModel):
+    uuid: UUID
+    name: Optional[str] = None
+    category: Optional[str] = None
+    list_tag: Optional[str] = None
+    has_additional_info: Optional[bool] = None
+    item_balance: float = 0.0

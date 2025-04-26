@@ -35,10 +35,11 @@ from src.app.database.models import (
     ProjectUserMap,
     Item,
     ProjectItemMap,
-    Invoice
+    Invoice,
+    UserItemMap
 )
 from sqlalchemy.orm import Session
-from src.app.admin_panel.services import get_default_config_service, create_project_item_mapping
+from src.app.admin_panel.services import get_default_config_service, create_project_item_mapping, create_user_item_mapping
 from src.app.database.database import get_db, SessionLocal
 import logging
 from src.app.admin_panel.schemas import AdminPanelResponse
@@ -214,6 +215,129 @@ def map_item_to_project(
             data=None,
             status_code=500,
             message="An error occurred while mapping item to project"
+        ).model_dump()
+
+
+@admin_app.post(
+    "/user_item_mapping/{user_id}/{item_id}",
+    tags=["admin_panel"]
+)
+def map_item_to_user(
+    user_id: UUID,
+    item_id: UUID,
+    item_balance: Optional[float] = None,  # Changed to Optional with None default
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Unauthorized to assign items to user"
+            ).model_dump()
+
+        # Check if user exists
+        user = db.query(User).filter(User.uuid == user_id).first()
+        if not user:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="User not found"
+            ).model_dump()
+
+        # Check if item exists
+        item = db.query(Item).filter(Item.uuid == item_id).first()
+        if not item:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Item not found"
+            ).model_dump()
+
+        try:
+            create_user_item_mapping(
+                db=db,
+                user_id=user_id,
+                item_id=item_id,
+                item_balance=item_balance
+            )
+        except Exception as db_error:
+            db.rollback()
+            logging.error(f"Database error in create_user_item_mapping: {str(db_error)}")
+            return ProjectServiceResponse(
+                data=None,
+                status_code=500,
+                message=f"Database error while mapping item to user: {str(db_error)}"
+            ).model_dump()
+
+        return ProjectServiceResponse(
+            data=None,
+            message="Item assigned to user successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in map_item_to_user API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while mapping item to user"
+        ).model_dump()
+
+
+@admin_app.get(
+    "/user/{user_id}/items",
+    tags=["admin_panel"]
+)
+def get_user_items(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        # Verify user exists
+        user = db.query(User).filter(User.uuid == user_id).first()
+        if not user:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="User not found"
+            ).model_dump()
+
+        # Get all items mapped to this user
+        user_items = (
+            db.query(Item, UserItemMap)
+            .join(UserItemMap, Item.uuid == UserItemMap.item_id)
+            .filter(UserItemMap.user_id == user_id)
+            .all()
+        )
+
+        items_list = [{
+            "uuid": str(item.uuid),
+            "name": item.name,
+            "category": item.category,
+            "list_tag": item.list_tag,
+            "has_additional_info": item.has_additional_info,
+            "item_balance": item_mapping.item_balance
+        } for item, item_mapping in user_items]
+
+        return ProjectServiceResponse(
+            data=items_list,
+            message="User items fetched successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        logging.error(f"Error in get_user_items API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while fetching user items"
         ).model_dump()
 
 
@@ -558,6 +682,96 @@ def get_user_details(
             data=None,
             status_code=500,
             message="An error occurred while fetching user details"
+        ).model_dump()
+
+
+@admin_app.get(
+    "/user/{user_id}/project-items",
+    tags=["admin_panel"],
+    description="Get all projects and their assigned items for a specific user"
+)
+def get_user_project_items(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        # Verify user exists
+        user = db.query(User).filter(User.uuid == user_id).first()
+        if not user:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="User not found"
+            ).model_dump()
+
+        # Get all projects mapped to this user
+        project_mappings = (
+            db.query(Project, ProjectUserMap)
+            .join(ProjectUserMap, Project.uuid == ProjectUserMap.project_id)
+            .filter(ProjectUserMap.user_id == user_id)
+            .all()
+        )
+
+        projects_list = []
+        for project, _ in project_mappings:
+            # Get only the items that are mapped to this project
+            project_items = (
+                db.query(Item, ProjectItemMap)
+                .join(ProjectItemMap, Item.uuid == ProjectItemMap.item_id)
+                .filter(ProjectItemMap.project_id == project.uuid)
+                .all()
+            )
+
+            items_list = [{
+                "uuid": str(item.uuid),
+                "name": item.name,
+                "category": item.category,
+                "list_tag": item.list_tag,
+                "has_additional_info": item.has_additional_info,
+                "balance": item_mapping.item_balance
+            } for item, item_mapping in project_items]
+
+            # Get project balances
+            total_balance = (
+                db.query(func.sum(ProjectBalance.adjustment))
+                .filter(ProjectBalance.project_id == project.uuid)
+                .scalar()
+            ) or 0.0
+
+            projects_list.append({
+                "uuid": str(project.uuid),
+                "name": project.name,
+                "description": project.description,
+                "location": project.location,
+                "balance": total_balance,
+                "po_balance": project.po_balance,
+                "estimated_balance": project.estimated_balance,
+                "actual_balance": project.actual_balance,
+                "items": items_list
+            })
+
+        user_response = {
+            "uuid": str(user.uuid),
+            "name": user.name,
+            "phone": user.phone,
+            "role": user.role,
+            "projects": projects_list
+        }
+
+        return ProjectServiceResponse(
+            data=user_response,
+            message="User project items fetched successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in get_user_project_items API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while fetching user project items"
         ).model_dump()
 
 

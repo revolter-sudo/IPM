@@ -1,4 +1,4 @@
-from src.app.database.models import Item,ProjectUserMap, ProjectItemMap
+from src.app.database.models import Item, ProjectUserMap, ProjectItemMap, UserItemMap
 from uuid import UUID, uuid4
 from typing import Optional, Any, List, Dict
 from pydantic import BaseModel, Field
@@ -57,24 +57,54 @@ def create_project_user_mapping(
 
 
 def create_project_item_mapping(
-    db: Session, item_id: UUID, project_id: UUID, item_balance: float
+    db: Session, item_id: UUID, project_id: UUID, item_balance: Optional[float] = None
 ):
-
     # Check if mapping already exists
     existing_mapping = db.query(ProjectItemMap).filter(
         ProjectItemMap.item_id == item_id,
         ProjectItemMap.project_id == project_id
     ).first()
     if existing_mapping:
+        if item_balance is not None:  # Only update balance if provided
+            existing_mapping.item_balance = item_balance
+            db.commit()
+            db.refresh(existing_mapping)
         return existing_mapping
 
     project_item_mapping = ProjectItemMap(
         uuid=str(uuid4()),
         item_id=item_id,
         project_id=project_id,
-        item_balance=item_balance
+        item_balance=item_balance  # Will be None if not provided
     )
     db.add(project_item_mapping)
     db.commit()
     db.refresh(project_item_mapping)
     return project_item_mapping
+
+
+def create_user_item_mapping(
+    db: Session, user_id: UUID, item_id: UUID, item_balance: Optional[float] = None
+):
+    # Check if mapping already exists
+    existing_mapping = db.query(UserItemMap).filter(
+        UserItemMap.user_id == user_id,
+        UserItemMap.item_id == item_id
+    ).first()
+    if existing_mapping:
+        if item_balance is not None:  # Only update balance if provided
+            existing_mapping.item_balance = item_balance
+            db.commit()
+            db.refresh(existing_mapping)
+        return existing_mapping
+
+    user_item_mapping = UserItemMap(
+        uuid=str(uuid4()),
+        user_id=user_id,
+        item_id=item_id,
+        item_balance=item_balance  # Will be None if not provided
+    )
+    db.add(user_item_mapping)
+    db.commit()
+    db.refresh(user_item_mapping)
+    return user_item_mapping

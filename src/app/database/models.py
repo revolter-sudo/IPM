@@ -123,6 +123,13 @@ class User(Base):
         cascade="all, delete-orphan"
     )
 
+    user_items = relationship(
+        "UserItemMap",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
+
 class UserTokenMap(Base):
     __tablename__ = "user_token_map"
 
@@ -211,6 +218,7 @@ class Project(Base):
 
     def __repr__(self):
         return f"<Project(id={self.id}, uuid={self.uuid}, name={self.name})>"
+
 
 class Log(Base):
     __tablename__ = "logs"
@@ -422,6 +430,12 @@ class Item(Base):
         cascade="all, delete-orphan"
     )
 
+    user_items = relationship(
+        "UserItemMap",
+        back_populates="item",
+        cascade="all, delete-orphan"
+    )
+
 
 class PaymentItem(Base):
     __tablename__ = "payment_items"
@@ -507,7 +521,7 @@ class ProjectItemMap(Base):
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
     item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
-    item_balance = Column(Float, nullable=True, server_default="0.0")
+    item_balance = Column(Float, nullable=True)  # Changed to nullable=True
 
     project = relationship("Project")
     item = relationship("Item")
@@ -538,3 +552,22 @@ class Invoice(Base):
 
     def __repr__(self):
         return f"<Invoice(id={self.id}, amount={self.amount}, status={self.status})>"
+
+
+class UserItemMap(Base):
+    __tablename__ = "user_item_map"
+    __table_args__ = (
+        UniqueConstraint('user_id', 'item_id', name='uq_user_item'),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
+    item_balance = Column(Float, nullable=True)  # Changed to nullable=True
+
+    user = relationship("User", back_populates="user_items")
+    item = relationship("Item", back_populates="user_items")
+
+    def __repr__(self):
+        return f"<UserItemMap(user_id={self.user_id}, item_id={self.item_id})>"
