@@ -6,6 +6,7 @@ from fastapi_sqlalchemy import DBSessionMiddleware
 import os
 import uvicorn
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware  # Add CORS import
 from src.app.database.database import settings
 from src.app.services.auth_service import auth_router
 from src.app.services.payment_service import payment_router
@@ -30,6 +31,16 @@ SERVICE_FILE = os.getenv("SERVICE_FILE")
 
 # FastAPI App
 app = FastAPI()
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 
 # Performance middleware to track request timing

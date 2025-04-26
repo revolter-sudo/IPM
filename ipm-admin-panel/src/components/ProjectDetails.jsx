@@ -15,6 +15,7 @@ const ProjectDetails = ({ projectId, token }) => {
   const [message, setMessage] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
   const [selectedItems, setSelectedItems] = useState([]);
+  const [itemBalances, setItemBalances] = useState({});
   const [loading, setLoading] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [showCreateItem, setShowCreateItem] = useState(false);
@@ -81,6 +82,22 @@ const ProjectDetails = ({ projectId, token }) => {
   const handleItemChange = (event) => {
     const selectedOptions = Array.from(event.target.selectedOptions).map(option => option.value);
     setSelectedItems(selectedOptions);
+    
+    // Initialize balances for newly selected items
+    const newBalances = { ...itemBalances };
+    selectedOptions.forEach(itemId => {
+      if (!newBalances[itemId]) {
+        newBalances[itemId] = 0;
+      }
+    });
+    setItemBalances(newBalances);
+  };
+
+  const handleBalanceChange = (itemId, value) => {
+    setItemBalances(prev => ({
+      ...prev,
+      [itemId]: parseFloat(value) || 0
+    }));
   };
 
   const handleAssignItems = async () => {
@@ -88,11 +105,12 @@ const ProjectDetails = ({ projectId, token }) => {
     setLoading(true);
     try {
       for (const itemId of selectedItems) {
-        await assignItemToProject(itemId, projectId, token);
+        await assignItemToProject(itemId, projectId, itemBalances[itemId] || 0, token);
       }
       setMessage('Items assigned successfully');
       await fetchProjectItems();
       setSelectedItems([]);
+      setItemBalances({});
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -201,6 +219,30 @@ const ProjectDetails = ({ projectId, token }) => {
               }
             </select>
             <small style={{ display: 'block', marginTop: '5px' }}>Hold Ctrl/Cmd to select multiple items</small>
+
+            {selectedItems.length > 0 && (
+              <div className="selected-items-balances">
+                <h4>Set Balance for Selected Items:</h4>
+                {selectedItems.map(itemId => {
+                  const item = allItems.find(i => i.uuid === itemId);
+                  return (
+                    <div key={itemId} className="balance-input-row">
+                      <label>{item?.name}:</label>
+                      <input
+                        type="number"
+                        value={itemBalances[itemId] || 0}
+                        onChange={(e) => handleBalanceChange(itemId, e.target.value)}
+                        placeholder="Enter balance"
+                        step="0.01"
+                        min="0"
+                        disabled={loading}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             <div className="button-group">
               <button 
                 onClick={handleAssignItems} 
@@ -242,6 +284,7 @@ const ProjectDetails = ({ projectId, token }) => {
               {items.map((item) => (
                 <li key={item.uuid}>
                   {item.name} - {item.category || 'No Category'}
+                  <span className="item-balance"> (Balance: {item.remaining_balance || 0})</span>
                 </li>
               ))}
             </ul>
@@ -428,6 +471,39 @@ const ProjectDetails = ({ projectId, token }) => {
 
         small {
           color: #666;
+        }
+
+        .balance-input-row {
+          display: flex;
+          align-items: center;
+          margin: 10px 0;
+          gap: 10px;
+        }
+
+        .balance-input-row label {
+          min-width: 150px;
+          font-weight: 500;
+        }
+
+        .balance-input-row input {
+          width: 120px;
+          padding: 5px;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+        }
+
+        .selected-items-balances {
+          margin: 20px 0;
+          padding: 15px;
+          border: 1px solid #ddd;
+          border-radius: 4px;
+          background-color: #f8f9fa;
+        }
+
+        .item-balance {
+          color: #666;
+          margin-left: 10px;
+          font-size: 0.9em;
         }
       `}</style>
     </div>

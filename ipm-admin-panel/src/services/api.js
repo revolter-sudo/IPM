@@ -40,24 +40,25 @@ export async function assignUserToProject(userId, projectId, token) {
   }
 }
 
-export async function assignItemToProject(itemId, projectId, token) {
+export const assignItemToProject = async (itemId, projectId, itemBalance, token) => {
   try {
+    // Parse balance to ensure it's a number and format to 2 decimal places
+    const formattedBalance = parseFloat(itemBalance).toFixed(2);
     const response = await axios.post(
       `${API_BASE_URL}/admin/item_mapping/${itemId}/${projectId}`,
-      {},
+      { item_balance: formattedBalance },
       {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       }
     );
     return response.data;
   } catch (error) {
-    if (error.response) {
-      throw new Error(error.response.data.message || 'Assign item to project failed');
-    } else {
-      throw new Error('Network error');
-    }
+    throw new Error(error.response?.data?.message || 'Failed to assign item to project');
   }
-}
+};
 
 export async function getProjectItems(projectId, token) {
   try {

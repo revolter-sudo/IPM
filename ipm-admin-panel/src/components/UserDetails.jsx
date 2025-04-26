@@ -9,6 +9,7 @@ const UserDetails = ({ userId, token }) => {
   const [allItems, setAllItems] = useState([]);
   const [selectedProjects, setSelectedProjects] = useState([]);
   const [selectedItems, setSelectedItems] = useState([]);
+  const [itemBalances, setItemBalances] = useState({});
   const [selectedProjectForItems, setSelectedProjectForItems] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -45,6 +46,22 @@ const UserDetails = ({ userId, token }) => {
   const handleItemChange = (event) => {
     const selectedOptions = Array.from(event.target.selectedOptions).map(option => option.value);
     setSelectedItems(selectedOptions);
+    
+    // Initialize balances for newly selected items
+    const newBalances = { ...itemBalances };
+    selectedOptions.forEach(itemId => {
+      if (!newBalances[itemId]) {
+        newBalances[itemId] = 0;
+      }
+    });
+    setItemBalances(newBalances);
+  };
+
+  const handleBalanceChange = (itemId, value) => {
+    setItemBalances(prev => ({
+      ...prev,
+      [itemId]: parseFloat(value) || 0
+    }));
   };
 
   const handleAssignProjects = async () => {
@@ -69,11 +86,12 @@ const UserDetails = ({ userId, token }) => {
     setLoading(true);
     try {
       for (const itemId of selectedItems) {
-        await assignItemToProject(itemId, selectedProjectForItems, token);
+        await assignItemToProject(itemId, selectedProjectForItems, itemBalances[itemId] || 0, token);
       }
       setMessage('Items assigned to project successfully');
       await fetchUserDetails();
       setSelectedItems([]);
+      setItemBalances({});
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -211,6 +229,29 @@ const UserDetails = ({ userId, token }) => {
               <small>Hold Ctrl/Cmd to select multiple items</small>
             </div>
 
+            {selectedItems.length > 0 && (
+              <div className="selected-items-balances">
+                <h4>Set Balance for Selected Items:</h4>
+                {selectedItems.map(itemId => {
+                  const item = allItems.find(i => i.uuid === itemId);
+                  return (
+                    <div key={itemId} className="balance-input-row">
+                      <label>{item?.name}:</label>
+                      <input
+                        type="number"
+                        value={itemBalances[itemId] || 0}
+                        onChange={(e) => handleBalanceChange(itemId, e.target.value)}
+                        placeholder="Enter balance"
+                        step="0.01"
+                        min="0"
+                        disabled={loading}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             <div className="button-group">
               <button 
                 className="assign-button"
@@ -246,6 +287,7 @@ const UserDetails = ({ userId, token }) => {
                       {project.items.map((item) => (
                         <li key={item.uuid}>
                           {item.name} {item.category && `- ${item.category}`}
+                          <span className="item-balance"> (Balance: {item.item_balance || 0})</span>
                         </li>
                       ))}
                     </ul>
@@ -445,6 +487,11 @@ const UserDetails = ({ userId, token }) => {
           color: #6c757d;
         }
 
+        .item-balance {
+          font-size: 0.9em;
+          color: #495057;
+        }
+
         .no-items {
           color: #6c757d;
           font-size: 0.9em;
@@ -503,6 +550,31 @@ const UserDetails = ({ userId, token }) => {
           width: 100%;
           min-height: 200px;
           padding: 8px;
+          border: 1px solid #dee2e6;
+          border-radius: 4px;
+        }
+
+        .selected-items-balances {
+          margin-top: 16px;
+          padding: 16px;
+          border: 1px solid #dee2e6;
+          border-radius: 4px;
+        }
+
+        .balance-input-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 8px;
+        }
+
+        .balance-input-row label {
+          min-width: 150px;
+        }
+
+        .balance-input-row input {
+          width: 120px;
+          padding: 6px;
           border: 1px solid #dee2e6;
           border-radius: 4px;
         }

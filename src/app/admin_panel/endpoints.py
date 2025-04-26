@@ -1,6 +1,6 @@
 import os
 import traceback
-from fastapi import FastAPI
+from fastapi import FastAPI, Body, HTTPException
 from fastapi_sqlalchemy import DBSessionMiddleware
 from src.app.database.database import settings
 from src.app.services.auth_service import get_current_user
@@ -15,7 +15,6 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
-    HTTPException,
     Query,
     UploadFile,
     Form
@@ -147,7 +146,7 @@ def map_user_to_project(
 def map_item_to_project(
     item_id: UUID,
     project_id: UUID,
-    item_balance: float,
+    item_balance: float = Body(..., embed=True),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -163,7 +162,7 @@ def map_item_to_project(
                 message="Unauthorized to assign project to user"
             ).model_dump()
 
-        # Instead, check if item exists
+        # Check if item exists
         item = db.query(Item).filter(Item.uuid == item_id).first()
         if not item:
             return ProjectServiceResponse(
@@ -429,9 +428,9 @@ def get_user_details(
 
         projects_list = []
         for project, mapping in project_mappings:
-            # Get items for each project
+            # Get items with their balances for each project
             project_items = (
-                db.query(Item)
+                db.query(Item, ProjectItemMap)
                 .join(ProjectItemMap, Item.uuid == ProjectItemMap.item_id)
                 .filter(ProjectItemMap.project_id == project.uuid)
                 .all()
@@ -442,8 +441,9 @@ def get_user_details(
                 "name": item.name,
                 "category": item.category,
                 "list_tag": item.list_tag,
-                "has_additional_info": item.has_additional_info
-            } for item in project_items]
+                "has_additional_info": item.has_additional_info,
+                "item_balance": item_mapping.item_balance
+            } for item, item_mapping in project_items]
 
             projects_list.append({
                 "uuid": str(project.uuid),
