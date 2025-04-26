@@ -168,8 +168,8 @@ class Person(Base):
     # Relationships
     user = relationship("User", back_populates="person")
     parent_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
-    parent = relationship("Person", remote_side=[uuid], back_populates="children")  
-    children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")  
+    parent = relationship("Person", remote_side=[uuid], back_populates="children")
+    children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Person(id={self.id}, name={self.name}, user_id={self.user_id})>"
@@ -185,6 +185,10 @@ class Project(Base):
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     location = Column(Text, nullable=True)
+    po_balance = Column(Float, nullable=False, default=0.0)
+    estimated_balance = Column(Float, nullable=False, default=0.0)
+    actual_balance = Column(Float, nullable=False, default=0.0)
+    po_document_path = Column(String(255), nullable=True)
     is_deleted = Column(Boolean, nullable=False, default=False)
 
     project_user_map = relationship(
@@ -195,6 +199,12 @@ class Project(Base):
 
     projecct_items = relationship(
         "ProjectItemMap",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+
+    project_invoices = relationship(
+        "Invoice",
         back_populates="project",
         cascade="all, delete-orphan"
     )
@@ -325,8 +335,8 @@ class PaymentStatusHistory(Base):
     uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
 
     payment_id = Column(
-        UUID(as_uuid=True), 
-        ForeignKey("payments.uuid", ondelete="CASCADE"), 
+        UUID(as_uuid=True),
+        ForeignKey("payments.uuid", ondelete="CASCADE"),
         nullable=False
     )
     status = Column(String(20), nullable=False)      # e.g. "requested", "verified", "approved", "done"x``
@@ -338,7 +348,7 @@ class PaymentStatusHistory(Base):
     payment = relationship("Payment", back_populates="status_entries")
 
     def __repr__(self):
-        return ( 
+        return (
             f"<PaymentStatusHistory(id={self.id}, "
             f"payment_id={self.payment_id}, status={self.status})>"
         )
@@ -379,11 +389,14 @@ class ProjectBalance(Base):
     adjustment = Column(
         Float, nullable=False
     )  # Positive for additions, negative for deductions
+    balance_type = Column(
+        String(20), nullable=False, default="actual"
+    )  # po, estimated, actual
     description = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
     def __repr__(self):
-        return f"<ProjectBalance(project_id={self.project_id}, adjustment={self.adjustment})>"
+        return f"<ProjectBalance(project_id={self.project_id}, adjustment={self.adjustment}, type={self.balance_type})>"
 
 
 class Item(Base):
@@ -501,3 +514,27 @@ class ProjectItemMap(Base):
 
     def __repr__(self):
         return f"<ProjectItemMap(project_id={self.project_id}, item_id={self.item_id})>"
+
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    amount = Column(Float, nullable=False)
+    description = Column(Text, nullable=True)
+    file_path = Column(String(255), nullable=True)
+    status = Column(String(20), nullable=False, default="uploaded")  # uploaded, received
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    is_deleted = Column(Boolean, default=False, nullable=False)
+
+    # Relationships
+    project = relationship("Project", back_populates="project_invoices")
+
+    def __repr__(self):
+        return f"<Invoice(id={self.id}, amount={self.amount}, status={self.status})>"
