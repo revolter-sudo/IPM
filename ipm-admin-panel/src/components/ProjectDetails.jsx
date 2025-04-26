@@ -11,7 +11,11 @@ const ProjectDetails = ({ projectId, token }) => {
   const [allItems, setAllItems] = useState([]);
   const [projectName, setProjectName] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
-  const [projectBalance, setProjectBalance] = useState(null);
+  const [projectLocation, setProjectLocation] = useState('');
+  const [poBalance, setPoBalance] = useState(null);
+  const [estimatedBalance, setEstimatedBalance] = useState(null);
+  const [actualBalance, setActualBalance] = useState(null);
+  const [poDocumentPath, setPoDocumentPath] = useState(null);
   const [message, setMessage] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
   const [selectedItems, setSelectedItems] = useState([]);
@@ -45,7 +49,11 @@ const ProjectDetails = ({ projectId, token }) => {
       const data = response.data || {};
       setProjectName(data.name || '');
       setProjectDescription(data.description || '');
-      setProjectBalance(data.balance !== undefined ? data.balance : null);
+      setProjectLocation(data.location || '');
+      setPoBalance(data.po_balance !== undefined ? data.po_balance : null);
+      setEstimatedBalance(data.estimated_balance !== undefined ? data.estimated_balance : null);
+      setActualBalance(data.actual_balance !== undefined ? data.actual_balance : null);
+      setPoDocumentPath(data.po_document_path || null);
     } catch (error) {
       setMessage(error.message);
     }
@@ -161,7 +169,16 @@ const ProjectDetails = ({ projectId, token }) => {
         <ul>
           <li><strong>Name:</strong> {projectName || 'N/A'}</li>
           <li><strong>Description:</strong> {projectDescription || 'N/A'}</li>
-          <li><strong>Balance:</strong> {projectBalance !== null ? projectBalance : 'N/A'}</li>
+          <li><strong>Location:</strong> {projectLocation || 'N/A'}</li>
+          <li><strong>PO Balance:</strong> {poBalance !== null ? poBalance : 'N/A'}</li>
+          <li><strong>Estimated Balance:</strong> {estimatedBalance !== null ? estimatedBalance : 'N/A'}</li>
+          <li><strong>Actual Balance:</strong> {actualBalance !== null ? actualBalance : 'N/A'}</li>
+          {poDocumentPath && (
+            <li>
+              <strong>PO Document:</strong>{' '}
+              <a href={poDocumentPath} target="_blank" rel="noopener noreferrer">View Document</a>
+            </li>
+          )}
         </ul>
       </div>
 

@@ -280,6 +280,20 @@ const UserDetails = ({ userId, token }) => {
                   <span className="location">{project.location}</span>
                 </div>
                 <p className="description">{project.description || 'No description'}</p>
+                <div className="balances-section">
+                  <div className="balance-row">
+                    <span className="balance-label">PO Balance:</span>
+                    <span className="balance-value">{project.po_balance || 0}</span>
+                  </div>
+                  <div className="balance-row">
+                    <span className="balance-label">Estimated Balance:</span>
+                    <span className="balance-value">{project.estimated_balance || 0}</span>
+                  </div>
+                  <div className="balance-row">
+                    <span className="balance-label">Actual Balance:</span>
+                    <span className="balance-value">{project.actual_balance || 0}</span>
+                  </div>
+                </div>
                 <div className="items-section">
                   <h5>Project Items ({project.items.length})</h5>
                   {project.items.length > 0 ? (
@@ -461,6 +475,31 @@ const UserDetails = ({ userId, token }) => {
           color: #495057;
           font-size: 0.9em;
           margin: 0;
+        }
+
+        .balances-section {
+          margin: 12px 0;
+          padding: 8px;
+          background: #f8f9fa;
+          border-radius: 4px;
+        }
+
+        .balance-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 4px 0;
+        }
+
+        .balance-label {
+          font-weight: 500;
+          color: #495057;
+          font-size: 0.9em;
+        }
+
+        .balance-value {
+          font-family: monospace;
+          color: #0066cc;
         }
 
         .items-section {

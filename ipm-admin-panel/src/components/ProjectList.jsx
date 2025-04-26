@@ -46,6 +46,20 @@ const ProjectList = ({ token, onSelectProject }) => {
           <div className="project-info">
             <div className="project-name">{project.name}</div>
             <div className="project-description">{project.description || 'No description'}</div>
+            <div className="project-balances">
+              <div className="balance-item">
+                <span className="balance-label">PO:</span>
+                <span className="balance-value">{project.po_balance || 0}</span>
+              </div>
+              <div className="balance-item">
+                <span className="balance-label">Est:</span>
+                <span className="balance-value">{project.estimated_balance || 0}</span>
+              </div>
+              <div className="balance-item">
+                <span className="balance-label">Actual:</span>
+                <span className="balance-value">{project.actual_balance || 0}</span>
+              </div>
+            </div>
           </div>
           <div className="project-uuid">
             {project.uuid}
@@ -63,7 +77,7 @@ const ProjectList = ({ token, onSelectProject }) => {
         .project-card {
           display: flex;
           justify-content: space-between;
-          align-items: center;
+          align-items: start;
           padding: 16px;
           background: #f8f9fa;
           border-radius: 6px;
@@ -84,7 +98,7 @@ const ProjectList = ({ token, onSelectProject }) => {
           flex: 1;
           display: flex;
           flex-direction: column;
-          gap: 4px;
+          gap: 8px;
         }
 
         .project-name {
@@ -95,6 +109,26 @@ const ProjectList = ({ token, onSelectProject }) => {
         .project-description {
           font-size: 0.875rem;
           color: #6c757d;
+        }
+
+        .project-balances {
+          display: flex;
+          gap: 16px;
+          margin-top: 4px;
+        }
+
+        .balance-item {
+          font-size: 0.875rem;
+          color: #495057;
+        }
+
+        .balance-label {
+          font-weight: 500;
+          margin-right: 4px;
+        }
+
+        .balance-value {
+          font-family: monospace;
         }
 
         .project-uuid {

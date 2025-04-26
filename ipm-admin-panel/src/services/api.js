@@ -105,13 +105,16 @@ export async function getUserProjects(userId, token) {
   }
 }
 
-export async function createProject(projectData, token) {
+export async function createProject(formData, token) {
   try {
     const response = await axios.post(
       `${API_BASE_URL}/projects/create`,
-      projectData,
+      formData,
       {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        },
       }
     );
     return response.data;
