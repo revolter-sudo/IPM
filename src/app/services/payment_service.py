@@ -2369,17 +2369,20 @@ def list_items(
     db: Session = Depends(get_db)
 ):
     try:
+        # Base query with ordering by id in descending order
+        base_query = db.query(Item).order_by(desc(Item.id))
+
         if list_tag is None:
-            items = db.query(Item).all()
+            items = base_query.all()
         elif list_tag == 'khatabook':
-            items = db.query(Item).filter(
+            items = base_query.filter(
                 or_(
                     Item.list_tag.is_(None),
                     Item.list_tag == 'khatabook'
                 )
             ).all()
         elif list_tag == 'payment':
-            items = db.query(Item).filter(
+            items = base_query.filter(
                 or_(
                     Item.list_tag.is_(None),
                     Item.list_tag == 'payment'

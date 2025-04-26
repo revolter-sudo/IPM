@@ -370,18 +370,53 @@ def get_user_projects(
 
         project_response = []
         for project in projects:
+            # Get total balance (for backward compatibility)
             total_balance = (
                 db.query(func.sum(ProjectBalance.adjustment))
                 .filter(ProjectBalance.project_id == project.uuid)
                 .scalar()
             ) or 0.0
 
+            # Get PO balance
+            po_balance = (
+                db.query(func.sum(ProjectBalance.adjustment))
+                .filter(
+                    ProjectBalance.project_id == project.uuid,
+                    ProjectBalance.balance_type == "po"
+                )
+                .scalar()
+            ) or project.po_balance
+
+            # Get estimated balance
+            estimated_balance = (
+                db.query(func.sum(ProjectBalance.adjustment))
+                .filter(
+                    ProjectBalance.project_id == project.uuid,
+                    ProjectBalance.balance_type == "estimated"
+                )
+                .scalar()
+            ) or project.estimated_balance
+
+            # Get actual balance
+            actual_balance = (
+                db.query(func.sum(ProjectBalance.adjustment))
+                .filter(
+                    ProjectBalance.project_id == project.uuid,
+                    ProjectBalance.balance_type == "actual"
+                )
+                .scalar()
+            ) or project.actual_balance
+
             project_response.append({
                 "uuid": str(project.uuid),
                 "name": project.name,
                 "description": project.description,
                 "location": project.location,
-                "balance": total_balance
+                "balance": total_balance,  # For backward compatibility
+                "po_balance": po_balance,
+                "estimated_balance": estimated_balance,
+                "actual_balance": actual_balance,
+                "po_document_path": project.po_document_path
             })
         return ProjectServiceResponse(
             data=project_response,
@@ -452,11 +487,53 @@ def get_user_details(
                 "has_additional_info": item.has_additional_info
             } for item in project_items]
 
+            # Get total balance (for backward compatibility)
+            total_balance = (
+                db.query(func.sum(ProjectBalance.adjustment))
+                .filter(ProjectBalance.project_id == project.uuid)
+                .scalar()
+            ) or 0.0
+
+            # Get PO balance
+            po_balance = (
+                db.query(func.sum(ProjectBalance.adjustment))
+                .filter(
+                    ProjectBalance.project_id == project.uuid,
+                    ProjectBalance.balance_type == "po"
+                )
+                .scalar()
+            ) or project.po_balance
+
+            # Get estimated balance
+            estimated_balance = (
+                db.query(func.sum(ProjectBalance.adjustment))
+                .filter(
+                    ProjectBalance.project_id == project.uuid,
+                    ProjectBalance.balance_type == "estimated"
+                )
+                .scalar()
+            ) or project.estimated_balance
+
+            # Get actual balance
+            actual_balance = (
+                db.query(func.sum(ProjectBalance.adjustment))
+                .filter(
+                    ProjectBalance.project_id == project.uuid,
+                    ProjectBalance.balance_type == "actual"
+                )
+                .scalar()
+            ) or project.actual_balance
+
             projects_list.append({
                 "uuid": str(project.uuid),
                 "name": project.name,
                 "description": project.description,
                 "location": project.location,
+                "balance": total_balance,  # For backward compatibility
+                "po_balance": po_balance,
+                "estimated_balance": estimated_balance,
+                "actual_balance": actual_balance,
+                "po_document_path": project.po_document_path,
                 "items": items_list
             })
 
@@ -605,8 +682,11 @@ def upload_invoice(
 )
 def update_invoice_status(
     invoice_id: UUID,
-    status_request: InvoiceStatusUpdateRequest = Body(..., description="Status update information",
-        example={"status": "received"}),
+    status_request: InvoiceStatusUpdateRequest = Body(
+        ...,
+        description="Status update information",
+        example={"status": "received"}
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

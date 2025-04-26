@@ -362,15 +362,23 @@ def list_all_projects(
     try:
         # 1. Base project list depending on role
         if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
-            projects = db.query(Project).filter(Project.is_deleted.is_(False)).all()
+            projects = db.query(
+                Project
+            ).filter(
+                Project.is_deleted.is_(False)
+            ).order_by(Project.id.desc()).all()
         else:
             projects = (
                 db.query(Project)
-                .join(ProjectUserMap, Project.uuid == ProjectUserMap.project_id)
+                .join(
+                    ProjectUserMap,
+                    Project.uuid == ProjectUserMap.project_id
+                )
                 .filter(
                     Project.is_deleted.is_(False),
                     ProjectUserMap.user_id == current_user.uuid,
                 )
+                .order_by(Project.id.desc())
                 .all()
             )
 
@@ -511,7 +519,7 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             estimated_balance=estimated_balance,
             actual_balance=actual_balance,
             po_document_path=project.po_document_path
-        ).to_dict()
+        ).model_dump()
         return ProjectServiceResponse(
             data=project_response_data,
             message="Project info fetched successfully.",
