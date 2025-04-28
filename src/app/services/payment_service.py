@@ -2424,7 +2424,7 @@ def update_item(
     item_uuid: UUID,
     payload: UpdateItemSchema,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),  # if you want to enforce role checks
+    current_user: User = Depends(get_current_user),
 ):
     """
     Update an existing Item's details:

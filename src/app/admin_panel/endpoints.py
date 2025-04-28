@@ -36,9 +36,14 @@ from src.app.database.models import (
     Item,
     ProjectItemMap,
     Invoice,
-    UserItemMap
+    UserItemMap,
+    Khatabook,
+    KhatabookItem,
+    KhatabookFile,
+    Person
 )
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from src.app.schemas import constants
 from src.app.admin_panel.services import get_default_config_service, create_project_item_mapping, create_user_item_mapping
 from src.app.database.database import get_db, SessionLocal
 import logging
@@ -1066,4 +1071,183 @@ def get_invoice(
             data=None,
             status_code=500,
             message=f"An error occurred while fetching invoice: {str(e)}"
+        ).model_dump()
+
+
+@admin_app.get(
+    "/khatabook",
+    tags=["Khatabook"],
+    description="""
+    Get all khatabook entries with optional filtering.
+
+    This endpoint allows admins to view khatabook entries from all users.
+    You can filter by amount, date range, item, and user.
+    """
+)
+def get_all_khatabook_entries_admin(
+    user_id: Optional[UUID] = Query(None, description="Filter by user ID"),
+    item_id: Optional[UUID] = Query(None, description="Filter by item ID"),
+    person_id: Optional[UUID] = Query(None, description="Filter by person ID"),
+    project_id: Optional[UUID] = Query(None, description="Filter by project ID"),
+    min_amount: Optional[float] = Query(None, description="Minimum amount"),
+    max_amount: Optional[float] = Query(None, description="Maximum amount"),
+    start_date: Optional[datetime] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[datetime] = Query(None, description="End date (YYYY-MM-DD)"),
+    payment_mode: Optional[str] = Query(None, description="Payment mode"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get all khatabook entries with optional filtering.
+    Only accessible to admin and super admin users.
+    """
+    try:
+        # Check if user has permission
+        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Only admin and super admin can access all khatabook entries"
+            ).model_dump()
+
+        # Base query with all joins
+        query = (
+            db.query(Khatabook)
+            .outerjoin(KhatabookItem, Khatabook.uuid == KhatabookItem.khatabook_id)
+            .outerjoin(KhatabookFile, Khatabook.uuid == KhatabookFile.khatabook_id)
+            .outerjoin(User, Khatabook.created_by == User.uuid)
+            .outerjoin(Person, Khatabook.person_id == Person.uuid)
+            .outerjoin(Project, Khatabook.project_id == Project.uuid)
+            .filter(Khatabook.is_deleted.is_(False))
+            .distinct()
+        )
+
+        # Apply filters if provided
+        if user_id:
+            query = query.filter(Khatabook.created_by == user_id)
+
+        if item_id:
+            query = query.filter(KhatabookItem.item_id == item_id)
+
+        if person_id:
+            query = query.filter(Khatabook.person_id == person_id)
+
+        if project_id:
+            query = query.filter(Khatabook.project_id == project_id)
+
+        if min_amount is not None:
+            query = query.filter(Khatabook.amount >= min_amount)
+
+        if max_amount is not None:
+            query = query.filter(Khatabook.amount <= max_amount)
+
+        if start_date:
+            query = query.filter(Khatabook.expense_date >= start_date)
+
+        if end_date:
+            query = query.filter(Khatabook.expense_date <= end_date)
+
+        if payment_mode:
+            query = query.filter(Khatabook.payment_mode == payment_mode)
+
+        # Order by most recent first
+        query = query.order_by(Khatabook.created_at.desc())
+
+        # Execute query with eager loading of relationships
+        entries = (
+            query
+            .options(
+                joinedload(Khatabook.files),
+                joinedload(Khatabook.person),
+                joinedload(Khatabook.items).joinedload(KhatabookItem.item),
+                joinedload(Khatabook.project),
+                joinedload(Khatabook.created_by_user)
+            )
+            .all()
+        )
+
+        # Format response
+        response_data = []
+        for entry in entries:
+            # Process files
+            file_urls = []
+            if entry.files:
+                for f in entry.files:
+                    filename = os.path.basename(f.file_path)
+                    file_url = f"{constants.HOST_URL}/uploads/khatabook_files/{filename}"
+                    file_urls.append(file_url)
+
+            # Process items
+            items_data = []
+            if entry.items:
+                for khatabook_item in entry.items:
+                    if khatabook_item.item:
+                        items_data.append({
+                            "uuid": str(khatabook_item.item.uuid),
+                            "name": khatabook_item.item.name,
+                            "category": khatabook_item.item.category,
+                        })
+
+            # Process project info
+            project_info = None
+            if entry.project:
+                project_info = {
+                    "uuid": str(entry.project.uuid),
+                    "name": entry.project.name
+                }
+
+            # Process user info
+            user_info = None
+            if entry.created_by_user:
+                user_info = {
+                    "uuid": str(entry.created_by_user.uuid),
+                    "name": entry.created_by_user.name,
+                    "phone": entry.created_by_user.phone,
+                    "role": entry.created_by_user.role
+                }
+
+            # Process person info
+            person_info = None
+            if entry.person:
+                person_info = {
+                    "uuid": str(entry.person.uuid),
+                    "name": entry.person.name,
+                    "phone_number": entry.person.phone_number
+                }
+
+            # Add entry to response
+            response_data.append({
+                "uuid": str(entry.uuid),
+                "amount": entry.amount,
+                "remarks": entry.remarks,
+                "balance_after_entry": entry.balance_after_entry,
+                "person": person_info,
+                "user": user_info,
+                "project": project_info,
+                "expense_date": entry.expense_date.isoformat() if entry.expense_date else None,
+                "created_at": entry.created_at.isoformat(),
+                "files": file_urls,
+                "items": items_data,
+                "payment_mode": entry.payment_mode
+            })
+
+        # Calculate totals
+        total_amount = sum(entry["amount"] for entry in response_data)
+
+        return ProjectServiceResponse(
+            data={
+                "total_amount": total_amount,
+                "entries_count": len(response_data),
+                "entries": response_data
+            },
+            message="Khatabook entries fetched successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        logging.error(f"Error in get_all_khatabook_entries_admin API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while fetching khatabook entries: {str(e)}"
         ).model_dump()
