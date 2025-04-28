@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import '../styles/KhatabookCreate.css';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || "http://localhost:8000";
 
@@ -9,7 +10,7 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
     remarks: '',
     person_id: '',
     project_id: '',
-    expense_date: new Date().toISOString().slice(0, 16), // Format: YYYY-MM-DDTHH:mm
+    expense_date: new Date().toISOString().slice(0, 16),
     payment_mode: '',
     item_ids: []
   });
@@ -39,7 +40,7 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
 
   const fetchPersons = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/auth/persons`, {
+      const response = await axios.get(`${API_BASE_URL}/payments/persons`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       setPersons(response.data.data || []);
@@ -73,7 +74,6 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     if (name === 'expense_date') {
-      // For expense_date, convert the datetime-local value to ISO string
       const date = new Date(value);
       setFormData(prev => ({
         ...prev,
@@ -124,89 +124,68 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
       setPersonError('Account number must be between 11 and 16 digits');
       return false;
     }
-    if (newPerson.ifsc_code && !/^[A-Za-z0-9]{11}$/.test(newPerson.ifsc_code)) {
-      setPersonError('IFSC code must be 11 characters');
-      return false;
-    }
-    if (newPerson.upi_number && !/^\d{10}$/.test(newPerson.upi_number)) {
-      setPersonError('UPI number must be 10 digits');
+    if (newPerson.ifsc_code && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(newPerson.ifsc_code)) {
+      setPersonError('Invalid IFSC code format');
       return false;
     }
     return true;
   };
 
-  const createPerson = async () => {
-    if (!validatePerson()) return;
-
-    try {
-      const response = await axios.post(
-        `${API_BASE_URL}/payments/person`,
-        newPerson,
-        {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }
-      );
-
-      const newPersonId = response.data.data;
-      setFormData(prev => ({
-        ...prev,
-        person_id: newPersonId
-      }));
-      
-      await fetchPersons();
-      
-      setNewPerson({
-        name: '',
-        phone_number: '',
-        account_number: '',
-        ifsc_code: '',
-        upi_number: ''
-      });
-      setIsCreatingPerson(false);
-      setPersonError('');
-    } catch (err) {
-      setPersonError(err.response?.data?.message || 'Failed to create person');
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError('');
+    setLoading(true);
 
     try {
-      if (!formData.amount || !formData.person_id) {
-        throw new Error('Amount and Person are required fields');
+      let finalFormData = { ...formData };
+
+      if (isCreatingPerson) {
+        if (!validatePerson()) {
+          setLoading(false);
+          return;
+        }
+
+        const personResponse = await axios.post(
+          `${API_BASE_URL}/payments/persons`,
+          newPerson,
+          {
+            headers: { 'Authorization': `Bearer ${token}` }
+          }
+        );
+
+        finalFormData.person_id = personResponse.data.data.uuid;
       }
 
       const formDataObj = new FormData();
-      
-      // Ensure expense_date is a valid ISO string
-      const submissionData = {
-        ...formData,
-        amount: parseFloat(formData.amount),
-        expense_date: formData.expense_date || new Date().toISOString()
-      };
-      
-      formDataObj.append('data', JSON.stringify(submissionData));
-
-      files.forEach(file => {
-        formDataObj.append('files', file);
-      });
-
-      await axios.post(`${API_BASE_URL}/khatabook`, formDataObj, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data'
+      Object.keys(finalFormData).forEach(key => {
+        if (key === 'item_ids') {
+          finalFormData[key].forEach(itemId => {
+            formDataObj.append('item_ids[]', itemId);
+          });
+        } else {
+          formDataObj.append(key, finalFormData[key]);
         }
       });
 
-      if (onSuccess) {
-        onSuccess();
-      }
+      files.forEach(file => {
+        formDataObj.append('files[]', file);
+      });
+
+      await axios.post(
+        `${API_BASE_URL}/khatabook/entries`,
+        formDataObj,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+
+      onSuccess();
       onClose();
     } catch (err) {
-      setError(err.message || 'Failed to create Khatabook entry');
+      setError(err.response?.data?.message || 'Failed to create khatabook entry');
     } finally {
       setLoading(false);
     }
@@ -215,8 +194,8 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
   return (
     <div className="khatabook-create">
       <h2>Create Khatabook Entry</h2>
-      {error && <p className="error">{error}</p>}
-      <form onSubmit={handleSubmit} className="khatabook-form">
+      {error && <p className="error-message">{error}</p>}
+      <form onSubmit={handleSubmit}>
         <div className="form-group">
           <label htmlFor="amount">Amount *</label>
           <input
@@ -226,10 +205,29 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
             value={formData.amount}
             onChange={handleChange}
             required
+            disabled={loading}
             step="0.01"
             min="0"
-            disabled={loading}
           />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="project_id">Project *</label>
+          <select
+            id="project_id"
+            name="project_id"
+            value={formData.project_id}
+            onChange={handleChange}
+            required
+            disabled={loading}
+          >
+            <option value="">Select Project</option>
+            {projects.map(project => (
+              <option key={project.uuid} value={project.uuid}>
+                {project.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="form-group">
@@ -263,6 +261,7 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
             </>
           ) : (
             <div className="new-person-form">
+              {personError && <p className="error-message">{personError}</p>}
               <div className="form-row">
                 <input
                   type="text"
@@ -308,18 +307,8 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
                   placeholder="UPI Number"
                   disabled={loading}
                 />
-              </div>
-              {personError && <p className="error">{personError}</p>}
-              <div className="button-row">
-                <button 
-                  type="button" 
-                  onClick={createPerson}
-                  disabled={loading}
-                >
-                  Create Person
-                </button>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => {
                     setIsCreatingPerson(false);
                     setPersonError('');
@@ -331,24 +320,6 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
               </div>
             </div>
           )}
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="project_id">Project</label>
-          <select
-            id="project_id"
-            name="project_id"
-            value={formData.project_id}
-            onChange={handleChange}
-            disabled={loading}
-          >
-            <option value="">Select Project</option>
-            {projects.map(project => (
-              <option key={project.uuid} value={project.uuid}>
-                {project.name}
-              </option>
-            ))}
-          </select>
         </div>
 
         <div className="form-group">
@@ -431,150 +402,6 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
           </button>
         </div>
       </form>
-
-      <style jsx>{`
-        .khatabook-create {
-          padding: 20px;
-          max-width: 600px;
-          margin: 0 auto;
-        }
-
-        .error {
-          color: red;
-          margin-bottom: 16px;
-        }
-
-        .khatabook-form {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-
-        .form-group {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .form-group label {
-          font-weight: 500;
-          color: #495057;
-        }
-
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
-          padding: 8px;
-          border: 1px solid #ced4da;
-          border-radius: 4px;
-          font-size: 14px;
-        }
-
-        .form-group textarea {
-          min-height: 100px;
-          resize: vertical;
-        }
-
-        .form-group select[multiple] {
-          min-height: 120px;
-        }
-
-        .form-group small {
-          color: #6c757d;
-          font-size: 12px;
-        }
-
-        .button-group {
-          display: flex;
-          gap: 12px;
-          margin-top: 8px;
-        }
-
-        .button-group button {
-          padding: 8px 16px;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          font-weight: 500;
-        }
-
-        .button-group button[type="submit"] {
-          background: #0066cc;
-          color: white;
-        }
-
-        .button-group button[type="button"] {
-          background: #e9ecef;
-          color: #495057;
-        }
-
-        .button-group button:disabled {
-          opacity: 0.7;
-          cursor: not-allowed;
-        }
-
-        .select-with-button {
-          display: flex;
-          gap: 8px;
-        }
-
-        .select-with-button select {
-          flex: 1;
-        }
-
-        .new-person-btn {
-          padding: 8px 16px;
-          background: #28a745;
-          color: white;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-
-        .new-person-form {
-          background: #f8f9fa;
-          padding: 16px;
-          border-radius: 4px;
-          margin-top: 8px;
-        }
-
-        .form-row {
-          display: flex;
-          gap: 8px;
-          margin-bottom: 8px;
-        }
-
-        .form-row input {
-          flex: 1;
-          padding: 8px;
-          border: 1px solid #ced4da;
-          border-radius: 4px;
-        }
-
-        .button-row {
-          display: flex;
-          gap: 8px;
-          margin-top: 16px;
-        }
-
-        .button-row button {
-          padding: 8px 16px;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-        }
-
-        .button-row button:first-child {
-          background: #0066cc;
-          color: white;
-        }
-
-        .button-row button:last-child {
-          background: #6c757d;
-          color: white;
-        }
-      `}</style>
     </div>
   );
 };

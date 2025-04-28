@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { assignUserToProject, getUserProjects, getAllUsers, getAllProjects } from '../services/api';
+import '../styles/ProjectUserMapping.css';
 
 const ProjectUserMapping = ({ token }) => {
   const [selectedUserIds, setSelectedUserIds] = useState([]);

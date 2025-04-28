@@ -183,6 +183,39 @@ const ProjectDetails = ({ projectId, token }) => {
         </ul>
       </div>
 
+      <div className="current-assignments">
+        <div className="users-list">
+          <h4>Users Assigned</h4>
+          {users.length > 0 ? (
+            <ul>
+              {users.map((user) => (
+                <li key={user.uuid}>
+                  {user.name} ({user.role})
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No users assigned</p>
+          )}
+        </div>
+
+        <div className="items-list">
+          <h4>Items Assigned</h4>
+          {items.length > 0 ? (
+            <ul>
+              {items.map((item) => (
+                <li key={item.uuid}>
+                  {item.name} - {item.category || 'No Category'}
+                  <span className="item-balance"> (Balance: {item.remaining_balance || 0})</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No items assigned</p>
+          )}
+        </div>
+      </div>
+
       <div className="assign-section">
         <div className="assign-user">
           <h4>Assign New User</h4>
@@ -278,39 +311,6 @@ const ProjectDetails = ({ projectId, token }) => {
               </button>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div className="current-assignments">
-        <div className="users-list">
-          <h4>Users Assigned</h4>
-          {users.length > 0 ? (
-            <ul>
-              {users.map((user) => (
-                <li key={user.uuid}>
-                  {user.name} ({user.role})
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>No users assigned</p>
-          )}
-        </div>
-
-        <div className="items-list">
-          <h4>Items Assigned</h4>
-          {items.length > 0 ? (
-            <ul>
-              {items.map((item) => (
-                <li key={item.uuid}>
-                  {item.name} - {item.category || 'No Category'}
-                  <span className="item-balance"> (Balance: {item.remaining_balance || 0})</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>No items assigned</p>
-          )}
         </div>
       </div>
 

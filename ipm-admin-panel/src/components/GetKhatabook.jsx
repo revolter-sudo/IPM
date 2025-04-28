@@ -17,36 +17,34 @@ const GetKhatabook = ({ token }) => {
   const [pageSize, setPageSize] = useState(25);
   const [totalPages, setTotalPages] = useState(0);
   const [totalEntries, setTotalEntries] = useState(0);
-
   const [filters, setFilters] = useState({
     user_id: '',
-    item_id: '',
     project_id: '',
+    item_id: '',
+    payment_mode: '',
     min_amount: '',
     max_amount: '',
     start_date: null,
-    end_date: null,
-    payment_mode: ''
+    end_date: null
   });
 
   useEffect(() => {
-    const fetchInitialData = async () => {
+    const fetchData = async () => {
       try {
-        const [usersResponse, projectsResponse, itemsResponse] = await Promise.all([
+        const [usersRes, projectsRes, itemsRes] = await Promise.all([
           getAllUsers(token),
           getAllProjects(token),
           getAllItems(token)
         ]);
-        setUsers(usersResponse.data);
-        setProjects(projectsResponse.data);
-        setItems(itemsResponse.data);
+        setUsers(usersRes.data || []);
+        setProjects(projectsRes.data || []);
+        setItems(itemsRes.data || []);
+        fetchKhatabookEntries();
       } catch (error) {
-        setError('Failed to fetch initial data');
+        setError(error.message);
       }
     };
-
-    fetchInitialData();
-    fetchKhatabookEntries();
+    fetchData();
   }, [token]);
 
   const fetchKhatabookEntries = async () => {
@@ -87,15 +85,16 @@ const GetKhatabook = ({ token }) => {
   const handleResetFilters = () => {
     setFilters({
       user_id: '',
-      item_id: '',
       project_id: '',
+      item_id: '',
+      payment_mode: '',
       min_amount: '',
       max_amount: '',
       start_date: null,
-      end_date: null,
-      payment_mode: ''
+      end_date: null
     });
     setPage(1);
+    fetchKhatabookEntries();
   };
 
   const handlePageChange = (event, newPage) => {
@@ -121,10 +120,10 @@ const GetKhatabook = ({ token }) => {
             <label>User</label>
             <select
               value={filters.user_id}
-              onChange={(e) => handleFilterChange('user_id')(e)}
+              onChange={handleFilterChange('user_id')}
             >
               <option value="">All Users</option>
-              {users.map((user) => (
+              {users.map(user => (
                 <option key={user.uuid} value={user.uuid}>
                   {user.name}
                 </option>
@@ -136,10 +135,10 @@ const GetKhatabook = ({ token }) => {
             <label>Project</label>
             <select
               value={filters.project_id}
-              onChange={(e) => handleFilterChange('project_id')(e)}
+              onChange={handleFilterChange('project_id')}
             >
               <option value="">All Projects</option>
-              {projects.map((project) => (
+              {projects.map(project => (
                 <option key={project.uuid} value={project.uuid}>
                   {project.name}
                 </option>
@@ -151,10 +150,10 @@ const GetKhatabook = ({ token }) => {
             <label>Item</label>
             <select
               value={filters.item_id}
-              onChange={(e) => handleFilterChange('item_id')(e)}
+              onChange={handleFilterChange('item_id')}
             >
               <option value="">All Items</option>
-              {items.map((item) => (
+              {items.map(item => (
                 <option key={item.uuid} value={item.uuid}>
                   {item.name}
                 </option>
@@ -166,7 +165,7 @@ const GetKhatabook = ({ token }) => {
             <label>Payment Mode</label>
             <select
               value={filters.payment_mode}
-              onChange={(e) => handleFilterChange('payment_mode')(e)}
+              onChange={handleFilterChange('payment_mode')}
             >
               <option value="">All Modes</option>
               <option value="cash">Cash</option>
@@ -181,8 +180,9 @@ const GetKhatabook = ({ token }) => {
             <input
               type="number"
               value={filters.min_amount}
-              onChange={(e) => handleFilterChange('min_amount')(e)}
+              onChange={handleFilterChange('min_amount')}
               placeholder="Enter min amount"
+              min="0"
             />
           </div>
 
@@ -191,8 +191,9 @@ const GetKhatabook = ({ token }) => {
             <input
               type="number"
               value={filters.max_amount}
-              onChange={(e) => handleFilterChange('max_amount')(e)}
+              onChange={handleFilterChange('max_amount')}
               placeholder="Enter max amount"
+              min="0"
             />
           </div>
 
@@ -202,7 +203,11 @@ const GetKhatabook = ({ token }) => {
               <DatePicker
                 value={filters.start_date}
                 onChange={handleDateChange('start_date')}
-                renderInput={(params) => <input {...params} />}
+                renderInput={(params) => (
+                  <div className="date-picker-wrapper">
+                    <input {...params} />
+                  </div>
+                )}
               />
             </LocalizationProvider>
           </div>
@@ -213,7 +218,11 @@ const GetKhatabook = ({ token }) => {
               <DatePicker
                 value={filters.end_date}
                 onChange={handleDateChange('end_date')}
-                renderInput={(params) => <input {...params} />}
+                renderInput={(params) => (
+                  <div className="date-picker-wrapper">
+                    <input {...params} />
+                  </div>
+                )}
               />
             </LocalizationProvider>
           </div>
@@ -267,13 +276,17 @@ const GetKhatabook = ({ token }) => {
             <tbody>
               {entries.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: 'center' }}>No entries found</td>
+                  <td colSpan={9}>
+                    <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+                      No entries found
+                    </div>
+                  </td>
                 </tr>
               ) : (
                 entries.map((entry) => (
                   <tr key={entry.uuid}>
                     <td className="date-cell">
-                      {entry.expense_date 
+                      {entry.expense_date && entry.expense_date !== 'null' && entry.expense_date !== ''
                         ? new Date(entry.expense_date).toLocaleString('en-IN', {
                             weekday: 'short',
                             year: 'numeric',
@@ -285,6 +298,10 @@ const GetKhatabook = ({ token }) => {
                           })
                         : 'N/A'
                       }
+                      <br />
+                      <small style={{ fontSize: '0.7rem', color: '#888' }}>
+                        Raw: {entry.expense_date || 'null'}
+                      </small>
                     </td>
                     <td className="amount-cell">₹{entry.amount.toFixed(2)}</td>
                     <td>{entry.user?.name || 'N/A'}</td>

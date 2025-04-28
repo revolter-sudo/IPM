@@ -9,6 +9,7 @@ const UserDetails = ({ userId, token }) => {
   const [allProjects, setAllProjects] = useState([]);
   const [allItems, setAllItems] = useState([]);
   const [selectedProjects, setSelectedProjects] = useState([]);
+  const [selectedProject, setSelectedProject] = useState('');
   const [selectedItems, setSelectedItems] = useState([]);
   const [itemBalances, setItemBalances] = useState({});
   const [selectedProjectForItems, setSelectedProjectForItems] = useState('');
@@ -42,6 +43,21 @@ const UserDetails = ({ userId, token }) => {
   const handleProjectChange = (event) => {
     const selectedOptions = Array.from(event.target.selectedOptions).map(option => option.value);
     setSelectedProjects(selectedOptions);
+  };
+
+  const handleAssignProject = async () => {
+    if (!selectedProject) return;
+    setLoading(true);
+    try {
+      await assignUserToProject(userId, selectedProject, token);
+      setMessage('Project assigned successfully');
+      await fetchUserDetails();
+      setSelectedProject('');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleItemChange = (event) => {
@@ -135,7 +151,7 @@ const UserDetails = ({ userId, token }) => {
       )}
 
       <div className="content">
-        <div className="user-info-card">
+        <div className="user-info-card emphasized-section">
           <h3>Basic Information</h3>
           <div className="info-grid">
             <div className="info-item">
@@ -157,16 +173,61 @@ const UserDetails = ({ userId, token }) => {
           </div>
         </div>
 
+        <div className="projects-section emphasized-section">
+          <h3>Assigned Projects ({userDetails.projects.length})</h3>
+          <div className="projects-grid">
+            {userDetails.projects.map((project) => (
+              <div key={project.uuid} className="project-card">
+                <div className="project-header">
+                  <h4>{project.name}</h4>
+                  <span className="location">{project.location}</span>
+                </div>
+                <p className="description">{project.description || 'No description'}</p>
+                <div className="balances-section">
+                  <div className="balance-row">
+                    <span className="balance-label">PO Balance:</span>
+                    <span className="balance-value">{project.po_balance || 0}</span>
+                  </div>
+                  <div className="balance-row">
+                    <span className="balance-label">Estimated Balance:</span>
+                    <span className="balance-value">{project.estimated_balance || 0}</span>
+                  </div>
+                  <div className="balance-row">
+                    <span className="balance-label">Actual Balance:</span>
+                    <span className="balance-value">{project.actual_balance || 0}</span>
+                  </div>
+                </div>
+                <div className="items-section">
+                  <h5>Project Items ({project.items.length})</h5>
+                  {project.items.length > 0 ? (
+                    <ul className="items-list">
+                      {project.items.map((item) => (
+                        <li key={item.uuid}>
+                          {item.name} {item.category && `- ${item.category}`}
+                          <span className="item-balance"> (Balance: {item.item_balance || 0})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="no-items">No items assigned to this project</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="assign-projects-section">
           <h3>Assign New Projects</h3>
           <div className="assign-form">
+            <label>Select Project:</label>
             <select 
-              multiple
-              value={selectedProjects}
-              onChange={handleProjectChange}
-              className="project-select"
+              value={selectedProject}
+              onChange={(e) => setSelectedProject(e.target.value)}
+              className="project-select-single"
               disabled={loading}
             >
+              <option value="">Select a project</option>
               {allProjects
                 .filter(project => !userDetails.projects.some(p => p.uuid === project.uuid))
                 .map(project => (
@@ -176,13 +237,12 @@ const UserDetails = ({ userId, token }) => {
                 ))
               }
             </select>
-            <small>Hold Ctrl/Cmd to select multiple projects</small>
             <button 
               className="assign-button"
-              onClick={handleAssignProjects} 
-              disabled={selectedProjects.length === 0 || loading}
+              onClick={handleAssignProject} 
+              disabled={!selectedProject || loading}
             >
-              {loading ? 'Assigning...' : 'Assign Selected Projects'}
+              {loading ? 'Assigning...' : 'Assign Project'}
             </button>
           </div>
         </div>
@@ -268,50 +328,6 @@ const UserDetails = ({ userId, token }) => {
                 Create New Item
               </button>
             </div>
-          </div>
-        </div>
-
-        <div className="projects-section">
-          <h3>Assigned Projects ({userDetails.projects.length})</h3>
-          <div className="projects-grid">
-            {userDetails.projects.map((project) => (
-              <div key={project.uuid} className="project-card">
-                <div className="project-header">
-                  <h4>{project.name}</h4>
-                  <span className="location">{project.location}</span>
-                </div>
-                <p className="description">{project.description || 'No description'}</p>
-                <div className="balances-section">
-                  <div className="balance-row">
-                    <span className="balance-label">PO Balance:</span>
-                    <span className="balance-value">{project.po_balance || 0}</span>
-                  </div>
-                  <div className="balance-row">
-                    <span className="balance-label">Estimated Balance:</span>
-                    <span className="balance-value">{project.estimated_balance || 0}</span>
-                  </div>
-                  <div className="balance-row">
-                    <span className="balance-label">Actual Balance:</span>
-                    <span className="balance-value">{project.actual_balance || 0}</span>
-                  </div>
-                </div>
-                <div className="items-section">
-                  <h5>Project Items ({project.items.length})</h5>
-                  {project.items.length > 0 ? (
-                    <ul className="items-list">
-                      {project.items.map((item) => (
-                        <li key={item.uuid}>
-                          {item.name} {item.category && `- ${item.category}`}
-                          <span className="item-balance"> (Balance: {item.item_balance || 0})</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="no-items">No items assigned to this project</p>
-                  )}
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       </div>

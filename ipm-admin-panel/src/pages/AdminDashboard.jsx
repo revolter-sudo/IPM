@@ -21,7 +21,6 @@ const AdminDashboard = ({ token }) => {
   const [showItemCreate, setShowItemCreate] = useState(false);
   const [showKhatabookCreate, setShowKhatabookCreate] = useState(false);
   const [showKhatabookView, setShowKhatabookView] = useState(false);
-  const [selectedProject, setSelectedProject] = useState(null);
 
   useEffect(() => {
     try {
@@ -58,29 +57,16 @@ const AdminDashboard = ({ token }) => {
   const handleLogoutClick = async () => {
     try {
       const userData = JSON.parse(localStorage.getItem("user") || "{}");
-      await logoutUser(userData.uuid, "web", token); // Using 'web' as device ID for browser sessions
+      await logoutUser(userData.uuid, "web", token);
       localStorage.removeItem("token");
       localStorage.removeItem("user");
       navigate("/login");
     } catch (error) {
       console.error("Logout failed:", error);
-      // Still clear local storage and redirect even if the API call fails
       localStorage.removeItem("token");
       localStorage.removeItem("user");
       navigate("/login");
     }
-  };
-
-  const handleProjectItemListClick = () => {
-    if (selectedProject) {
-      navigate(`/project-details/${selectedProject}`);
-    } else {
-      alert("Please select a project first");
-    }
-  };
-
-  const handleProjectSelect = (projectId) => {
-    setSelectedProject(projectId);
   };
 
   return (
@@ -88,14 +74,13 @@ const AdminDashboard = ({ token }) => {
       <header className="dashboard-header">
         <div className="header-content">
           <h1>Admin Panel</h1>
-          <nav className="nav-links">
-            <button onClick={handleProjectItemListClick}>Map Project Item List</button>
-            <button onClick={handleUserMappingClick}>Map Users to Projects</button>
-            <button onClick={handleItemMappingClick}>Map Items to Projects</button>
-            <button onClick={handleViewKhatabookClick}>View Khatabook</button>
-            <button onClick={handleLogoutClick}>Logout</button>
-          </nav>
         </div>
+        <nav className="nav-links">
+          <button onClick={handleUserMappingClick}>Map Users to Projects</button>
+          <button onClick={handleItemMappingClick}>Map Items to Projects</button>
+          <button onClick={handleViewKhatabookClick}>View Khatabook</button>
+          <button onClick={handleLogoutClick}>Logout</button>
+        </nav>
       </header>
 
       <div className="action-buttons">
@@ -133,10 +118,7 @@ const AdminDashboard = ({ token }) => {
               <div className="section-header">
                 <h2>Projects</h2>
               </div>
-              <ProjectList
-                token={localStorage.getItem("token")}
-                onSelectProject={handleProjectSelect}
-              />
+              <ProjectList token={localStorage.getItem("token")} />
             </section>
 
             {/* Users Section */}

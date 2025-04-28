@@ -17,7 +17,6 @@ const ItemCreate = ({ token, onClose, onItemCreated }) => {
     setLoading(true);
 
     try {
-      // Build URL with query parameters, converting boolean to 1/0
       let url = `${API_BASE_URL}/payments/items?name=${encodeURIComponent(name)}&has_additional_info=${hasAdditionalInfo ? 1 : 0}`;
       
       if (category) {
@@ -27,41 +26,14 @@ const ItemCreate = ({ token, onClose, onItemCreated }) => {
         url += `&list_tag=${encodeURIComponent(listTag)}`;
       }
 
-      // Debug logging
-      console.log('Request URL:', url);
-
-      const response = await axios({
-        method: 'post',
-        url,
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+      await axios.post(url, null, {
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
-      console.log('Response:', response.data);
-
-      if (response.status === 201) {
-        if (onItemCreated) {
-          onItemCreated(response.data.data);
-        }
-        onClose();
-      }
+      onItemCreated && onItemCreated();
+      onClose && onClose();
     } catch (err) {
-      console.error('Full error:', err);
-      console.error('Error details:', {
-        status: err.response?.status,
-        statusText: err.response?.statusText,
-        data: err.response?.data,
-        validationErrors: err.response?.data?.detail
-      });
-      
-      // Show validation error details to the user
-      const errorMessage = err.response?.data?.detail?.[0]?.msg 
-        || err.response?.data?.detail 
-        || err.response?.data?.message 
-        || err.message 
-        || "Failed to create item";
-      
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to create item';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -118,8 +90,8 @@ const ItemCreate = ({ token, onClose, onItemCreated }) => {
             <option value="payment">payment</option>
           </select>
         </div>
-        {error && <p className="error" style={{ color: 'red', marginTop: '10px' }}>{error}</p>}
-        <div className="button-group" style={{ marginTop: '20px' }}>
+        {error && <p className="error">{error}</p>}
+        <div className="button-group">
           <button type="submit" disabled={loading}>
             {loading ? "Creating..." : "Create Item"}
           </button>
@@ -128,48 +100,6 @@ const ItemCreate = ({ token, onClose, onItemCreated }) => {
           </button>
         </div>
       </form>
-      <style jsx>{`
-        .item-create-form {
-          display: flex;
-          flex-direction: column;
-          gap: 15px;
-        }
-        .form-group {
-          display: flex;
-          flex-direction: column;
-          gap: 5px;
-        }
-        .form-group label {
-          font-weight: 500;
-        }
-        .form-group input,
-        .form-group select {
-          padding: 8px;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-        }
-        .button-group {
-          display: flex;
-          gap: 10px;
-        }
-        .button-group button {
-          padding: 8px 16px;
-          border-radius: 4px;
-          border: none;
-          cursor: pointer;
-        }
-        .button-group button[type="submit"] {
-          background-color: #0066cc;
-          color: white;
-        }
-        .button-group button[type="button"] {
-          background-color: #e0e0e0;
-        }
-        .button-group button:disabled {
-          opacity: 0.7;
-          cursor: not-allowed;
-        }
-      `}</style>
     </div>
   );
 };

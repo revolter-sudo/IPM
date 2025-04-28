@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getAllProjects } from '../services/api';
+import '../styles/ProjectList.css';
 
-const ProjectList = ({ token, onSelectProject }) => {
+const ProjectList = ({ token }) => {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedProjectId, setSelectedProjectId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchProjects = async () => {
@@ -23,9 +26,14 @@ const ProjectList = ({ token, onSelectProject }) => {
   }, [token]);
 
   const handleProjectClick = (projectId) => {
-    setSelectedProjectId(projectId);
-    onSelectProject && onSelectProject(projectId);
+    navigate(`/project-details/${projectId}`);
   };
+
+  const filteredProjects = projects.filter(project =>
+    project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (project.description && project.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
+    (project.location && project.location.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
 
   if (loading) {
     return <div className="loading">Loading projects...</div>;
@@ -36,125 +44,55 @@ const ProjectList = ({ token, onSelectProject }) => {
   }
 
   return (
-    <div className="projects-list">
-      {projects.map((project) => (
-        <div 
-          key={project.uuid} 
-          className={`project-card ${selectedProjectId === project.uuid ? 'selected' : ''}`}
-          onClick={() => handleProjectClick(project.uuid)}
-        >
-          <div className="project-info">
-            <div className="project-name">{project.name}</div>
-            <div className="project-description">{project.description || 'No description'}</div>
-            <div className="project-balances">
-              <div className="balance-item">
-                <span className="balance-label">PO:</span>
-                <span className="balance-value">{project.po_balance || 0}</span>
-              </div>
-              <div className="balance-item">
-                <span className="balance-label">Est:</span>
-                <span className="balance-value">{project.estimated_balance || 0}</span>
-              </div>
-              <div className="balance-item">
-                <span className="balance-label">Actual:</span>
-                <span className="balance-value">{project.actual_balance || 0}</span>
+    <>
+      <div className="projects-search">
+        <input
+          type="text"
+          placeholder="Search projects by name, description, or location..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="search-input"
+        />
+      </div>
+      <div className="projects-list">
+        {filteredProjects.map((project) => (
+          <div 
+            key={project.uuid} 
+            className="project-card"
+            onClick={() => handleProjectClick(project.uuid)}
+          >
+            <div className="project-info">
+              <div className="project-name">{project.name}</div>
+              <div className="project-description">{project.description || 'No description available'}</div>
+              {project.location && (
+                <div className="project-location">
+                  📍 {project.location}
+                </div>
+              )}
+              <div className="project-balances">
+                <div className="balance-item">
+                  <span className="balance-label">PO Balance</span>
+                  <span className="balance-value">{project.po_balance || 0}</span>
+                </div>
+                <div className="balance-item">
+                  <span className="balance-label">Est Balance</span>
+                  <span className="balance-value">{project.estimated_balance || 0}</span>
+                </div>
+                <div className="balance-item">
+                  <span className="balance-label">Actual Balance</span>
+                  <span className="balance-value">{project.actual_balance || 0}</span>
+                </div>
               </div>
             </div>
           </div>
-          <div className="project-uuid">
-            {project.uuid}
+        ))}
+        {filteredProjects.length === 0 && searchQuery && (
+          <div className="no-results">
+            No projects found matching "{searchQuery}"
           </div>
-        </div>
-      ))}
-
-      <style jsx>{`
-        .projects-list {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .project-card {
-          display: flex;
-          justify-content: space-between;
-          align-items: start;
-          padding: 16px;
-          background: #f8f9fa;
-          border-radius: 6px;
-          transition: all 0.2s;
-          cursor: pointer;
-        }
-
-        .project-card:hover {
-          background: #f1f3f5;
-        }
-
-        .project-card.selected {
-          background: #e7f5ff;
-          border: 1px solid #339af0;
-        }
-
-        .project-info {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .project-name {
-          font-weight: 500;
-          color: #212529;
-        }
-
-        .project-description {
-          font-size: 0.875rem;
-          color: #6c757d;
-        }
-
-        .project-balances {
-          display: flex;
-          gap: 16px;
-          margin-top: 4px;
-        }
-
-        .balance-item {
-          font-size: 0.875rem;
-          color: #495057;
-        }
-
-        .balance-label {
-          font-weight: 500;
-          margin-right: 4px;
-        }
-
-        .balance-value {
-          font-family: monospace;
-        }
-
-        .project-uuid {
-          font-family: monospace;
-          font-size: 0.875rem;
-          color: #495057;
-          background: #e9ecef;
-          padding: 4px 8px;
-          border-radius: 4px;
-          min-width: 120px;
-          text-align: right;
-        }
-
-        .loading {
-          text-align: center;
-          padding: 20px;
-          color: #6c757d;
-        }
-
-        .error {
-          color: #dc3545;
-          padding: 20px;
-          text-align: center;
-        }
-      `}</style>
-    </div>
+        )}
+      </div>
+    </>
   );
 };
 

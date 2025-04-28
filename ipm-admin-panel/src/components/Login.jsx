@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { login } from '../services/api';
+import '../styles/Login.css';
 
 const Login = ({ onLoginSuccess }) => {
   const [phone, setPhone] = useState('');
@@ -36,9 +37,9 @@ const Login = ({ onLoginSuccess }) => {
   return (
     <div className="login-container">
       <h2>Login</h2>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      {error && <p className="error-message">{error}</p>}
       <form onSubmit={handleSubmit}>
-        <div>
+        <div className="form-group">
           <label>Phone:</label>
           <input
             type="text"
@@ -48,7 +49,7 @@ const Login = ({ onLoginSuccess }) => {
             placeholder="Enter phone number"
           />
         </div>
-        <div>
+        <div className="form-group">
           <label>Password:</label>
           <input
             type="password"
