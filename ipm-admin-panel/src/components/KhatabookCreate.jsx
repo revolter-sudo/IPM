@@ -9,7 +9,7 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
     remarks: '',
     person_id: '',
     project_id: '',
-    expense_date: '',
+    expense_date: new Date().toISOString().slice(0, 16), // Format: YYYY-MM-DDTHH:mm
     payment_mode: '',
     item_ids: []
   });
@@ -72,10 +72,19 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    if (name === 'expense_date') {
+      // For expense_date, convert the datetime-local value to ISO string
+      const date = new Date(value);
+      setFormData(prev => ({
+        ...prev,
+        [name]: date.toISOString()
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
   };
 
   const handleItemChange = (e) => {
@@ -172,15 +181,14 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
 
       const formDataObj = new FormData();
       
-      formDataObj.append('data', JSON.stringify({
+      // Ensure expense_date is a valid ISO string
+      const submissionData = {
+        ...formData,
         amount: parseFloat(formData.amount),
-        remarks: formData.remarks,
-        person_id: formData.person_id,
-        project_id: formData.project_id || null,
-        expense_date: formData.expense_date || null,
-        payment_mode: formData.payment_mode || null,
-        item_ids: formData.item_ids
-      }));
+        expense_date: formData.expense_date || new Date().toISOString()
+      };
+      
+      formDataObj.append('data', JSON.stringify(submissionData));
 
       files.forEach(file => {
         formDataObj.append('files', file);
@@ -368,8 +376,9 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
             type="datetime-local"
             id="expense_date"
             name="expense_date"
-            value={formData.expense_date}
+            value={formData.expense_date ? formData.expense_date.slice(0, 16) : ''}
             onChange={handleChange}
+            required
             disabled={loading}
           />
         </div>

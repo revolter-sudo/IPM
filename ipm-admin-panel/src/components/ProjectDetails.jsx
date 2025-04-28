@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getProjectUsers, getProjectItems, getProjectInfo, assignUserToProject, assignItemToProject, getAllUsers, getAllItems } from '../services/api';
 import UserCreate from './UserCreate';
 import ItemCreate from './ItemCreate';
+import '../styles/ProjectDetails.css';
 
 const ProjectDetails = ({ projectId, token }) => {
   const [users, setUsers] = useState([]);
@@ -204,6 +205,7 @@ const ProjectDetails = ({ projectId, token }) => {
             <button 
               onClick={handleAssignUser} 
               disabled={!selectedUser || loading}
+              className="assign-button"
             >
               {loading ? 'Assigning...' : 'Assign User'}
             </button>
@@ -264,6 +266,7 @@ const ProjectDetails = ({ projectId, token }) => {
               <button 
                 onClick={handleAssignItems} 
                 disabled={selectedItems.length === 0 || loading}
+                className="assign-button"
               >
                 {loading ? 'Assigning...' : 'Assign Items'}
               </button>
@@ -336,193 +339,6 @@ const ProjectDetails = ({ projectId, token }) => {
           </div>
         </div>
       )}
-
-      <style jsx>{`
-        .project-details {
-          padding: 20px;
-          max-width: 800px;
-          margin: 0 auto;
-        }
-
-        .header {
-          display: flex;
-          align-items: center;
-          margin-bottom: 24px;
-          gap: 16px;
-        }
-
-        .back-button {
-          padding: 8px 16px;
-          border: none;
-          background:rgb(49, 147, 244);
-          border-radius: 4px;
-          cursor: pointer;
-          font-weight: 500;
-        }
-
-        .back-button:hover {
-          background:rgb(21, 111, 201);
-        }
-
-        .success-message {
-          color: green;
-          margin: 10px 0;
-        }
-
-        .error-message {
-          color: red;
-          margin: 10px 0;
-        }
-
-        .assign-section {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 20px;
-          margin: 20px 0;
-        }
-
-        .assign-form {
-          display: flex;
-          gap: 10px;
-          margin-top: 10px;
-          flex-wrap: wrap;
-        }
-
-        select {
-          flex: 1;
-          padding: 8px;
-          border-radius: 4px;
-          border: 1px solid #ccc;
-          min-width: 200px;
-        }
-
-        select[multiple] {
-          min-height: 150px;
-        }
-
-        button {
-          padding: 8px 16px;
-          border-radius: 4px;
-          border: none;
-          background-color: #0066cc;
-          color: white;
-          cursor: pointer;
-          white-space: nowrap;
-        }
-
-        button:disabled {
-          background-color: #cccccc;
-          cursor: not-allowed;
-        }
-
-        .create-new-btn {
-          background-color: #28a745;
-          margin-left: 10px;
-        }
-
-        .button-group {
-          display: flex;
-          gap: 10px;
-          margin-top: 10px;
-        }
-
-        .current-assignments {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 20px;
-          margin-top: 20px;
-        }
-
-        ul {
-          list-style: none;
-          padding: 0;
-          margin: 0;
-        }
-
-        li {
-          padding: 8px;
-          border-bottom: 1px solid #eee;
-        }
-
-        li:last-child {
-          border-bottom: none;
-        }
-
-        .modal {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background-color: rgba(0, 0, 0, 0.5);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          z-index: 1000;
-        }
-
-        .modal-content {
-          background: white;
-          padding: 20px;
-          border-radius: 8px;
-          max-width: 90%;
-          max-height: 90vh;
-          overflow-y: auto;
-          position: relative;
-        }
-
-        .modal-close {
-          position: absolute;
-          top: 10px;
-          right: 10px;
-          background: none;
-          border: none;
-          font-size: 24px;
-          cursor: pointer;
-          color: #666;
-        }
-
-        .modal-close:hover {
-          color: #000;
-        }
-
-        small {
-          color: #666;
-        }
-
-        .balance-input-row {
-          display: flex;
-          align-items: center;
-          margin: 10px 0;
-          gap: 10px;
-        }
-
-        .balance-input-row label {
-          min-width: 150px;
-          font-weight: 500;
-        }
-
-        .balance-input-row input {
-          width: 120px;
-          padding: 5px;
-          border: 1px solid #ccc;
-          border-radius: 4px;
-        }
-
-        .selected-items-balances {
-          margin: 20px 0;
-          padding: 15px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          background-color: #f8f9fa;
-        }
-
-        .item-balance {
-          color: #666;
-          margin-left: 10px;
-          font-size: 0.9em;
-        }
-      `}</style>
     </div>
   );
 };

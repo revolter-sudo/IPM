@@ -250,3 +250,35 @@ export async function getUserDetails(userId, token) {
     }
   }
 }
+
+// New function to get khatabook entries
+export async function getKhatabookEntries(filters, token) {
+  try {
+    // Clean up filters by removing empty values and formatting dates
+    const cleanFilters = Object.fromEntries(
+      Object.entries(filters).filter(([_, value]) => {
+        return value !== '' && value !== null && value !== undefined;
+      })
+    );
+
+    // Format dates if they exist
+    if (cleanFilters.start_date) {
+      cleanFilters.start_date = new Date(cleanFilters.start_date).toISOString();
+    }
+    if (cleanFilters.end_date) {
+      cleanFilters.end_date = new Date(cleanFilters.end_date).toISOString();
+    }
+
+    const response = await axios.get(`${API_BASE_URL}/admin/khatabook`, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: cleanFilters
+    });
+    return response.data;
+  } catch (error) {
+    if (error.response) {
+      throw new Error(error.response.data.message || 'Get khatabook entries failed');
+    } else {
+      throw new Error('Network error');
+    }
+  }
+}

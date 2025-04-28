@@ -8,6 +8,7 @@ import ProjectUserMapping from "../components/ProjectUserMapping";
 import ProjectItemMapping from "../components/ProjectItemMapping";
 import ItemCreate from "../components/ItemCreate";
 import KhatabookCreate from "../components/KhatabookCreate";
+import GetKhatabook from "../components/GetKhatabook";
 import { logoutUser } from "../services/api";
 import "../styles/AdminDashboard.css";
 
@@ -19,6 +20,7 @@ const AdminDashboard = ({ token }) => {
   const [showItemMapping, setShowItemMapping] = useState(false);
   const [showItemCreate, setShowItemCreate] = useState(false);
   const [showKhatabookCreate, setShowKhatabookCreate] = useState(false);
+  const [showKhatabookView, setShowKhatabookView] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
 
   useEffect(() => {
@@ -50,6 +52,8 @@ const AdminDashboard = ({ token }) => {
   const handleCloseItemCreate = () => setShowItemCreate(false);
   const handleCreateKhatabookClick = () => setShowKhatabookCreate(true);
   const handleCloseKhatabookCreate = () => setShowKhatabookCreate(false);
+  const handleViewKhatabookClick = () => setShowKhatabookView(true);
+  const handleCloseKhatabookView = () => setShowKhatabookView(false);
 
   const handleLogoutClick = async () => {
     try {
@@ -88,6 +92,7 @@ const AdminDashboard = ({ token }) => {
             <button onClick={handleProjectItemListClick}>Map Project Item List</button>
             <button onClick={handleUserMappingClick}>Map Users to Projects</button>
             <button onClick={handleItemMappingClick}>Map Items to Projects</button>
+            <button onClick={handleViewKhatabookClick}>View Khatabook</button>
             <button onClick={handleLogoutClick}>Logout</button>
           </nav>
         </div>
@@ -110,24 +115,40 @@ const AdminDashboard = ({ token }) => {
 
       {/* Main Content */}
       <div className="dashboard-content">
-        {/* Projects Section */}
-        <section className="section-projects">
-          <div className="section-header">
-            <h2>Projects</h2>
-          </div>
-          <ProjectList
-            token={localStorage.getItem("token")}
-            onSelectProject={handleProjectSelect}
-          />
-        </section>
+        {/* Show Khatabook view if enabled, otherwise show regular dashboard content */}
+        {showKhatabookView ? (
+          <section className="section-khatabook">
+            <div className="section-header">
+              <h2>Khatabook Entries</h2>
+              <button className="close-btn" onClick={handleCloseKhatabookView}>
+                Back to Dashboard
+              </button>
+            </div>
+            <GetKhatabook token={localStorage.getItem("token")} />
+          </section>
+        ) : (
+          <>
+            {/* Projects Section */}
+            <section className="section-projects">
+              <div className="section-header">
+                <h2>Projects</h2>
+              </div>
+              <ProjectList
+                token={localStorage.getItem("token")}
+                onSelectProject={handleProjectSelect}
+              />
+            </section>
+
+            {/* Users Section */}
+            <section className="section-users">
+              <div className="section-header">
+                <h2>Users</h2>
+              </div>
+              <GetUsers token={localStorage.getItem("token")} />
+            </section>
+          </>
+        )}
       </div>
-      {/* Users Section */}
-      <section className="section-users">
-        <div className="section-header">
-          <h2>Users</h2>
-        </div>
-        <GetUsers token={localStorage.getItem("token")} />
-      </section>
 
       {/* Modals */}
       {showProjectCreate && (
