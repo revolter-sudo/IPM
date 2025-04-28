@@ -266,13 +266,24 @@ export async function getKhatabookEntries(filters, token) {
       cleanFilters.start_date = new Date(cleanFilters.start_date).toISOString();
     }
     if (cleanFilters.end_date) {
-      cleanFilters.end_date = new Date(cleanFilters.end_date).toISOString();
+      const endDate = new Date(cleanFilters.end_date);
+      endDate.setHours(23, 59, 59, 999);
+      cleanFilters.end_date = endDate.toISOString();
     }
 
     const response = await axios.get(`${API_BASE_URL}/admin/khatabook`, {
       headers: { Authorization: `Bearer ${token}` },
       params: cleanFilters
     });
+
+    // Ensure dates are properly formatted in the response
+    if (response.data?.data?.entries) {
+      response.data.data.entries = response.data.data.entries.map(entry => ({
+        ...entry,
+        expense_date: entry.expense_date ? new Date(entry.expense_date) : null
+      }));
+    }
+
     return response.data;
   } catch (error) {
     if (error.response) {

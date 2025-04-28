@@ -10,54 +10,8 @@ from src.app.database.models import KhatabookBalance
 from sqlalchemy import and_
 from sqlalchemy.orm import joinedload
 from src.app.schemas import constants
+import datetime
 
-
-# def create_khatabook_entry_service(
-#     db: Session,
-#     data: Dict,
-#     file_paths: list,
-#     user_id: UUID
-# ) -> Khatabook:
-#     """
-#     data is a dict with keys like 'amount', 'remarks', 'user_id', 'person_id', 'item_ids'
-#     """
-#     amount = data.get("amount")
-#     remarks = data.get("remarks")
-#     person_id = data.get("person_id")
-#     item_ids = data.get("item_ids", [])
-#     expense_date = data.get("expense_date")
-
-#     kb_entry = Khatabook(
-#         amount=amount,
-#         remarks=remarks,
-#         person_id=person_id,
-#         expense_date=expense_date,
-#         created_by=user_id
-#     )
-#     db.add(kb_entry)
-#     db.flush()
-
-#     if item_ids:
-#         for item_uuid in item_ids:
-#             item_obj = db.query(Item).filter(Item.uuid == item_uuid).first()
-#             if item_obj:
-#                 kb_item = KhatabookItem(
-#                     khatabook_id=kb_entry.uuid,
-#                     item_id=item_obj.uuid
-#                 )
-#                 db.add(kb_item)
-
-#     if file_paths:
-#         for f in file_paths:
-#             new_file = KhatabookFile(
-#                 khatabook_id=kb_entry.uuid,
-#                 file_path=f
-#             )
-#             db.add(new_file)
-
-#     db.commit()
-#     db.refresh(kb_entry)
-#     return kb_entry
 
 def create_khatabook_entry_service(
     db: Session,
@@ -88,12 +42,17 @@ def create_khatabook_entry_service(
         new_total_amount = total_amount + amount
         new_balance = user_balance - new_total_amount
 
-        # 3. Create the Khatabook entry.
+        # Ensure expense_date is set to current time if not provided
+        expense_date = data.get("expense_date")
+        if not expense_date:
+            expense_date = datetime.datetime.now()
+
+        # Create the Khatabook entry
         kb_entry = Khatabook(
             amount=amount,
             remarks=data.get("remarks"),
             person_id=data.get("person_id"),    
-            expense_date=data.get("expense_date"),
+            expense_date=expense_date,
             created_by=user_id,
             balance_after_entry=new_balance,  # Snapshot at time of creation
             project_id=data.get("project_id"),
@@ -101,7 +60,7 @@ def create_khatabook_entry_service(
         )
         db.add(kb_entry)
         db.flush()
-        # 4. Attach items
+        # Attach items
         item_ids = data.get("item_ids", [])
         if item_ids:
             for item_uuid in item_ids:
@@ -113,12 +72,12 @@ def create_khatabook_entry_service(
                     )
                     db.add(kb_item)
 
-        # 5. Store file attachments
+        # Store file attachments
         for f in file_paths:
             new_file = KhatabookFile(khatabook_id=kb_entry.uuid, file_path=f)
             db.add(new_file)
 
-        # 6. Commit all changes
+        # Commit all changes
         db.commit()
         db.refresh(kb_entry)
         return kb_entry

@@ -31,7 +31,6 @@ const ProjectList = ({ token }) => {
 
   const filteredProjects = projects.filter(project =>
     project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (project.description && project.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
     (project.location && project.location.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
@@ -48,7 +47,7 @@ const ProjectList = ({ token }) => {
       <div className="projects-search">
         <input
           type="text"
-          placeholder="Search projects by name, description, or location..."
+          placeholder="Search projects by name or location..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="search-input"
@@ -63,7 +62,6 @@ const ProjectList = ({ token }) => {
           >
             <div className="project-info">
               <div className="project-name">{project.name}</div>
-              <div className="project-description">{project.description || 'No description available'}</div>
               {project.location && (
                 <div className="project-location">
                   📍 {project.location}

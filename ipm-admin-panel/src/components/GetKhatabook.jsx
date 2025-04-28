@@ -286,22 +286,26 @@ const GetKhatabook = ({ token }) => {
                 entries.map((entry) => (
                   <tr key={entry.uuid}>
                     <td className="date-cell">
-                      {entry.expense_date && entry.expense_date !== 'null' && entry.expense_date !== ''
-                        ? new Date(entry.expense_date).toLocaleString('en-IN', {
-                            weekday: 'short',
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: true
-                          })
-                        : 'N/A'
+                      {entry.expense_date ? 
+                        new Date(entry.expense_date).toLocaleString('en-IN', {
+                          weekday: 'short',
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: true
+                        })
+                        : new Date(entry.created_at).toLocaleString('en-IN', {
+                          weekday: 'short',
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: true
+                        })
                       }
-                      <br />
-                      <small style={{ fontSize: '0.7rem', color: '#888' }}>
-                        Raw: {entry.expense_date || 'null'}
-                      </small>
                     </td>
                     <td className="amount-cell">₹{entry.amount.toFixed(2)}</td>
                     <td>{entry.user?.name || 'N/A'}</td>

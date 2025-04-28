@@ -74,7 +74,8 @@ const KhatabookCreate = ({ token, onClose, onSuccess }) => {
   const handleChange = (e) => {
     const { name, value } = e.target;
     if (name === 'expense_date') {
-      const date = new Date(value);
+      // Ensure we always send a valid ISO string for the date
+      const date = value ? new Date(value) : new Date();
       setFormData(prev => ({
         ...prev,
         [name]: date.toISOString()
