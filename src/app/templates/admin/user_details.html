@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}User Details - IPM Admin Panel{% endblock %}
+
+{% block content %}
+<div class="user-header">
+    <a href="/web/dashboard" class="btn btn-primary">← Back to Dashboard</a>
+    <h1>User Details: {{ user.name }}</h1>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">User Information</h2>
+    </div>
+
+    <div class="user-info">
+        <div class="row">
+            <div class="col">
+                <p><strong>Name:</strong> {{ user.name }}</p>
+                <p><strong>Phone:</strong> {{ user.phone }}</p>
+                <p><strong>Role:</strong> {{ user.role }}</p>
+                <p><strong>UUID:</strong> {{ user.uuid }}</p>
+            </div>
+            <div class="col">
+                {% if user.photo_path %}
+                <div class="user-photo">
+                    <img src="/uploads/{{ user.photo_path }}" alt="{{ user.name }}" style="max-width: 200px; max-height: 200px;">
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">User Projects</h2>
+    </div>
+
+    <!-- User Projects List -->
+    <div class="user-projects-list">
+        {% if user_projects %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>PO Balance</th>
+                    <th>Estimated Balance</th>
+                    <th>Actual Balance</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for project_data in user_projects %}
+                <tr>
+                    <td>{{ project_data.name }}</td>
+                    <td>₹{{ project_data.po_balance }}</td>
+                    <td>₹{{ project_data.estimated_balance }}</td>
+                    <td>₹{{ project_data.actual_balance }}</td>
+                    <td>
+                        <a href="/web/projects/{{ project_data.uuid }}" class="btn btn-primary">View</a>
+                        <form action="/web/project_mapping/remove" method="post" style="display: inline;">
+                            <input type="hidden" name="project_id" value="{{ project_data.uuid }}">
+                            <input type="hidden" name="user_id" value="{{ user.uuid }}">
+                            <button type="submit" class="btn btn-danger" onclick="return confirmDelete('Remove this project from the user?')">Remove</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>This user is not assigned to any projects.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- User's Assigned Project Items -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Assigned Project Items</h2>
+    </div>
+
+    <div class="user-items-list">
+        {% if user.projects %}
+            {% for project in user.projects %}
+                <div class="project-items-section">
+                    <h3>{{ project.name }}</h3>
+                    {% if project.items_list %}
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Item Name</th>
+                                    <th>Category</th>
+                                    <th>Balance</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in project.items_list %}
+                                <tr>
+                                    <td>{{ item.name }}</td>
+                                    <td>{{ item.category }}</td>
+                                    <td>₹{{ item.balance }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% else %}
+                        <p>No items assigned in this project.</p>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        {% else %}
+            <p>No project items assigned to this user.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

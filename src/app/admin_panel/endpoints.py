@@ -346,8 +346,39 @@ def get_user_items(
         ).model_dump()
 
 
-def get_project_items(db: Session, project_id: UUID):
-    return db.query(ProjectItemMap).filter(ProjectItemMap.project_id == project_id).all()
+def get_project_items(db: Session, project_id: UUID, current_user: User = None):
+    try:
+        # Query ProjectItemMap joined with Item to get item UUID and name
+        project_items = (
+            db.query(ProjectItemMap, Item)
+            .join(Item, ProjectItemMap.item_id == Item.uuid)
+            .filter(ProjectItemMap.project_id == project_id)
+            .all()
+        )
+
+        items_list = [
+            {
+                "uuid": str(item.Item.uuid),
+                "name": item.Item.name,
+                "category": item.Item.category,
+                "remaining_balance": item.ProjectItemMap.item_balance,
+                "list_tag": item.Item.list_tag,
+                "has_additional_info": item.Item.has_additional_info
+            } for item in project_items
+        ]
+
+        return {
+            "data": items_list,
+            "message": "Project items fetched successfully",
+            "status_code": 200
+        }
+    except Exception as e:
+        logging.error(f"Error in get_project_items function: {str(e)}")
+        return {
+            "data": [],
+            "message": "An error occurred while fetching project items",
+            "status_code": 500
+        }
 
 @admin_app.get(
     "/{project_id}/items",
@@ -753,7 +784,7 @@ def get_user_project_items(
                 "po_balance": project.po_balance,
                 "estimated_balance": project.estimated_balance,
                 "actual_balance": project.actual_balance,
-                "items": items_list
+                "items_list": items_list  # Renamed to avoid conflict with built-in method
             })
 
         user_response = {

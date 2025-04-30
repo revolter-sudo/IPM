@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - IPM Admin Panel{% endblock %}
+
+{% block content %}
+<div class="dashboard-header">
+    <h1>Admin Dashboard</h1>
+</div>
+
+<div class="row">
+    <div class="col">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Projects</h2>
+                <button class="btn btn-primary" onclick="toggleForm('project-form')">Add Project</button>
+            </div>
+
+            <!-- Project Form -->
+            <div id="project-form" style="display: none;">
+                <form action="/web/projects/create" method="post" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="project_name">Project Name</label>
+                        <input type="text" id="project_name" name="project_name" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="project_description">Description</label>
+                        <textarea id="project_description" name="project_description" rows="3"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="po_balance">PO Balance</label>
+                        <input type="number" id="po_balance" name="po_balance" step="0.01" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="estimated_balance">Estimated Balance</label>
+                        <input type="number" id="estimated_balance" name="estimated_balance" step="0.01" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="actual_balance">Actual Balance</label>
+                        <input type="number" id="actual_balance" name="actual_balance" step="0.01" value="0.0">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="project_file">Project File (PDF)</label>
+                        <input type="file" id="project_file" name="project_file" accept=".pdf">
+                    </div>
+
+                    <button type="submit" class="btn btn-success">Create Project</button>
+                    <button type="button" class="btn btn-danger" onclick="toggleForm('project-form')">Cancel</button>
+                </form>
+            </div>
+
+            <!-- Projects List -->
+            <div class="projects-list">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>PO Balance</th>
+                            <th>Estimated Balance</th>
+                            <th>Actual Balance</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for project in projects %}
+                        <tr>
+                            <td>{{ project.name }}</td>
+                            <td>₹{{ project.po_balance }}</td>
+                            <td>₹{{ project.estimated_balance }}</td>
+                            <td>₹{{ project.actual_balance }}</td>
+                            <td>
+                                <a href="/web/projects/{{ project.uuid }}" class="btn btn-primary">View</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="col">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Users</h2>
+                <button class="btn btn-primary" onclick="toggleForm('user-form')">Add User</button>
+            </div>
+
+            <!-- User Form -->
+            <div id="user-form" style="display: none;">
+                <form action="/web/users/create" method="post" enctype="multipart/form-data">
+                    <h3>User Information</h3>
+                    <div class="form-group">
+                        <label for="name">Name</label>
+                        <input type="text" id="name" name="name" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="phone">Phone</label>
+                        <input type="number" id="phone" name="phone" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" name="password" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="role">Role</label>
+                        <select id="role" name="role" required>
+                            <option value="SiteEngineer">Site Engineer</option>
+                            <option value="ProjectManager">Project Manager</option>
+                            <option value="Admin">Admin</option>
+                            <option value="Accountant">Accountant</option>
+                            <option value="SuperAdmin">Super Admin</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="user_photo">Photo</label>
+                        <input type="file" id="user_photo" name="user_photo" accept="image/*">
+                    </div>
+
+                    <h3>Account Information</h3>
+                    <div class="form-group">
+                        <label for="person_name">Person Name</label>
+                        <input type="text" id="person_name" name="person_name" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="phone_number">Phone Number</label>
+                        <input type="text" id="phone_number" name="phone_number" required pattern="[0-9]{10}" title="Phone number must be 10 digits">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="account_number">Account Number</label>
+                        <input type="text" id="account_number" name="account_number" required pattern="[0-9]{11,16}" title="Account number must be 11-16 digits">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ifsc_code">IFSC Code</label>
+                        <input type="text" id="ifsc_code" name="ifsc_code" required pattern=".{11}" title="IFSC code must be 11 characters">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="upi_number">UPI Number</label>
+                        <input type="text" id="upi_number" name="upi_number">
+                    </div>
+
+                    <button type="submit" class="btn btn-success">Create User</button>
+                    <button type="button" class="btn btn-danger" onclick="toggleForm('user-form')">Cancel</button>
+                </form>
+            </div>
+
+            <!-- Users List -->
+            <div class="users-list">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Phone</th>
+                            <th>Role</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in users %}
+                        <tr>
+                            <td>{{ user.name }}</td>
+                            <td>{{ user.phone }}</td>
+                            <td>{{ user.role }}</td>
+                            <td>
+                                <a href="/web/users/{{ user.uuid }}" class="btn btn-primary">View</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Khatabook Entries</h2>
+                <a href="/web/khatabook" class="btn btn-primary">View All</a>
+            </div>
+            <div class="card-content">
+                <p>View all khatabook entries with filtering options by:</p>
+                <ul>
+                    <li>User</li>
+                    <li>Project</li>
+                    <li>Item</li>
+                    <li>Amount range</li>
+                    <li>Date range</li>
+                    <li>Payment mode</li>
+                </ul>
+                <div style="margin-top: 15px;">
+                    <a href="/web/khatabook" class="btn btn-primary">Go to Khatabook Entries</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function toggleForm(formId) {
+        const form = document.getElementById(formId);
+        if (form.style.display === 'none') {
+            form.style.display = 'block';
+        } else {
+            form.style.display = 'none';
+        }
+    }
+</script>
+{% endblock %}

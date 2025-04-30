@@ -47,7 +47,7 @@ class CreatePerson(BaseModel):
         max_length=11,
         description="IFSC code must be exactly 11 characters long",
     )
-    phone_number: str = Field(
+    phone_number: Optional[str] = Field(
         None,
         min_length=10,
         max_length=10,

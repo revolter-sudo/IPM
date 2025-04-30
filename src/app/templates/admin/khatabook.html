@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block title %}Khatabook Entries - IPM Admin Panel{% endblock %}
+
+{% block content %}
+<div class="khatabook-header">
+    <a href="/web/dashboard" class="btn btn-primary">← Back to Dashboard</a>
+    <h1>Khatabook Entries</h1>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Filters</h2>
+        <button class="btn btn-primary" onclick="toggleFilters()">Toggle Filters</button>
+    </div>
+
+    <div id="filters-container" style="display: none;">
+        <form action="/web/khatabook" method="get">
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="user_id">User</label>
+                        <select id="user_id" name="user_id">
+                            <option value="">All Users</option>
+                            {% for user in users %}
+                            <option value="{{ user.uuid }}" {% if filters.user_id == user.uuid|string %}selected{% endif %}>
+                                {{ user.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="col">
+                    <div class="form-group">
+                        <label for="item_id">Item</label>
+                        <select id="item_id" name="item_id">
+                            <option value="">All Items</option>
+                            {% for item in items %}
+                            <option value="{{ item.uuid }}" {% if filters.item_id == item.uuid|string %}selected{% endif %}>
+                                {{ item.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="col">
+                    <div class="form-group">
+                        <label for="project_id">Project</label>
+                        <select id="project_id" name="project_id">
+                            <option value="">All Projects</option>
+                            {% for project in projects %}
+                            <option value="{{ project.uuid }}" {% if filters.project_id == project.uuid|string %}selected{% endif %}>
+                                {{ project.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="min_amount">Min Amount</label>
+                        <input type="number" id="min_amount" name="min_amount" value="{{ filters.min_amount or '' }}" step="0.01">
+                    </div>
+                </div>
+
+                <div class="col">
+                    <div class="form-group">
+                        <label for="max_amount">Max Amount</label>
+                        <input type="number" id="max_amount" name="max_amount" value="{{ filters.max_amount or '' }}" step="0.01">
+                    </div>
+                </div>
+
+                <div class="col">
+                    <div class="form-group">
+                        <label for="payment_mode">Payment Mode</label>
+                        <select id="payment_mode" name="payment_mode">
+                            <option value="">All Modes</option>
+                            <option value="CASH" {% if filters.payment_mode == 'CASH' %}selected{% endif %}>Cash</option>
+                            <option value="ONLINE" {% if filters.payment_mode == 'ONLINE' %}selected{% endif %}>Online</option>
+                            <option value="CHEQUE" {% if filters.payment_mode == 'CHEQUE' %}selected{% endif %}>Cheque</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="start_date">Start Date</label>
+                        <input type="date" id="start_date" name="start_date" value="{{ filters.start_date or '' }}">
+                    </div>
+                </div>
+
+                <div class="col">
+                    <div class="form-group">
+                        <label for="end_date">End Date</label>
+                        <input type="date" id="end_date" name="end_date" value="{{ filters.end_date or '' }}">
+                    </div>
+                </div>
+
+                <div class="col">
+                    <div class="form-group" style="margin-top: 25px;">
+                        <button type="submit" class="btn btn-primary">Apply Filters</button>
+                        <a href="/web/khatabook" class="btn btn-danger">Clear Filters</a>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Khatabook Entries ({{ entries_count }} entries, Total: ₹{{ total_amount }})</h2>
+    </div>
+
+    <div class="khatabook-entries">
+        {% if entries %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>User</th>
+                    <th>Project</th>
+                    <th>Item</th>
+                    <th>Amount</th>
+                    <th>Payment Mode</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in entries %}
+                <tr>
+                    <td>{{ entry.created_at if entry.created_at else 'N/A' }}</td>
+                    <td>{{ entry.user_name or 'N/A' }}</td>
+                    <td>{{ entry.project_name or 'N/A' }}</td>
+                    <td>{{ entry.item_name or 'N/A' }}</td>
+                    <td>₹{{ entry.amount }}</td>
+                    <td>{{ entry.payment_mode or 'N/A' }}</td>
+                    <td>{{ entry.description or 'N/A' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No khatabook entries found.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function toggleFilters() {
+        const filtersContainer = document.getElementById('filters-container');
+        if (filtersContainer.style.display === 'none') {
+            filtersContainer.style.display = 'block';
+        } else {
+            filtersContainer.style.display = 'none';
+        }
+    }
+
+    // Show filters if any filter is applied
+    document.addEventListener('DOMContentLoaded', function() {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.toString()) {
+            document.getElementById('filters-container').style.display = 'block';
+        }
+    });
+</script>
+{% endblock %}
