@@ -138,6 +138,7 @@ class StatusDatePair(BaseModel):
     status: str
     date: str  # We'll store a string like "04-03-2025"
     created_by: str
+    role: Optional[str] = None
 
 
 class PaymentsResponse(BaseModel):
