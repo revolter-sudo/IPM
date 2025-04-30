@@ -811,6 +811,41 @@ def get_all_payments(
         by_id = {rec["uuid"]: rec for rec in assembled_records}
         return [by_id[u] for u in selected_uuids if u in by_id]
 
+    def calculate_total_request_amount(db):
+        """Calculate total amount of all payments with status requested, approved, or verified"""
+        # Get all payments with the specified statuses, regardless of pagination
+        query = db.query(func.sum(Payment.amount)).filter(
+            Payment.is_deleted.is_(False),
+            Payment.status.in_([
+                PaymentStatus.REQUESTED.value,
+                PaymentStatus.APPROVED.value,
+                PaymentStatus.VERIFIED.value
+            ])
+        )
+
+        # Apply the same filters as the main query
+        if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
+            query = query.filter(Payment.created_by == current_user.uuid)
+        if project_id is not None:
+            query = query.filter(Payment.project_id == project_id)
+        if status is not None:
+            query = query.filter(Payment.status.in_(status))
+        if start_date and end_date:
+            end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            query = query.filter(Payment.created_at.between(start_date, end_date_with_time))
+        else:
+            if start_date:
+                query = query.filter(Payment.created_at >= start_date)
+            if end_date:
+                end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                query = query.filter(Payment.created_at <= end_date_with_time)
+        if from_uuid:
+            query = query.filter(Payment.created_by == from_uuid)
+        if person_id:
+            query = query.filter(Payment.person == person_id)
+
+        return query.scalar() or 0.0
+
     # ------------------------------------------------------------------ 1) RECENT MODE
     if recent:
         base = (
@@ -835,49 +870,15 @@ def get_all_payments(
 
         uuids, total = paginate(base)
 
-        # Calculate total_payment (all payments except deleted and declined)
-        total_payment_query = db.query(func.sum(Payment.amount)).filter(
-            Payment.is_deleted.is_(False),
-            Payment.status != PaymentStatus.DECLINED.value
-        )
-
-        # Apply the same filters as the main query
-        if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-            total_payment_query = total_payment_query.filter(Payment.created_by == current_user.uuid)
-        if project_id is not None:
-            total_payment_query = total_payment_query.filter(Payment.project_id == project_id)
-        if from_uuid:
-            total_payment_query = total_payment_query.filter(Payment.created_by == from_uuid)
-        if person_id:
-            total_payment_query = total_payment_query.filter(Payment.person == person_id)
-
-        total_payment = total_payment_query.scalar() or 0.0
-
-        # Calculate total_requested (all non-deleted payments with current status as requested)
-        total_requested_query = db.query(func.sum(Payment.amount)).filter(
-            Payment.is_deleted.is_(False),
-            Payment.status == PaymentStatus.REQUESTED.value
-        )
-
-        # Apply the same filters as the main query
-        if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-            total_requested_query = total_requested_query.filter(Payment.created_by == current_user.uuid)
-        if project_id is not None:
-            total_requested_query = total_requested_query.filter(Payment.project_id == project_id)
-        if from_uuid:
-            total_requested_query = total_requested_query.filter(Payment.created_by == from_uuid)
-        if person_id:
-            total_requested_query = total_requested_query.filter(Payment.person == person_id)
-
-        total_requested = total_requested_query.scalar() or 0.0
+        # Calculate total_request_amount using the helper function
+        total_request_amount = calculate_total_request_amount(db)
 
         if not uuids:
             return PaymentServiceResponse(
                 data={
                     "records": [],
                     "total_count": 0,
-                    "total_payment": total_payment,
-                    "total_requested": total_requested
+                    "total_request_amount": total_request_amount
                 },
                 message="No recent payments found.",
                 status_code=200
@@ -893,8 +894,7 @@ def get_all_payments(
         payload = {
             "records": records_out,
             "total_count": total,
-            "total_payment": total_payment,
-            "total_requested": total_requested
+            "total_request_amount": total_request_amount
         }
         if page:
             payload.update({"page": page, "limit": 10})
@@ -969,49 +969,15 @@ def get_all_payments(
 
         uuids, total = paginate(base)
 
-        # Calculate total_payment (all payments except deleted and declined)
-        total_payment_query = db.query(func.sum(Payment.amount)).filter(
-            Payment.is_deleted.is_(False),
-            Payment.status != PaymentStatus.DECLINED.value
-        )
-
-        # Apply the same filters as the main query
-        if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-            total_payment_query = total_payment_query.filter(Payment.created_by == current_user.uuid)
-        if project_id is not None:
-            total_payment_query = total_payment_query.filter(Payment.project_id == project_id)
-        if from_uuid:
-            total_payment_query = total_payment_query.filter(Payment.created_by == from_uuid)
-        if person_id:
-            total_payment_query = total_payment_query.filter(Payment.person == person_id)
-
-        total_payment = total_payment_query.scalar() or 0.0
-
-        # Calculate total_requested (all non-deleted payments with current status as requested)
-        total_requested_query = db.query(func.sum(Payment.amount)).filter(
-            Payment.is_deleted.is_(False),
-            Payment.status == PaymentStatus.REQUESTED.value
-        )
-
-        # Apply the same filters as the main query
-        if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-            total_requested_query = total_requested_query.filter(Payment.created_by == current_user.uuid)
-        if project_id is not None:
-            total_requested_query = total_requested_query.filter(Payment.project_id == project_id)
-        if from_uuid:
-            total_requested_query = total_requested_query.filter(Payment.created_by == from_uuid)
-        if person_id:
-            total_requested_query = total_requested_query.filter(Payment.person == person_id)
-
-        total_requested = total_requested_query.scalar() or 0.0
+        # Calculate total_request_amount using the helper function
+        total_request_amount = calculate_total_request_amount(db)
 
         if not uuids:
             return PaymentServiceResponse(
                 data={
                     "records": [],
                     "total_count": 0,
-                    "total_payment": total_payment,
-                    "total_requested": total_requested
+                    "total_request_amount": total_request_amount
                 },
                 message="No pending payments.",
                 status_code=200
@@ -1027,8 +993,7 @@ def get_all_payments(
         payload = {
             "records": records_out,
             "total_count": total,
-            "total_payment": total_payment,
-            "total_requested": total_requested
+            "total_request_amount": total_request_amount
         }
         if page:
             payload.update({"page": page, "limit": 10})
@@ -1080,41 +1045,8 @@ def get_all_payments(
             .filter(PaymentItem.is_deleted.is_(False),
                     PaymentItem.item_id == item_id)
 
-    # Calculate total_payment (all payments except deleted and declined)
-    total_payment_query = db.query(func.sum(Payment.amount)).filter(
-        Payment.is_deleted.is_(False),
-        Payment.status != PaymentStatus.DECLINED.value
-    )
-
-    # Apply the same filters as the main query
-    if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-        total_payment_query = total_payment_query.filter(Payment.created_by == current_user.uuid)
-    if project_id is not None:
-        total_payment_query = total_payment_query.filter(Payment.project_id == project_id)
-    if from_uuid:
-        total_payment_query = total_payment_query.filter(Payment.created_by == from_uuid)
-    if person_id:
-        total_payment_query = total_payment_query.filter(Payment.person == person_id)
-
-    total_payment = total_payment_query.scalar() or 0.0
-
-    # Calculate total_requested (all non-deleted payments with current status as requested)
-    total_requested_query = db.query(func.sum(Payment.amount)).filter(
-        Payment.is_deleted.is_(False),
-        Payment.status == PaymentStatus.REQUESTED.value
-    )
-
-    # Apply the same filters as the main query
-    if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-        total_requested_query = total_requested_query.filter(Payment.created_by == current_user.uuid)
-    if project_id is not None:
-        total_requested_query = total_requested_query.filter(Payment.project_id == project_id)
-    if from_uuid:
-        total_requested_query = total_requested_query.filter(Payment.created_by == from_uuid)
-    if person_id:
-        total_requested_query = total_requested_query.filter(Payment.person == person_id)
-
-    total_requested = total_requested_query.scalar() or 0.0
+    # Calculate total_request_amount using the helper function
+    total_request_amount = calculate_total_request_amount(db)
 
     uuids, total = paginate(base)
 
@@ -1123,8 +1055,7 @@ def get_all_payments(
             data={
                 "records": [],
                 "total_count": 0,
-                "total_payment": total_payment,
-                "total_requested": total_requested
+                "total_request_amount": total_request_amount
             },
             message="No payments found.",
             status_code=200
@@ -1139,8 +1070,7 @@ def get_all_payments(
     payload = {
         "records": records_out,
         "total_count": total,
-        "total_payment": total_payment,
-        "total_requested": total_requested
+        "total_request_amount": total_request_amount
     }
     if page:
         payload.update({"page": page, "limit": 10})
