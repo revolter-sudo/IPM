@@ -420,6 +420,7 @@ def build_main_payments_query(db: Session, pending_request: bool):
             PaymentStatusHistory.status.label("history_status"),
             PaymentStatusHistory.created_at.label("history_created_at"),
             StatusUser.name.label("status_created_by_name"),
+            StatusUser.role.label("status_created_by_role"),
             PaymentEditHistory.old_amount.label("edit_old_amount"),
             PaymentEditHistory.new_amount.label("edit_new_amount"),
             PaymentEditHistory.remarks.label("edit_remarks"),
@@ -511,7 +512,7 @@ def apply_pending_request_logic(query, pending_request: bool, current_user: User
       - Admin => "verified" first, then "requested"
       - Accountant / SuperAdmin => "approved", "verified", "requested"
 
-    Then we do multi-level ordering: first by 'status_order' (ASC), 
+    Then we do multi-level ordering: first by 'status_order' (ASC),
     then by Payment.created_at (DESC).
     """
     if not pending_request:
@@ -634,16 +635,18 @@ def group_query_results(results):
         history_status = row.history_status
         history_created_at = row.history_created_at
         status_created_by_name = row.status_created_by_name
+        status_created_by_role = row.status_created_by_role
 
         if history_status and history_created_at:
             date_str = history_created_at.strftime("%Y-%m-%d %H:%M:%S")
-            status_key = (history_status, date_str, status_created_by_name)
+            status_key = (history_status, date_str, status_created_by_name, status_created_by_role)
             if status_key not in grouped_data[payment_obj.uuid]["status_seen"]:
                 grouped_data[payment_obj.uuid]["status_seen"].add(status_key)
                 grouped_data[payment_obj.uuid]["statuses"].append({
                     "status": history_status,
                     "date": date_str,
-                    "created_by": status_created_by_name
+                    "created_by": status_created_by_name,
+                    "role": status_created_by_role
                 })
 
         # Collect edit histories
@@ -808,6 +811,41 @@ def get_all_payments(
         by_id = {rec["uuid"]: rec for rec in assembled_records}
         return [by_id[u] for u in selected_uuids if u in by_id]
 
+    def calculate_total_request_amount(db):
+        """Calculate total amount of all payments with status requested, approved, or verified"""
+        # Get all payments with the specified statuses, regardless of pagination
+        query = db.query(func.sum(Payment.amount)).filter(
+            Payment.is_deleted.is_(False),
+            Payment.status.in_([
+                PaymentStatus.REQUESTED.value,
+                PaymentStatus.APPROVED.value,
+                PaymentStatus.VERIFIED.value
+            ])
+        )
+
+        # Apply the same filters as the main query
+        if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
+            query = query.filter(Payment.created_by == current_user.uuid)
+        if project_id is not None:
+            query = query.filter(Payment.project_id == project_id)
+        if status is not None:
+            query = query.filter(Payment.status.in_(status))
+        if start_date and end_date:
+            end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            query = query.filter(Payment.created_at.between(start_date, end_date_with_time))
+        else:
+            if start_date:
+                query = query.filter(Payment.created_at >= start_date)
+            if end_date:
+                end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                query = query.filter(Payment.created_at <= end_date_with_time)
+        if from_uuid:
+            query = query.filter(Payment.created_by == from_uuid)
+        if person_id:
+            query = query.filter(Payment.person == person_id)
+
+        return query.scalar() or 0.0
+
     # ------------------------------------------------------------------ 1) RECENT MODE
     if recent:
         base = (
@@ -832,9 +870,16 @@ def get_all_payments(
 
         uuids, total = paginate(base)
 
+        # Calculate total_request_amount using the helper function
+        total_request_amount = calculate_total_request_amount(db)
+
         if not uuids:
             return PaymentServiceResponse(
-                data={"records": [], "total_count": 0},
+                data={
+                    "records": [],
+                    "total_count": 0,
+                    "total_request_amount": total_request_amount
+                },
                 message="No recent payments found.",
                 status_code=200
             ).model_dump()
@@ -846,7 +891,11 @@ def get_all_payments(
             group_query_results(results), db, current_user)
         records_out = order_records(uuids, grouped)
 
-        payload = {"records": records_out, "total_count": total}
+        payload = {
+            "records": records_out,
+            "total_count": total,
+            "total_request_amount": total_request_amount
+        }
         if page:
             payload.update({"page": page, "limit": 10})
 
@@ -920,9 +969,16 @@ def get_all_payments(
 
         uuids, total = paginate(base)
 
+        # Calculate total_request_amount using the helper function
+        total_request_amount = calculate_total_request_amount(db)
+
         if not uuids:
             return PaymentServiceResponse(
-                data={"records": [], "total_count": 0},
+                data={
+                    "records": [],
+                    "total_count": 0,
+                    "total_request_amount": total_request_amount
+                },
                 message="No pending payments.",
                 status_code=200
             ).model_dump()
@@ -934,7 +990,11 @@ def get_all_payments(
             group_query_results(results), db, current_user)
         records_out = order_records(uuids, grouped)
 
-        payload = {"records": records_out, "total_count": total}
+        payload = {
+            "records": records_out,
+            "total_count": total,
+            "total_request_amount": total_request_amount
+        }
         if page:
             payload.update({"page": page, "limit": 10})
 
@@ -985,11 +1045,18 @@ def get_all_payments(
             .filter(PaymentItem.is_deleted.is_(False),
                     PaymentItem.item_id == item_id)
 
+    # Calculate total_request_amount using the helper function
+    total_request_amount = calculate_total_request_amount(db)
+
     uuids, total = paginate(base)
 
     if not uuids:
         return PaymentServiceResponse(
-            data={"records": [], "total_count": 0},
+            data={
+                "records": [],
+                "total_count": 0,
+                "total_request_amount": total_request_amount
+            },
             message="No payments found.",
             status_code=200
         ).model_dump()
@@ -1000,7 +1067,11 @@ def get_all_payments(
         group_query_results(main_q.all()), db, current_user)
     records_out = order_records(uuids, grouped)
 
-    payload = {"records": records_out, "total_count": total}
+    payload = {
+        "records": records_out,
+        "total_count": total,
+        "total_request_amount": total_request_amount
+    }
     if page:
         payload.update({"page": page, "limit": 10})
 
@@ -1597,10 +1668,10 @@ def decline_payment(
         )
         db.add(payment_status)
         db.flush()
+
         # 5) Update Payment table's status
         payment.status = PaymentStatus.DECLINED.value
         if remarks:
-            payment.decline_remark = remarks
             payment.decline_remark = remarks
 
         # 6) Log the action
@@ -1614,6 +1685,8 @@ def decline_payment(
         db.add(log_entry)
         db.flush()
         db.commit()
+
+        # 7) Send notification
         notify_payment_status_update(
             amount=payment.amount,
             status=PaymentStatus.DECLINED.value,
@@ -1621,13 +1694,7 @@ def decline_payment(
             payment_user=payment.created_by,
             db=db
         )
-        notify_payment_status_update(
-            amount=payment.amount,
-            status=PaymentStatus.DECLINED.value,
-            user=current_user,
-            payment_user=payment.created_by,
-            db=db
-        )
+
         return PaymentServiceResponse(
             data=None,
             message="Payment declined successfully",
