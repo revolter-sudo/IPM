@@ -15,7 +15,7 @@
 #     command: >
 #       sh -c "/entrypoint.sh"
 
-version: '3.8'
+version: '3.3'
 
 services:
   api:
