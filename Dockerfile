@@ -1,5 +1,5 @@
 # Use official Python 3.10 as a base image
-FROM python:3.10
+FROM python:3.9
 
 # Install netcat (for checking PostgreSQL readiness)
 RUN apt-get update && apt-get install -y netcat-openbsd
