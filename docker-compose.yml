@@ -10,4 +10,4 @@ services:
       - "8000:8000"
     volumes:
       - ./uploads:/app/uploads
-      - /root/secretfiles/secret_files.json:/app/secret_file.json
+      - /root/secretfiles/secret_files.json:/app/src/app/utils/firebase/secret_files.json

@@ -94,17 +94,6 @@ if not firebase_admin._apps:
     logging.info("FireBase Started")
     logging.info("--------------------------------")
 
-SERVICE_ACCOUNT_PATH = SERVICE_FILE # noqa
-
-
-if not firebase_admin._apps:
-    cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
-    firebase_admin.initialize_app(cred)
-    logging.info("--------------------------------")
-    logging.info(f"File Path: {SERVICE_ACCOUNT_PATH}")
-    logging.info("FireBase Started")
-    logging.info("--------------------------------")
-
 
 # Initialize Redis cache on startup
 @app.on_event("startup")

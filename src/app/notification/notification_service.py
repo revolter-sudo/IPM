@@ -7,7 +7,7 @@ from src.app.notification.notification_schemas import (
     NotificationServiceResponse
 )
 
-SERVICE_ACCOUNT_PATH = "/app/secret_file.json" # noqa
+SERVICE_ACCOUNT_PATH = "/app/src/app/utils/firebase/secret_files.json" # noqa
 
 
 def check_or_up_firebase_app():
