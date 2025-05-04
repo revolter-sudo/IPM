@@ -819,7 +819,8 @@ def get_all_payments(
             Payment.status.in_([
                 PaymentStatus.REQUESTED.value,
                 PaymentStatus.APPROVED.value,
-                PaymentStatus.VERIFIED.value
+                PaymentStatus.VERIFIED.value,
+                PaymentStatus.TRANSFERRED.value
             ])
         )
 
