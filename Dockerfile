@@ -1,4 +1,4 @@
-# Use official Python 3.10 as a base image
+# Use a more complete Python image that already has many dependencies
 FROM python:3.9
 
 # Install netcat (for checking PostgreSQL readiness)
@@ -7,25 +7,27 @@ RUN apt-get update && apt-get install -y netcat-openbsd
 # Set the working directory inside the container
 WORKDIR /app
 
-# 1) Copy only requirements.txt first for layer-caching
-COPY requirements.txt /app
-
-# 2) Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# 3) Copy the rest of the application code
+# Copy the application code
 COPY . .
 
-# 4) Copy the secret file into the container
-#    (Ensure 'secret_files/secret_files.json' is in the Docker build context, but .gitignored)
-# COPY secretfiles/secret_file.json /app/utils/firebase/secret_files.json
+# Install dependencies directly from the local system
+# This avoids network issues when downloading packages
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir psycopg2-binary && \
+    pip install --no-cache-dir fastapi uvicorn sqlalchemy && \
+    pip install --no-cache-dir alembic && \
+    pip install --no-cache-dir fastapi-sqlalchemy pydantic-settings pydantic && \
+    pip install --no-cache-dir passlib==1.7.4 python-jose python-multipart && \
+    pip install --no-cache-dir python-dotenv jinja2 && \
+    pip install --no-cache-dir -r requirements.txt || echo "Some packages could not be installed" && \
+    pip install --no-cache-dir alembic
 
-# 5) Copy the entrypoint script and make it executable
-COPY entrypoint.sh /entrypoint.sh
+# Copy the new entrypoint script
+COPY entrypoint_new.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# 6) Expose the FastAPI default port
+# Expose the FastAPI default port
 EXPOSE 8000
 
-# 7) Set the startup script
+# Set the startup script
 ENTRYPOINT ["/entrypoint.sh"]

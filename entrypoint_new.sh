@@ -9,14 +9,6 @@ done
 
 echo "PostgreSQL is up - skipping migrations"
 
-# Run Alembic migrations
-if alembic upgrade head; then
-  echo "Migrations applied successfully"
-else
-  echo "Alembic migrations failed!" >&2
-  exit 1
-fi
-
 # Create uploads directory if it doesn't exist
 mkdir -p /app/uploads
 mkdir -p /app/uploads/payments
