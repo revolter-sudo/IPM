@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     DB_NAME: str
     UPLOADS_DIR: str
     SERVICE_FILE: str
+    REDIS_HOST: int
+    REDIS_PORT: int
 
     @property
     def DATABASE_URL(self) -> str:
