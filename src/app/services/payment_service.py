@@ -812,7 +812,7 @@ def get_all_payments(
         return [by_id[u] for u in selected_uuids if u in by_id]
 
     def calculate_total_request_amount(db):
-        """Calculate total amount of all payments with status requested, approved, or verified"""
+        """Calculate total amount of all payments with status requested, approved, verified, or transferred"""
         # Get all payments with the specified statuses, regardless of pagination
         query = db.query(func.sum(Payment.amount)).filter(
             Payment.is_deleted.is_(False),
@@ -821,6 +821,41 @@ def get_all_payments(
                 PaymentStatus.APPROVED.value,
                 PaymentStatus.VERIFIED.value,
                 PaymentStatus.TRANSFERRED.value
+            ])
+        )
+
+        # Apply the same filters as the main query
+        if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
+            query = query.filter(Payment.created_by == current_user.uuid)
+        if project_id is not None:
+            query = query.filter(Payment.project_id == project_id)
+        if status is not None:
+            query = query.filter(Payment.status.in_(status))
+        if start_date and end_date:
+            end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            query = query.filter(Payment.created_at.between(start_date, end_date_with_time))
+        else:
+            if start_date:
+                query = query.filter(Payment.created_at >= start_date)
+            if end_date:
+                end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                query = query.filter(Payment.created_at <= end_date_with_time)
+        if from_uuid:
+            query = query.filter(Payment.created_by == from_uuid)
+        if person_id:
+            query = query.filter(Payment.person == person_id)
+
+        return query.scalar() or 0.0
+
+    def calculate_total_pending_amount(db):
+        """Calculate total amount of all payments with status requested, approved, or verified (excluding transferred)"""
+        # Get all payments with the specified statuses, regardless of pagination
+        query = db.query(func.sum(Payment.amount)).filter(
+            Payment.is_deleted.is_(False),
+            Payment.status.in_([
+                PaymentStatus.REQUESTED.value,
+                PaymentStatus.APPROVED.value,
+                PaymentStatus.VERIFIED.value
             ])
         )
 
@@ -871,15 +906,17 @@ def get_all_payments(
 
         uuids, total = paginate(base)
 
-        # Calculate total_request_amount using the helper function
+        # Calculate total amounts using the helper functions
         total_request_amount = calculate_total_request_amount(db)
+        total_pending_amount = calculate_total_pending_amount(db)
 
         if not uuids:
             return PaymentServiceResponse(
                 data={
                     "records": [],
                     "total_count": 0,
-                    "total_request_amount": total_request_amount
+                    "total_request_amount": total_request_amount,
+                    "total_pending_amount": total_pending_amount
                 },
                 message="No recent payments found.",
                 status_code=200
@@ -895,7 +932,8 @@ def get_all_payments(
         payload = {
             "records": records_out,
             "total_count": total,
-            "total_request_amount": total_request_amount
+            "total_request_amount": total_request_amount,
+            "total_pending_amount": total_pending_amount
         }
         if page:
             payload.update({"page": page, "limit": 10})
@@ -970,15 +1008,17 @@ def get_all_payments(
 
         uuids, total = paginate(base)
 
-        # Calculate total_request_amount using the helper function
+        # Calculate total amounts using the helper functions
         total_request_amount = calculate_total_request_amount(db)
+        total_pending_amount = calculate_total_pending_amount(db)
 
         if not uuids:
             return PaymentServiceResponse(
                 data={
                     "records": [],
                     "total_count": 0,
-                    "total_request_amount": total_request_amount
+                    "total_request_amount": total_request_amount,
+                    "total_pending_amount": total_pending_amount
                 },
                 message="No pending payments.",
                 status_code=200
@@ -994,7 +1034,8 @@ def get_all_payments(
         payload = {
             "records": records_out,
             "total_count": total,
-            "total_request_amount": total_request_amount
+            "total_request_amount": total_request_amount,
+            "total_pending_amount": total_pending_amount
         }
         if page:
             payload.update({"page": page, "limit": 10})
@@ -1046,8 +1087,9 @@ def get_all_payments(
             .filter(PaymentItem.is_deleted.is_(False),
                     PaymentItem.item_id == item_id)
 
-    # Calculate total_request_amount using the helper function
+    # Calculate total amounts using the helper functions
     total_request_amount = calculate_total_request_amount(db)
+    total_pending_amount = calculate_total_pending_amount(db)
 
     uuids, total = paginate(base)
 
@@ -1056,7 +1098,8 @@ def get_all_payments(
             data={
                 "records": [],
                 "total_count": 0,
-                "total_request_amount": total_request_amount
+                "total_request_amount": total_request_amount,
+                "total_pending_amount": total_pending_amount
             },
             message="No payments found.",
             status_code=200
@@ -1071,7 +1114,8 @@ def get_all_payments(
     payload = {
         "records": records_out,
         "total_count": total,
-        "total_request_amount": total_request_amount
+        "total_request_amount": total_request_amount,
+        "total_pending_amount": total_pending_amount
     }
     if page:
         payload.update({"page": page, "limit": 10})
@@ -1275,169 +1319,6 @@ def cancel_payment_status(
             message=f"An Error Occurred: {str(e)}",
             status_code=500,
         ).model_dump()
-
-
-# @payment_router.put("/approve")
-# def approve_payment(
-#     payment_id: UUID,
-#     bank_uuid: Optional[UUID] = None,
-#     files: Optional[List[UploadFile]] = File(None),
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(get_current_user),
-# ):
-#     """
-#     Approve payment and optionally upload files (pdf, images, etc.) related to approval.
-#     If the status resolves to 'transferred', deduct that amount from BalanceDetails, etc.
-
-#     IMPORTANT CHANGE:
-#     - We now allow adding a status entry even if the new status is "behind"
-#       the current Payment.status. In that scenario, we do NOT overwrite
-#       payment.status.
-#     """
-#     try:
-#         # 1) Check user role
-#         if current_user.role not in [
-#             UserRole.SUPER_ADMIN.value,
-#             UserRole.ADMIN.value,
-#             UserRole.PROJECT_MANAGER.value,
-#             UserRole.SITE_ENGINEER.value,
-#             UserRole.ACCOUNTANT.value
-#         ]:
-#             return PaymentServiceResponse(
-#                 data=None,
-#                 message=constants.CANT_APPROVE_PAYMENT,
-#                 status_code=403
-#             ).model_dump()
-
-#         # 2) Find the payment
-#         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
-#         if not payment:
-#             return PaymentServiceResponse(
-#                 data=None,
-#                 message=constants.PAYMENT_NOT_FOUND,
-#                 status_code=404
-#             ).model_dump()
-
-#         # 3) Get the next status from the role -> status mapping
-#         #    For example, Project Manager -> "verified", Admin -> "approved", Accountant -> "transferred", etc.
-#         status = constants.RoleStatusMapping.get(current_user.role)
-#         if not status:
-#             return PaymentServiceResponse(
-#                 data=None,
-#                 message="Invalid role for updating payment status.",
-#                 status_code=400
-#             ).model_dump()
-
-#         # -- CHANGED: Remove any check that blocks setting the same status a second time.
-#         #    We always allow a PaymentStatusHistory record to be created.
-
-#         # 4) Always create a PaymentStatusHistory record
-#         payment_status = PaymentStatusHistory(
-#             payment_id=payment_id,
-#             status=status,
-#             created_by=current_user.uuid
-#         )
-#         db.add(payment_status)
-
-#         # 5) Only update payment table’s 'status' if `status` is chronologically ahead
-#         #    of the current payment.status
-#         status_order_map = {
-#             "requested": 1,
-#             "verified": 2,
-#             "approved": 3,
-#             "transferred": 4
-#         }
-
-#         def get_order(s: str) -> int:
-#             return status_order_map.get(s, 0)
-
-#         current_order = get_order(payment.status)
-#         new_order = get_order(status)
-
-#         if new_order > current_order:
-#             # It's a forward status change; update Payment table
-#             payment.status = status
-
-#             # If the new status is 'transferred', do the existing logic
-#             if status == "transferred":
-#                 payment.transferred_date = datetime.now()
-
-#                 # For self-payment logic
-#                 if payment.self_payment:
-#                     user_balance = db.query(KhatabookBalance).filter(
-#                         KhatabookBalance.user_uuid == payment.created_by
-#                     ).first()
-#                     if not user_balance:
-#                         user_balance = KhatabookBalance(
-#                             user_uuid=payment.created_by,
-#                             balance=0.0
-#                         )
-#                         db.add(user_balance)
-#                     user_balance.balance += payment.amount
-
-#                 balance_obj = db.query(BalanceDetail).first()
-#                 if balance_obj:
-#                     balance_obj.balance -= payment.amount
-#                 else:
-#                     return PaymentServiceResponse(
-#                         data=None,
-#                         message="No row found in BalanceDetail to deduct from.",
-#                         status_code=400
-#                     ).model_dump()
-
-#         # 6) Handle optional file uploads
-#         if files:
-#             upload_dir = constants.UPLOAD_DIR_ADMIN
-#             os.makedirs(upload_dir, exist_ok=True)
-#             for file in files:
-#                 file_path = os.path.join(upload_dir, file.filename)
-#                 with open(file_path, "wb") as buffer:
-#                     buffer.write(file.file.read())
-
-#                 # Mark these files as approval uploads
-#                 db.add(
-#                     PaymentFile(
-#                         payment_id=payment.uuid,
-#                         file_path=file_path,
-#                         is_approval_upload=True
-#                     )
-#                 )
-
-#         # 7) Add a log entry
-#         log_entry = Log(
-#             uuid=str(uuid4()),
-#             entity="Payment",
-#             action=status,
-#             entity_id=payment_id,
-#             performed_by=current_user.uuid,
-#         )
-#         db.add(log_entry)
-
-#         # 8) Commit changes
-#         db.commit()
-
-#         # 9) Send notifications
-#         notify_payment_status_update(
-#             amount=payment.amount,
-#             status=status,
-#             user=current_user,
-#             payment_user=payment.created_by,
-#             db=db
-#         )
-
-#         return PaymentServiceResponse(
-#             data=None,
-#             message="Payment status updated successfully",
-#             status_code=200
-#         ).model_dump()
-
-#     except Exception as e:
-#         db.rollback()
-#         return PaymentServiceResponse(
-#             data=None,
-#             message=f"An Error Occurred: {str(e)}",
-#             status_code=500
-#         ).model_dump()
 
 
 @payment_router.put("/approve")
