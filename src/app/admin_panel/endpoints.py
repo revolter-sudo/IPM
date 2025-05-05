@@ -5,7 +5,17 @@ from fastapi_sqlalchemy import DBSessionMiddleware
 from src.app.database.database import settings
 from src.app.services.auth_service import get_current_user
 from src.app.schemas.auth_service_schamas import UserRole
-from src.app.admin_panel.services import create_project_user_mapping
+from src.app.admin_panel.services import (
+    create_project_user_mapping,
+    create_multiple_project_user_mappings,
+    create_project_item_mapping,
+    create_multiple_project_item_mappings,
+    create_user_item_mapping,
+    create_multiple_user_item_mappings,
+    remove_project_item_mapping,
+    remove_project_user_mapping,
+    remove_user_item_mapping
+)
 from src.app.schemas.project_service_schemas import (
     ProjectServiceResponse,
     InvoiceCreateRequest,
@@ -44,7 +54,7 @@ from src.app.database.models import (
 )
 from sqlalchemy.orm import Session, joinedload
 from src.app.schemas import constants
-from src.app.admin_panel.services import get_default_config_service, create_project_item_mapping, create_user_item_mapping
+from src.app.admin_panel.services import get_default_config_service
 from src.app.database.database import get_db, SessionLocal
 import logging
 from src.app.admin_panel.schemas import AdminPanelResponse
@@ -91,7 +101,9 @@ def get_default_config():
 
 @admin_app.post(
     "/project_mapping/{user_id}/{project_id}",
-    tags=["admin_panel"]
+    tags=["admin_panel"],
+    description="Map a single user to a project (legacy endpoint)",
+    deprecated=True,
 )
 def map_user_to_project(
     user_id: UUID,
@@ -152,9 +164,85 @@ def map_user_to_project(
             message="An error occurred while mapping user to project"
         ).model_dump()
 
+
+@admin_app.post(
+    "/project_users_mapping/{project_id}",
+    tags=["admin_panel"],
+    description="Map multiple users to a project at once"
+)
+def map_multiple_users_to_project(
+    project_id: UUID,
+    user_ids: List[UUID] = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Unauthorized to assign users to project"
+            ).model_dump()
+
+        # Verify project exists
+        project = db.query(Project).filter(Project.uuid == project_id).first()
+        if not project:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Project not found"
+            ).model_dump()
+
+        # Verify all users exist
+        user_count = db.query(User).filter(User.uuid.in_(user_ids)).count()
+        if user_count != len(user_ids):
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="One or more users not found"
+            ).model_dump()
+
+        try:
+            mappings = create_multiple_project_user_mappings(
+                db=db,
+                project_id=project_id,
+                user_ids=user_ids
+            )
+
+            return ProjectServiceResponse(
+                data={
+                    "mapped_count": len(mappings),
+                    "project_id": str(project_id)
+                },
+                message="Users assigned to project successfully",
+                status_code=200
+            ).model_dump()
+        except Exception as db_error:
+            db.rollback()
+            logging.error(f"Database error in map_multiple_users_to_project: {str(db_error)}")
+            return ProjectServiceResponse(
+                data=None,
+                status_code=500,
+                message=f"Database error while mapping users to project: {str(db_error)}"
+            ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in map_multiple_users_to_project API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while mapping users to project"
+        ).model_dump()
+
 @admin_app.post(
     "/item_mapping/{item_id}/{project_id}",
-    tags=["admin_panel"]
+    tags=["admin_panel"],
+    description="Map a single item to a project (legacy endpoint)",
+    deprecated=True,
 )
 def map_item_to_project(
     item_id: UUID,
@@ -224,8 +312,115 @@ def map_item_to_project(
 
 
 @admin_app.post(
+    "/project_items_mapping/{project_id}",
+    tags=["admin_panel"],
+    description="Map multiple items to a project at once"
+)
+def map_multiple_items_to_project(
+    project_id: UUID,
+    items_data: List[dict] = Body(..., embed=True, description="List of items with their balances"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Map multiple items to a project at once.
+
+    Request body should be in the format:
+    ```json
+    {
+        "items_data": [
+            {"item_id": "uuid1", "balance": 100.0},
+            {"item_id": "uuid2", "balance": 200.0}
+        ]
+    }
+    ```
+    """
+    try:
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Unauthorized to assign items to project"
+            ).model_dump()
+
+        # Verify project exists
+        project = db.query(Project).filter(Project.uuid == project_id).first()
+        if not project:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Project not found"
+            ).model_dump()
+
+        # Extract item IDs and balances
+        item_ids = []
+        item_balances = []
+
+        for item_data in items_data:
+            try:
+                item_id = UUID(item_data.get("item_id"))
+                balance = float(item_data.get("balance", 0.0))
+                item_ids.append(item_id)
+                item_balances.append(balance)
+            except (ValueError, TypeError) as e:
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message=f"Invalid item data format: {str(e)}"
+                ).model_dump()
+
+        # Verify all items exist
+        item_count = db.query(Item).filter(Item.uuid.in_(item_ids)).count()
+        if item_count != len(item_ids):
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="One or more items not found"
+            ).model_dump()
+
+        try:
+            mappings = create_multiple_project_item_mappings(
+                db=db,
+                item_ids=item_ids,
+                project_id=project_id,
+                item_balances=item_balances
+            )
+
+            return ProjectServiceResponse(
+                data={
+                    "mapped_count": len(mappings),
+                    "project_id": str(project_id)
+                },
+                message="Items mapped to project successfully",
+                status_code=200
+            ).model_dump()
+        except Exception as db_error:
+            db.rollback()
+            logging.error(f"Database error in map_multiple_items_to_project: {str(db_error)}")
+            return ProjectServiceResponse(
+                data=None,
+                status_code=500,
+                message=f"Database error while mapping items to project: {str(db_error)}"
+            ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in map_multiple_items_to_project API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while mapping items to project"
+        ).model_dump()
+
+
+@admin_app.post(
     "/user_item_mapping/{user_id}/{item_id}",
-    tags=["admin_panel"]
+    tags=["admin_panel"],
+    description="Map a single item to a user (legacy endpoint)",
+    deprecated=True,
 )
 def map_item_to_user(
     user_id: UUID,
@@ -292,6 +487,309 @@ def map_item_to_user(
             data=None,
             status_code=500,
             message="An error occurred while mapping item to user"
+        ).model_dump()
+
+
+@admin_app.post(
+    "/user_items_mapping/{user_id}",
+    tags=["admin_panel"],
+    description="Map multiple items to a user at once"
+)
+def map_multiple_items_to_user(
+    user_id: UUID,
+    items_data: List[dict] = Body(..., embed=True, description="List of items with their balances"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Map multiple items to a user at once.
+
+    Request body should be in the format:
+    ```json
+    {
+        "items_data": [
+            {"item_id": "uuid1", "balance": 100.0},
+            {"item_id": "uuid2", "balance": 200.0}
+        ]
+    }
+    ```
+    """
+    try:
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Unauthorized to assign items to user"
+            ).model_dump()
+
+        # Verify user exists
+        user = db.query(User).filter(User.uuid == user_id).first()
+        if not user:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="User not found"
+            ).model_dump()
+
+        # Extract item IDs and balances
+        item_ids = []
+        item_balances = []
+
+        for item_data in items_data:
+            try:
+                item_id = UUID(item_data.get("item_id"))
+                balance = float(item_data.get("balance", 0.0)) if "balance" in item_data else None
+                item_ids.append(item_id)
+                item_balances.append(balance)
+            except (ValueError, TypeError) as e:
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message=f"Invalid item data format: {str(e)}"
+                ).model_dump()
+
+        # Verify all items exist
+        item_count = db.query(Item).filter(Item.uuid.in_(item_ids)).count()
+        if item_count != len(item_ids):
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="One or more items not found"
+            ).model_dump()
+
+        try:
+            mappings = create_multiple_user_item_mappings(
+                db=db,
+                user_id=user_id,
+                item_ids=item_ids,
+                item_balances=item_balances
+            )
+
+            return ProjectServiceResponse(
+                data={
+                    "mapped_count": len(mappings),
+                    "user_id": str(user_id)
+                },
+                message="Items assigned to user successfully",
+                status_code=200
+            ).model_dump()
+        except Exception as db_error:
+            db.rollback()
+            logging.error(f"Database error in map_multiple_items_to_user: {str(db_error)}")
+            return ProjectServiceResponse(
+                data=None,
+                status_code=500,
+                message=f"Database error while mapping items to user: {str(db_error)}"
+            ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in map_multiple_items_to_user API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while mapping items to user"
+        ).model_dump()
+
+
+@admin_app.delete(
+    "/project_item_mapping/{project_id}/{item_id}",
+    tags=["admin_panel"],
+    description="Remove an item from a project"
+)
+def remove_item_from_project(
+    project_id: UUID,
+    item_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Unauthorized to remove items from project"
+            ).model_dump()
+
+        # Check if project exists
+        project = db.query(Project).filter(Project.uuid == project_id).first()
+        if not project:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Project not found"
+            ).model_dump()
+
+        # Check if item exists
+        item = db.query(Item).filter(Item.uuid == item_id).first()
+        if not item:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Item not found"
+            ).model_dump()
+
+        # Remove the mapping
+        result = remove_project_item_mapping(db=db, item_id=item_id, project_id=project_id)
+
+        if not result:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Item is not mapped to this project"
+            ).model_dump()
+
+        return ProjectServiceResponse(
+            data=None,
+            message="Item removed from project successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in remove_item_from_project API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while removing item from project"
+        ).model_dump()
+
+
+@admin_app.delete(
+    "/project_user_mapping/{project_id}/{user_id}",
+    tags=["admin_panel"],
+    description="Remove a user from a project"
+)
+def remove_user_from_project(
+    project_id: UUID,
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Unauthorized to remove users from project"
+            ).model_dump()
+
+        # Check if project exists
+        project = db.query(Project).filter(Project.uuid == project_id).first()
+        if not project:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Project not found"
+            ).model_dump()
+
+        # Check if user exists
+        user = db.query(User).filter(User.uuid == user_id).first()
+        if not user:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="User not found"
+            ).model_dump()
+
+        # Remove the mapping
+        result = remove_project_user_mapping(db=db, user_id=user_id, project_id=project_id)
+
+        if not result:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="User is not mapped to this project"
+            ).model_dump()
+
+        return ProjectServiceResponse(
+            data=None,
+            message="User removed from project successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in remove_user_from_project API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while removing user from project"
+        ).model_dump()
+
+
+@admin_app.delete(
+    "/user_item_mapping/{user_id}/{item_id}",
+    tags=["admin_panel"],
+    description="Remove an item from a user"
+)
+def remove_item_from_user(
+    user_id: UUID,
+    item_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Unauthorized to remove items from user"
+            ).model_dump()
+
+        # Check if user exists
+        user = db.query(User).filter(User.uuid == user_id).first()
+        if not user:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="User not found"
+            ).model_dump()
+
+        # Check if item exists
+        item = db.query(Item).filter(Item.uuid == item_id).first()
+        if not item:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Item not found"
+            ).model_dump()
+
+        # Remove the mapping
+        result = remove_user_item_mapping(db=db, user_id=user_id, item_id=item_id)
+
+        if not result:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Item is not mapped to this user"
+            ).model_dump()
+
+        return ProjectServiceResponse(
+            data=None,
+            message="Item removed from user successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in remove_item_from_user API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while removing item from user"
         ).model_dump()
 
 
@@ -1259,6 +1757,7 @@ def get_all_khatabook_entries_admin(
                 "created_at": entry.created_at.isoformat(),
                 "files": file_urls,
                 "items": items_data,
+                "is_suspicious": entry.is_suspicious,
                 "payment_mode": entry.payment_mode
             })
 

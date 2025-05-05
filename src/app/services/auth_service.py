@@ -30,7 +30,8 @@ from src.app.schemas.auth_service_schamas import (
     UserRole,
     AuthServiceResponse,
     ForgotPasswordRequest,
-    UserLogout
+    UserLogout,
+    UserEdit
 )
 from src.app.notification.notification_service import (
     subscribe_news,
@@ -151,9 +152,9 @@ def upload_user_photo(
         with open(file_path, "wb") as buffer:
             buffer.write(file.file.read())
 
-        # 4) Update user.photo_path. 
+        # 4) Update user.photo_path.
         #    If you have a HOST_URL to build a public URL, you can do that too.
-        # current_user.photo_path = file_path  
+        # current_user.photo_path = file_path
         current_user.photo_path = f"{constants.HOST_URL}/uploads/payments/users/{unique_filename}"
         # Alternatively, you can store the final URL if you have a static server for images:
 
@@ -747,6 +748,138 @@ def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
         ).model_dump()
 
 
+@auth_router.put(
+    "/edit-user/{user_uuid}",
+    tags=["Users"],
+    status_code=status.HTTP_200_OK
+)
+def edit_user(
+    user_uuid: UUID,
+    user_data: UserEdit,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_required),
+):
+    """
+    Edit user information including person data.
+    Only superadmin can edit users.
+    """
+    try:
+        # Find the user
+        user = db.query(User).filter(
+            User.uuid == user_uuid,
+            User.is_deleted.is_(False)
+        ).first()
+
+        if not user:
+            return AuthServiceResponse(
+                data=None,
+                status_code=404,
+                message="User not found"
+            ).model_dump()
+
+        # Update user fields if provided
+        if user_data.name:
+            user.name = user_data.name
+
+        if user_data.phone:
+            # Check if phone is already used by another user
+            existing_user = db.query(User).filter(
+                User.phone == user_data.phone,
+                User.uuid != user_uuid,
+                User.is_deleted.is_(False)
+            ).first()
+
+            if existing_user:
+                return AuthServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message="Phone number already in use by another user"
+                ).model_dump()
+
+            user.phone = user_data.phone
+
+        if user_data.role:
+            user.role = user_data.role.value
+
+        # Update person data if provided
+        if user_data.person:
+            # Get or create person record
+            person = user.person
+
+            if not person:
+                # Create new person if it doesn't exist
+                person = Person(user_id=user.uuid)
+                db.add(person)
+                db.flush()
+
+            # Update person fields
+            if user_data.person.name:
+                person.name = user_data.person.name
+
+            if user_data.person.account_number:
+                person.account_number = user_data.person.account_number
+
+            if user_data.person.ifsc_code:
+                person.ifsc_code = user_data.person.ifsc_code
+
+            if user_data.person.phone_number:
+                person.phone_number = user_data.person.phone_number
+
+            if user_data.person.upi_number:
+                person.upi_number = user_data.person.upi_number
+
+            if user_data.person.parent_id:
+                person.parent_id = user_data.person.parent_id
+
+        # Create log entry
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="User",
+            action="Edit",
+            entity_id=user_uuid,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
+
+        # Commit changes
+        db.commit()
+        db.refresh(user)
+
+        # Prepare response
+        person_data = None
+        if user.person:
+            person_data = {
+                "uuid": str(user.person.uuid),
+                "name": user.person.name,
+                "account_number": user.person.account_number,
+                "ifsc_code": user.person.ifsc_code,
+                "phone_number": user.person.phone_number,
+                "upi_number": user.person.upi_number
+            }
+
+        return AuthServiceResponse(
+            data={
+                "uuid": str(user.uuid),
+                "name": user.name,
+                "phone": user.phone,
+                "role": user.role,
+                "photo_path": user.photo_path,
+                "person": person_data
+            },
+            message="User updated successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in edit_user API: {str(e)}")
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error updating user: {str(e)}"
+        ).model_dump()
+
+
 @auth_router.get("/persons", status_code=status.HTTP_200_OK, tags=["Persons"])
 def get_persons(
     db: Session = Depends(get_db),
@@ -795,4 +928,3 @@ def get_persons(
             status_code=500,
             message=f"Error fetching persons: {str(e)}"
         ).model_dump()
-

@@ -67,10 +67,10 @@ def create_khatabook_entry_service(
     current_user: UUID
 ) -> Khatabook:
     """
-    Creates a new Khatabook entry and updates the user's balance. 
+    Creates a new Khatabook entry and updates the user's balance.
     If concurrency is possible, row-level locking ensures only one transaction
     at a time can modify the same user's balance.
-    
+
     data is a dict with keys like:
       'amount': float
       'remarks': str
@@ -92,7 +92,7 @@ def create_khatabook_entry_service(
         kb_entry = Khatabook(
             amount=amount,
             remarks=data.get("remarks"),
-            person_id=data.get("person_id"),    
+            person_id=data.get("person_id"),
             expense_date=data.get("expense_date"),
             created_by=user_id,
             balance_after_entry=new_balance,  # Snapshot at time of creation
@@ -175,6 +175,16 @@ def update_khatabook_entry_service(
 
 
 def delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
+    """
+    Soft delete a khatabook entry by setting is_deleted to True.
+
+    Args:
+        db: Database session
+        kb_uuid: UUID of the khatabook entry
+
+    Returns:
+        True if the entry was deleted, False if the entry doesn't exist
+    """
     kb_entry = db.query(Khatabook).filter(
         Khatabook.uuid == kb_uuid,
         Khatabook.is_deleted.is_(False)
@@ -185,6 +195,31 @@ def delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     kb_entry.is_deleted = True
     db.commit()
     return True
+
+
+def hard_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
+    """
+    Hard delete a khatabook entry by removing it from the database.
+    Also deletes related files and item mappings.
+
+    Args:
+        db: Database session
+        kb_uuid: UUID of the khatabook entry
+
+    Returns:
+        True if the entry was deleted, False if the entry doesn't exist
+    """
+    # First, delete related files
+    db.query(KhatabookFile).filter(KhatabookFile.khatabook_id == kb_uuid).delete()
+
+    # Delete related item mappings
+    db.query(KhatabookItem).filter(KhatabookItem.khatabook_id == kb_uuid).delete()
+
+    # Delete the khatabook entry
+    result = db.query(Khatabook).filter(Khatabook.uuid == kb_uuid).delete()
+
+    db.commit()
+    return result > 0
 
 
 def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
@@ -243,7 +278,8 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
             "created_at": entry.created_at.isoformat(),
             "files": file_urls,
             "items": items_data,
-            "payment_mode": entry.payment_mode
+            "payment_mode": entry.payment_mode,
+            "is_suspicious": entry.is_suspicious
         })
 
     return response_data
@@ -270,3 +306,29 @@ def get_user_balance(user_uuid: UUID, db: Session) -> float:
         KhatabookBalance.user_uuid == user_uuid
     ).first()
     return bal[0] if bal else 0.0
+
+
+def mark_khatabook_entry_suspicious(db: Session, kb_uuid: UUID, is_suspicious: bool) -> Optional[Khatabook]:
+    """
+    Mark a khatabook entry as suspicious or not suspicious.
+
+    Args:
+        db: Database session
+        kb_uuid: UUID of the khatabook entry
+        is_suspicious: Whether to mark the entry as suspicious or not
+
+    Returns:
+        The updated khatabook entry, or None if the entry doesn't exist
+    """
+    kb_entry = db.query(Khatabook).filter(
+        Khatabook.uuid == kb_uuid,
+        Khatabook.is_deleted.is_(False)
+    ).first()
+
+    if not kb_entry:
+        return None
+
+    kb_entry.is_suspicious = is_suspicious
+    db.commit()
+    db.refresh(kb_entry)
+    return kb_entry

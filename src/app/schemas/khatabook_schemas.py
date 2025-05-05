@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator
-from typing import Optional, List
+from typing import Optional, List, Any
 from uuid import UUID
 
 #
@@ -43,8 +43,9 @@ class KhatabookFileOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
-    @field_validator("download_url", pre=True, always=True)
-    def build_download_url(cls, v, values):
+    @field_validator("download_url")
+    def build_download_url(cls, v, info):
+        values = info.data
         file_id = values.get("id")
         if file_id is None:
             return None
@@ -67,13 +68,24 @@ class KhatabookOut(BaseModel):
     uuid: UUID
     amount: float
     remarks: Optional[str] = None
+    is_suspicious: Optional[bool] = False
 
     person: Optional[PersonOut] = None
     user: Optional[UserOut] = None
-    # The "items" relationship is a list of `KhatabookItem` objects (the pivot), 
+    # The "items" relationship is a list of `KhatabookItem` objects (the pivot),
     # so we must use KhatabookItemOut to parse them
     items: List[KhatabookItemOut] = []
     # The "files" relationship is a list of KhatabookFile objects
     files: List[KhatabookFileOut] = []
 
     model_config = {"from_attributes": True}
+
+
+class MarkSuspiciousRequest(BaseModel):
+    is_suspicious: bool
+
+
+class KhatabookServiceResponse(BaseModel):
+    data: Optional[Any] = None
+    message: str
+    status_code: int
