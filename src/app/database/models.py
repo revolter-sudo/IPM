@@ -33,7 +33,7 @@ class Khatabook(Base):
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     balance_after_entry = Column(Float, nullable=True)
-    is_suspicious = Column(Boolean, nullable=False, default=False)  # New field to mark entries as suspicious
+    is_suspicious = Column(Boolean, nullable=False, server_default='false')  # New field to mark entries as suspicious
     project_id = Column(
         UUID(as_uuid=True),
         ForeignKey("projects.uuid"),

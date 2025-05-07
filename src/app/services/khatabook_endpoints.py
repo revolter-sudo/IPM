@@ -93,20 +93,32 @@ def get_all_khatabook_entries(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    user_balance = get_user_balance(user_uuid=current_user.uuid, db=db)
-    entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
-    total_amount = sum(entry["amount"] for entry in entries) if entries else 0.0
-    remaining_balance = user_balance - total_amount
-    response_data = {
-        "remaining_balance": remaining_balance,
-        "total_amount": total_amount,
-        "entries": entries
-    }
-    return AuthServiceResponse(
-        data=response_data,
-        status_code=200,
-        message="Khatabook entries fetched successfully"
-    ).model_dump()
+    # Check if current_user is a dictionary (error response)
+    if isinstance(current_user, dict):
+        # Return the error response directly
+        return current_user
+
+    try:
+        user_balance = get_user_balance(user_uuid=current_user.uuid, db=db)
+        entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
+        total_amount = sum(entry["amount"] for entry in entries) if entries else 0.0
+        remaining_balance = user_balance - total_amount
+        response_data = {
+            "remaining_balance": remaining_balance,
+            "total_amount": total_amount,
+            "entries": entries
+        }
+        return AuthServiceResponse(
+            data=response_data,
+            status_code=200,
+            message="Khatabook entries fetched successfully"
+        ).model_dump()
+    except Exception as e:
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error fetching khatabook entries: {str(e)}"
+        ).model_dump()
 
 
 @khatabook_router.patch("/{khatabook_uuid}/mark-suspicious")
@@ -120,6 +132,11 @@ def mark_suspicious(
     Mark a khatabook entry as suspicious or not suspicious.
     Only admin and super admin users can mark entries as suspicious.
     """
+    # Check if current_user is a dictionary (error response)
+    if isinstance(current_user, dict):
+        # Return the error response directly
+        return current_user
+
     try:
         # Check if user has permission (admin or super admin)
         if current_user.role not in ["admin", "super_admin"]:
@@ -168,6 +185,11 @@ def export_khatabook_data(
     """
     Export khatabook entries to Excel.
     """
+    # Check if current_user is a dictionary (error response)
+    if isinstance(current_user, dict):
+        # Return the error response directly
+        return current_user
+
     try:
         # Get all khatabook entries
         entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
@@ -176,7 +198,19 @@ def export_khatabook_data(
         df_data = []
         for entry in entries:
             person_name = entry.get("person", {}).get("name", "") if entry.get("person") else ""
-            items = ", ".join([item.get("name", "") for item in entry.get("items", [])])
+
+            # Fix for item extraction - handle different item structures
+            items_list = []
+            for item in entry.get("items", []):
+                if isinstance(item, dict):
+                    # Direct dictionary with name
+                    if "name" in item:
+                        items_list.append(item["name"])
+                    # Dictionary with nested item structure
+                    elif "item" in item and isinstance(item["item"], dict) and "name" in item["item"]:
+                        items_list.append(item["item"]["name"])
+
+            items = ", ".join(items_list)
 
             df_data.append({
                 "Date": entry.get("created_at", ""),
@@ -232,6 +266,11 @@ def hard_delete_khatabook_entry(
     Hard delete a khatabook entry.
     Only admin and super admin users can hard delete entries.
     """
+    # Check if current_user is a dictionary (error response)
+    if isinstance(current_user, dict):
+        # Return the error response directly
+        return current_user
+
     try:
         # Check if user has permission (admin or super admin)
         if current_user.role not in ["admin", "super_admin"]:
