@@ -3,6 +3,7 @@ import shutil
 import json
 import pandas as pd
 from io import BytesIO
+from src.app.schemas.auth_service_schamas import UserRole
 from typing import Dict, List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Response
@@ -139,7 +140,7 @@ def mark_suspicious(
 
     try:
         # Check if user has permission (admin or super admin)
-        if current_user.role not in ["admin", "super_admin"]:
+        if current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]:
             return KhatabookServiceResponse(
                 data=None,
                 status_code=403,
