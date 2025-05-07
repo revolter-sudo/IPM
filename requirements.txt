@@ -16,3 +16,4 @@ fastapi-cache2[redis]
 python-dotenv
 jinja2
 pandas
+xlsxwriter
