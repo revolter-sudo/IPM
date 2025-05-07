@@ -7,7 +7,15 @@ until nc -z -v -w30 147.93.31.224 5432; do
   sleep 2
 done
 
-echo "PostgreSQL is up - skipping migrations"
+echo "PostgreSQL is up - running migrations"
+
+# Run Alembic migrations
+if alembic upgrade head; then
+  echo "Migrations applied successfully"
+else
+  echo "Alembic migrations failed!" >&2
+  exit 1
+fi
 
 # Create uploads directory if it doesn't exist
 mkdir -p /app/uploads
