@@ -274,7 +274,7 @@ def hard_delete_khatabook_entry(
 
     try:
         # Check if user has permission (admin or super admin)
-        if current_user.role not in ["admin", "super_admin"]:
+        if current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]:
             return KhatabookServiceResponse(
                 data=None,
                 status_code=403,
