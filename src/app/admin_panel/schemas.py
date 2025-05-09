@@ -1,5 +1,6 @@
 from typing import Optional, Any, List, Dict
 from uuid import UUID
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 
@@ -39,3 +40,15 @@ class UserItemMapResponse(BaseModel):
     list_tag: Optional[str] = None
     has_additional_info: Optional[bool] = None
     item_balance: float = 0.0
+
+
+class LogResponse(BaseModel):
+    uuid: UUID
+    entity: str
+    action: str
+    entity_id: UUID
+    performed_by: UUID
+    timestamp: datetime
+    performer_name: Optional[str] = None
+
+    model_config = {"from_attributes": True}

@@ -57,7 +57,7 @@ from src.app.schemas import constants
 from src.app.admin_panel.services import get_default_config_service
 from src.app.database.database import get_db, SessionLocal
 import logging
-from src.app.admin_panel.schemas import AdminPanelResponse
+from src.app.admin_panel.schemas import AdminPanelResponse, LogResponse
 logging.basicConfig(level=logging.INFO)
 
 admin_app = FastAPI(
@@ -1780,4 +1780,102 @@ def get_all_khatabook_entries_admin(
             data=None,
             status_code=500,
             message=f"An error occurred while fetching khatabook entries: {str(e)}"
+        ).model_dump()
+
+
+@admin_app.get(
+    "/logs",
+    tags=["Logs"],
+    description="Get all logs of user operations with filtering options"
+)
+def get_all_logs(
+    entity: Optional[str] = Query(None, description="Filter by entity type (e.g., User, Project, Payment)"),
+    action: Optional[str] = Query(None, description="Filter by action (e.g., Create, Edit, Delete)"),
+    entity_id: Optional[UUID] = Query(None, description="Filter by entity ID"),
+    performed_by: Optional[UUID] = Query(None, description="Filter by user who performed the action"),
+    start_date: Optional[datetime] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[datetime] = Query(None, description="End date (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get all logs of user operations with filtering options.
+    Only admin and super admin can access all logs.
+    """
+    try:
+        # Check if current_user is a dictionary (error response) or a User object
+        if isinstance(current_user, dict):
+            # If it's a dictionary, it's an error response from get_current_user
+            return AdminPanelResponse(
+                data=None,
+                status_code=current_user.get("status_code", 401),
+                message=current_user.get("message", "Authentication error")
+            ).model_dump()
+
+        # Check if user has permission
+        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            return AdminPanelResponse(
+                data=None,
+                status_code=403,
+                message="Only admin and super admin can access all logs"
+            ).model_dump()
+
+        # Base query
+        query = db.query(Log).filter(Log.is_deleted.is_(False))
+
+        # Apply filters
+        if entity:
+            query = query.filter(Log.entity == entity)
+
+        if action:
+            query = query.filter(Log.action == action)
+
+        if entity_id:
+            query = query.filter(Log.entity_id == entity_id)
+
+        if performed_by:
+            query = query.filter(Log.performed_by == performed_by)
+
+        if start_date:
+            query = query.filter(Log.timestamp >= start_date)
+
+        if end_date:
+            query = query.filter(Log.timestamp <= end_date)
+
+        # Order by most recent first
+        query = query.order_by(Log.timestamp.desc())
+
+        # Execute query
+        logs = query.all()
+
+        # Get user information for performed_by
+        user_ids = [log.performed_by for log in logs]
+        users = db.query(User).filter(User.uuid.in_(user_ids)).all()
+        user_map = {str(user.uuid): user.name for user in users}
+
+        # Format response
+        logs_list = []
+        for log in logs:
+            logs_list.append({
+                "uuid": str(log.uuid),
+                "entity": log.entity,
+                "action": log.action,
+                "entity_id": str(log.entity_id),
+                "performed_by": str(log.performed_by),
+                "performer_name": user_map.get(str(log.performed_by), "Unknown"),
+                "timestamp": log.timestamp.isoformat()
+            })
+
+        return AdminPanelResponse(
+            data=logs_list,
+            message="Logs fetched successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        logging.error(f"Error in get_all_logs API: {str(e)}")
+        return AdminPanelResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while fetching logs: {str(e)}"
         ).model_dump()
