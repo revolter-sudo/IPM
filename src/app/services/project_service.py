@@ -52,19 +52,23 @@ def create_project_balance_entry(
         balance_type=balance_type
     )
     db.add(balance_entry)
-    log_entry = Log(
-            uuid=str(uuid4()),
-            entity="Project",
-            action="Balance Adjustment",
-            entity_id=project_id,
-            performed_by=current_user.uuid,
-        )
-    db.add(log_entry)
+    # log_entry = Log(
+    #         uuid=str(uuid4()),
+    #         entity="Project",
+    #         action="Aded Project Balance",
+    #         entity_id=project_id,
+    #         performed_by=current_user.uuid,
+    #     )
+    # db.add(log_entry)
     db.commit()
     db.refresh(balance_entry)
 
 
-@project_router.put("/update-balance", tags=["Projects"])
+@project_router.put(
+        "/update-balance",
+        tags=["Projects"],
+        deprecated=True
+    )
 def update_project_balance(
     project_uuid: UUID,
     new_balance: float,
@@ -145,7 +149,11 @@ def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)):
         ).model_dump()
 
 
-@project_router.put("/adjust-balance", tags=["Projects"])
+@project_router.put(
+        "/adjust-balance",
+        tags=["Projects"],
+        deprecated=True
+    )
 def adjust_project_balance(
     project_uuid: UUID,
     adjustment: float,
