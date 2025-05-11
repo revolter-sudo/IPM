@@ -572,3 +572,20 @@ class UserItemMap(Base):
 
     def __repr__(self):
         return f"<UserItemMap(user_id={self.user_id}, item_id={self.item_id})>"
+
+
+class DefaultConfig(Base):
+    __tablename__ = "default_config"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
+    admin_amount = Column(Float, nullable=False, default=0.0)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
+    # Relationship to Item
+    item = relationship("Item")
+
+    def __repr__(self):
+        return f"<DefaultConfig(uuid={self.uuid}, item_id={self.item_id}, admin_amount={self.admin_amount})>"

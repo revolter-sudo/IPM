@@ -16,6 +16,25 @@ class AdminPanelResponse(BaseModel):
             "status_code": self.status_code
         }
 
+
+class DefaultConfigCreate(BaseModel):
+    item_id: UUID
+    admin_amount: float
+
+
+class DefaultConfigUpdate(BaseModel):
+    item_id: UUID
+    admin_amount: float
+
+
+class DefaultConfigResponse(BaseModel):
+    uuid: UUID
+    item_id: UUID
+    admin_amount: float
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
 class ProjectUserMap(BaseModel):
     uuid: UUID
     user_id: UUID

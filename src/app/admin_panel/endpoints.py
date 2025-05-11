@@ -14,7 +14,9 @@ from src.app.admin_panel.services import (
     create_multiple_user_item_mappings,
     remove_project_item_mapping,
     remove_project_user_mapping,
-    remove_user_item_mapping
+    remove_user_item_mapping,
+    create_default_config_service,
+    update_default_config_service
 )
 from src.app.schemas.project_service_schemas import (
     ProjectServiceResponse,
@@ -50,14 +52,20 @@ from src.app.database.models import (
     Khatabook,
     KhatabookItem,
     KhatabookFile,
-    Person
+    Person,
+    DefaultConfig
 )
 from sqlalchemy.orm import Session, joinedload
 from src.app.schemas import constants
 from src.app.admin_panel.services import get_default_config_service
 from src.app.database.database import get_db, SessionLocal
 import logging
-from src.app.admin_panel.schemas import AdminPanelResponse, LogResponse
+from src.app.admin_panel.schemas import (
+    AdminPanelResponse,
+    LogResponse,
+    DefaultConfigCreate,
+    DefaultConfigUpdate
+)
 logging.basicConfig(level=logging.INFO)
 
 admin_app = FastAPI(
@@ -70,17 +78,11 @@ admin_app = FastAPI(
 admin_app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 
 
-# @admin_app.post(
-#     "/default-config",
-#     tags=['Default Config'],
-#     status_code=201
-# )
-# def create_default_config
-
 @admin_app.get(
     "/default-config",
     tags=['Default Config'],
     status_code=200,
+    description="Get the current default configuration (admin amount and site expense item)"
 )
 def get_default_config():
     try:
@@ -95,6 +97,126 @@ def get_default_config():
         return AdminPanelResponse(
             data=None,
             message="Error in get_default_config API",
+            status_code=500
+        ).model_dump()
+
+
+@admin_app.post(
+    "/default-config",
+    tags=['Default Config'],
+    status_code=201,
+    description="Create a new default configuration with specified item and admin amount"
+)
+def create_default_config(
+    config_data: DefaultConfigCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # Check if user has permission
+        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            return AdminPanelResponse(
+                data=None,
+                message="Only admin and super admin can create default config",
+                status_code=403
+            ).model_dump()
+
+        # Check if item exists
+        item = db.query(Item).filter(Item.uuid == config_data.item_id).first()
+        if not item:
+            return AdminPanelResponse(
+                data=None,
+                message="Item not found",
+                status_code=404
+            ).model_dump()
+
+        existing_config = db.query(
+            DefaultConfig
+        ).filter(
+            DefaultConfig.is_deleted.is_(False)
+        ).first()
+        if existing_config:
+            return AdminPanelResponse(
+                data=None,
+                message="Default config already exists. Please update instead.",
+                status_code=400
+            ).model_dump()
+
+        # Create new default config
+        new_config = create_default_config_service(
+            item_id=config_data.item_id,
+            admin_amount=config_data.admin_amount
+        )
+
+        return AdminPanelResponse(
+            data={
+                "uuid": str(new_config.uuid),
+                "item_id": str(new_config.item_id),
+                "admin_amount": new_config.admin_amount,
+                "created_at": new_config.created_at.isoformat()
+            },
+            message="Default Config Created Successfully",
+            status_code=201
+        ).model_dump()
+    except Exception as e:
+        logging.error(f"Error in create_default_config API: {str(e)}")
+        return AdminPanelResponse(
+            data=None,
+            message=f"Error in create_default_config API: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+
+@admin_app.put(
+    "/default-config",
+    tags=['Default Config'],
+    status_code=200,
+    description="Update the default configuration with new item and admin amount"
+)
+def update_default_config(
+    config_data: DefaultConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # Check if user has permission
+        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            return AdminPanelResponse(
+                data=None,
+                message="Only admin and super admin can update default config",
+                status_code=403
+            ).model_dump()
+
+        # Check if item exists
+        item = db.query(Item).filter(Item.uuid == config_data.item_id).first()
+        if not item:
+            return AdminPanelResponse(
+                data=None,
+                message="Item not found",
+                status_code=404
+            ).model_dump()
+
+        # Update default config
+        updated_config = update_default_config_service(
+            item_id=config_data.item_id,
+            admin_amount=config_data.admin_amount
+        )
+
+        return AdminPanelResponse(
+            data={
+                "uuid": str(updated_config.uuid),
+                "item_id": str(updated_config.item_id),
+                "admin_amount": updated_config.admin_amount,
+                "created_at": updated_config.created_at.isoformat()
+            },
+            message="Default Config Updated Successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        logging.error(f"Error in update_default_config API: {str(e)}")
+        return AdminPanelResponse(
+            data=None,
+            message=f"Error in update_default_config API: {str(e)}",
             status_code=500
         ).model_dump()
 
