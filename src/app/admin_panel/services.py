@@ -85,7 +85,6 @@ def create_default_config_service(item_id: UUID, admin_amount: float) -> Default
 
         # Create a new default config
         new_config = DefaultConfig(
-            uuid=uuid4(),
             item_id=item_id,
             admin_amount=admin_amount
         )

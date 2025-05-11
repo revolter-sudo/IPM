@@ -24,6 +24,7 @@ from src.app.schemas.project_service_schemas import (
     InvoiceResponse,
     InvoiceStatusUpdateRequest
 )
+from src.app.schemas.payment_service_schemas import PaymentStatus
 from typing import Optional, List
 from uuid import UUID, uuid4
 from datetime import datetime
@@ -64,7 +65,9 @@ from src.app.admin_panel.schemas import (
     AdminPanelResponse,
     LogResponse,
     DefaultConfigCreate,
-    DefaultConfigUpdate
+    DefaultConfigUpdate,
+    PaymentStatusAnalytics,
+    ProjectPaymentAnalyticsResponse
 )
 logging.basicConfig(level=logging.INFO)
 
@@ -1902,6 +1905,112 @@ def get_all_khatabook_entries_admin(
             data=None,
             status_code=500,
             message=f"An error occurred while fetching khatabook entries: {str(e)}"
+        ).model_dump()
+
+
+@admin_app.get(
+    "/projects/{project_id}/payment-analytics",
+    tags=["Analytics"],
+    description="Get payment analytics data for a specific project (count, amount, percentage by status)"
+)
+def get_project_payment_analytics(
+    project_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get analytics data for payments in a specific project.
+    Returns count, total amount, and percentage of payments by status.
+    """
+    try:
+        # Check if user has permission
+        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, UserRole.PROJECT_MANAGER.value]:
+            return AdminPanelResponse(
+                data=None,
+                message="Only admin, super admin, or project manager can access payment analytics",
+                status_code=403
+            ).model_dump()
+
+        # Check if project exists
+        project = db.query(Project).filter(Project.uuid == project_id, Project.is_deleted.is_(False)).first()
+        if not project:
+            return AdminPanelResponse(
+                data=None,
+                message="Project not found",
+                status_code=404
+            ).model_dump()
+
+        # Get all payments for this project
+        payments = db.query(Payment).filter(
+            Payment.project_id == project_id,
+            Payment.is_deleted.is_(False)
+        ).all()
+
+        if not payments:
+            # Return empty analytics if no payments found
+            return AdminPanelResponse(
+                data={
+                    "project_id": str(project_id),
+                    "project_name": project.name,
+                    "total_payments": 0,
+                    "total_amount": 0.0,
+                    "status_analytics": []
+                },
+                message="No payments found for this project",
+                status_code=200
+            ).model_dump()
+
+        # Count total payments and calculate total amount
+        total_payments = len(payments)
+        total_amount = sum(payment.amount for payment in payments)
+
+        # Group payments by status
+        status_counts = {}
+        status_amounts = {}
+
+        for payment in payments:
+            if payment.status not in status_counts:
+                status_counts[payment.status] = 0
+                status_amounts[payment.status] = 0.0
+
+            status_counts[payment.status] += 1
+            status_amounts[payment.status] += payment.amount
+
+        # Calculate percentages and prepare response
+        status_analytics = []
+        for status in PaymentStatus:
+            status_value = status.value
+            count = status_counts.get(status_value, 0)
+            amount = status_amounts.get(status_value, 0.0)
+            percentage = (count / total_payments * 100) if total_payments > 0 else 0.0
+
+            status_analytics.append({
+                "status": status_value,
+                "count": count,
+                "total_amount": amount,
+                "percentage": round(percentage, 2)
+            })
+
+        # Prepare response
+        response_data = {
+            "project_id": str(project_id),
+            "project_name": project.name,
+            "total_payments": total_payments,
+            "total_amount": total_amount,
+            "status_analytics": status_analytics
+        }
+
+        return AdminPanelResponse(
+            data=response_data,
+            message="Payment analytics fetched successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        logging.error(f"Error in get_project_payment_analytics API: {str(e)}")
+        return AdminPanelResponse(
+            data=None,
+            message=f"An error occurred while fetching payment analytics: {str(e)}",
+            status_code=500
         ).model_dump()
 
 

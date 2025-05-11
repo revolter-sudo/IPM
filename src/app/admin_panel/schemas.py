@@ -35,6 +35,22 @@ class DefaultConfigResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+
+class PaymentStatusAnalytics(BaseModel):
+    status: str
+    count: int
+    total_amount: float
+    percentage: float
+
+
+class ProjectPaymentAnalyticsResponse(BaseModel):
+    project_id: UUID
+    project_name: str
+    total_payments: int
+    total_amount: float
+    status_analytics: List[PaymentStatusAnalytics]
+
+
 class ProjectUserMap(BaseModel):
     uuid: UUID
     user_id: UUID
