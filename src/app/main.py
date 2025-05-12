@@ -37,13 +37,15 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 # FastAPI App
 app = FastAPI()
 
-# Configure CORS
+# Configure CORS - Allow all origins, methods, and headers
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"],  # Expose all headers to the browser
+    max_age=86400,  # Cache preflight requests for 24 hours (in seconds)
 )
 
 app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)

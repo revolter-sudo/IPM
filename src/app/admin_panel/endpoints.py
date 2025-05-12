@@ -2,6 +2,7 @@ import os
 import traceback
 from fastapi import FastAPI, Body, HTTPException
 from fastapi_sqlalchemy import DBSessionMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from src.app.database.database import settings
 from src.app.services.auth_service import get_current_user
 from src.app.schemas.auth_service_schamas import UserRole
@@ -1924,7 +1925,11 @@ def get_project_payment_analytics(
     """
     try:
         # Check if user has permission
-        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, UserRole.PROJECT_MANAGER.value]:
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value
+        ]:
             return AdminPanelResponse(
                 data=None,
                 message="Only admin, super admin, or project manager can access payment analytics",
