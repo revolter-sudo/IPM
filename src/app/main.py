@@ -37,12 +37,18 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 # FastAPI App
 app = FastAPI()
 
-# Configure CORS - Allow all origins, methods, and headers
+# Configure CORS - Allow specific origins including Netlify domain
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
+    allow_origins=[
+        "*",  # Allow all origins as a fallback
+        "https://ipm-development.netlify.app",  # Explicitly allow the Netlify domain
+        "http://localhost:3000",  # For local development
+        "http://localhost:8000",  # For local development
+    ],
+    allow_origin_regex="https://.*\.netlify\.app",  # Allow all Netlify subdomains
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods (GET, POST, PUT, DELETE, etc.)
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # Explicitly list all methods
     allow_headers=["*"],  # Allow all headers
     expose_headers=["*"],  # Expose all headers to the browser
     max_age=86400,  # Cache preflight requests for 24 hours (in seconds)

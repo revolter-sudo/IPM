@@ -78,8 +78,25 @@ admin_app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-# If you need DB access in the admin sub-app, add DBSessionMiddleware again:
+# Add DB middleware for database access
 admin_app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
+
+# Configure CORS for admin sub-application
+admin_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "*",  # Allow all origins as a fallback
+        "https://ipm-development.netlify.app",  # Explicitly allow the Netlify domain
+        "http://localhost:3000",  # For local development
+        "http://localhost:8000",  # For local development
+    ],
+    allow_origin_regex="https://.*\.netlify\.app",  # Allow all Netlify subdomains
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # Explicitly list all methods
+    allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"],  # Expose all headers to the browser
+    max_age=86400,  # Cache preflight requests for 24 hours (in seconds)
+)
 
 
 @admin_app.get(
