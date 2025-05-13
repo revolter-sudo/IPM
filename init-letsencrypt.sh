@@ -5,7 +5,7 @@
 
 # Replace these variables with your own values
 domains=(dev.inqilabgroup.com)
-email="your-email@example.com"  # Adding a valid address is strongly recommended
+email="yashbhatt@dezdok.com"  # Adding a valid address is strongly recommended
 staging=0  # Set to 1 if you're testing your setup to avoid hitting request limits
 
 # Create required directories
@@ -23,7 +23,7 @@ if [ ! -e "certbot/conf/live/$domains" ]; then
 fi
 
 # Update Nginx configuration to use the domain name
-sed -i "s/yourdomain.com/$domains/g" nginx/nginx.conf
+sed -i "s/dev.inqilabgroup.com/$domains/g" nginx/nginx.conf
 
 # Start Nginx
 echo "Starting Nginx..."
