@@ -18,4 +18,4 @@ RoleStatusMapping = {
     "Accountant": "transferred",
     "SuperAdmin": "transferred"
 }
-HOST_URL = "http://147.93.31.224:8000"
+HOST_URL = "https://dev.inqilabgroup.com"
