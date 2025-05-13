@@ -5,7 +5,7 @@
 
 # Set variables
 DOMAIN="dev.inqilabgroup.com"  # Your domain
-EMAIL="your-email@example.com"  # Replace with your email
+EMAIL="yashbhatt@gmail.com"  # Replace with your email
 
 # Create required directories
 echo "Creating required directories..."
