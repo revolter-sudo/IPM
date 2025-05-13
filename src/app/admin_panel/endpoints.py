@@ -87,6 +87,7 @@ admin_app.add_middleware(
     allow_origins=[
         "*",  # Allow all origins as a fallback
         "https://ipm-development.netlify.app",  # Explicitly allow the Netlify domain
+        "https://dev.inqilabgroup.com",  # Your production domain with HTTPS
         "http://localhost:3000",  # For local development
         "http://localhost:8000",  # For local development
     ],

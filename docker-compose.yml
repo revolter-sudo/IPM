@@ -6,8 +6,40 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://myuser:200899@147.93.31.224:5432/ipm_new
-    ports:
-      - "8000:8000"
+    # No need to expose port 8000 to the host, only to the internal network
+    # ports:
+    #   - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       - ./uploads:/app/uploads
       - /root/secretfiles/secret_files.json:/app/src/app/utils/firebase/secret_files.json
+    networks:
+      - app-network
+
+  nginx:
+    image: nginx:1.25-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/nginx/ssl
+      - ./uploads:/app/uploads:ro
+      - ./src/app/static:/app/static:ro
+    depends_on:
+      - api
+    networks:
+      - app-network
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+
+networks:
+  app-network:
+    driver: bridge
