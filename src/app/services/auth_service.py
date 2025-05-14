@@ -333,13 +333,13 @@ def login(
                 message="Incorrect phone or password"
             ).model_dump()
 
-    # Restrict login to only superadmin and admin roles
-    if db_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
-        return AuthServiceResponse(
-            data=None,
-            status_code=403,
-            message="Only admin can access"
-        ).model_dump()
+    # # Restrict login to only superadmin and admin roles
+    # if db_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+    #     return AuthServiceResponse(
+    #         data=None,
+    #         status_code=403,
+    #         message="Only admin can access"
+    #     ).model_dump()
 
     user_data = UserResponse(
         uuid=db_user.uuid,
