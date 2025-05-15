@@ -440,11 +440,12 @@ def build_main_payments_query(db: Session, pending_request: bool):
 
 def apply_role_restrictions(query, current_user: User):
     """
-    Restrict payments to those created by the current user for all roles except
-    ADMIN, SUPER_ADMIN, ACCOUNTANT, and PROJECT_MANAGER.
-
-    This function ensures that normal users can only see their own payments,
-    while exempt roles can see all payments.
+    Restrict payments based on user role:
+    - ADMIN, SUPER_ADMIN: can see all payments
+    - ACCOUNTANT: can see all payments (with amount restrictions applied elsewhere)
+    - PROJECT_MANAGER, SITE_ENGINEER, SUB_CONTRACTOR: can only see payments for projects
+      they are mapped to (this is handled in the main query)
+    - Other roles: can only see their own payments
 
     Args:
         query: SQLAlchemy query object for Payment.
@@ -457,10 +458,20 @@ def apply_role_restrictions(query, current_user: User):
         UserRole.ADMIN.value,
         UserRole.SUPER_ADMIN.value,
         UserRole.ACCOUNTANT.value,
-        UserRole.PROJECT_MANAGER.value,
     ]
-    if current_user.role not in exempt_roles:
+
+    # Project managers, site engineers, and sub contractors are filtered by project mapping
+    # in the main query, so we don't need to apply additional restrictions here
+    project_based_roles = [
+        UserRole.PROJECT_MANAGER.value,
+        UserRole.SITE_ENGINEER.value,
+        UserRole.SUB_CONTRACTOR.value,
+    ]
+
+    # For other roles, restrict to only their own payments
+    if current_user.role not in exempt_roles and current_user.role not in project_based_roles:
         query = query.filter(Payment.created_by == current_user.uuid)
+
     return query
 
 
@@ -769,16 +780,26 @@ def get_all_payments(
         by_id = {rec["uuid"]: rec for rec in assembled_records}
         return [by_id[u] for u in selected_uuids if u in by_id]
 
-    # Get project manager's assigned projects
-    def get_project_manager_projects():
-        if current_user.role == UserRole.PROJECT_MANAGER.value:
+    # Get user's assigned projects based on role
+    def get_user_mapped_projects():
+        # Admin and super admin can see all projects
+        if current_user.role in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]:
+            return None
+
+        # For site engineers, sub contractors, and project managers, get their mapped projects
+        if current_user.role in [
+            UserRole.SITE_ENGINEER.value,
+            UserRole.SUB_CONTRACTOR.value,
+            UserRole.PROJECT_MANAGER.value
+        ]:
             project_mappings = db.query(ProjectUserMap).filter(
                 ProjectUserMap.user_id == current_user.uuid
             ).all()
             return [mapping.project_id for mapping in project_mappings]
+
         return None
 
-    project_manager_projects = get_project_manager_projects()
+    user_mapped_projects = get_user_mapped_projects()
 
     # ------------------------------------------------------------------ 1) RECENT MODE
     if recent:
@@ -789,9 +810,18 @@ def get_all_payments(
                   Payment.status.notin_(["transferred", "declined"])
               )
         )
-        if project_manager_projects is not None:
-            base = base.filter(Payment.project_id.in_(project_manager_projects))
-        elif current_user.role != UserRole.SUPER_ADMIN.value:
+
+        # Filter by user's mapped projects if applicable
+        if user_mapped_projects is not None:
+            if not user_mapped_projects:  # If user has no mapped projects
+                return PaymentServiceResponse(
+                    data={"records": [], "total_count": 0},
+                    message="No projects mapped to your account.",
+                    status_code=200
+                ).model_dump()
+            base = base.filter(Payment.project_id.in_(user_mapped_projects))
+        elif current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value, UserRole.ACCOUNTANT.value]:
+            # For other roles without project mapping, show only their own payments
             base = base.filter(Payment.created_by == current_user.uuid)
 
         base = apply_role_restrictions(base, current_user)
@@ -830,7 +860,7 @@ def get_all_payments(
                         }
                     projects_dict[project_id]['payments'].append(record)
             records_out = [
-                {'project_id': pid, 'project_name': data['project_name'], 'payments': data['payments']} 
+                {'project_id': pid, 'project_name': data['project_name'], 'payments': data['payments']}
                 for pid, data in projects_dict.items()
             ]
 
@@ -851,6 +881,8 @@ def get_all_payments(
             UserRole.SUPER_ADMIN.value: ["approved", "verified", "requested"],
             UserRole.ADMIN.value:       ["verified",  "requested"],
             UserRole.PROJECT_MANAGER.value: ["requested"],# Project managers only see requested
+            UserRole.SITE_ENGINEER.value: ["requested"],  # Site engineers only see requested
+            UserRole.SUB_CONTRACTOR.value: ["requested"], # Sub contractors only see requested
         }
         wanted_statuses = role_status_map.get(current_user.role, ["requested"])
         status_rank = {s: i for i, s in enumerate(wanted_statuses)}
@@ -864,9 +896,17 @@ def get_all_payments(
               )
         )
 
-        if project_manager_projects is not None:
-            base = base.filter(Payment.project_id.in_(project_manager_projects))
-        elif current_user.role != UserRole.SUPER_ADMIN.value:
+        # Filter by user's mapped projects if applicable
+        if user_mapped_projects is not None:
+            if not user_mapped_projects:  # If user has no mapped projects
+                return PaymentServiceResponse(
+                    data={"records": [], "total_count": 0},
+                    message="No projects mapped to your account.",
+                    status_code=200
+                ).model_dump()
+            base = base.filter(Payment.project_id.in_(user_mapped_projects))
+        elif current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value, UserRole.ACCOUNTANT.value]:
+            # For other roles without project mapping, show only their own payments
             base = base.filter(Payment.created_by == current_user.uuid)
 
         base = apply_role_restrictions(base, current_user)
@@ -899,14 +939,11 @@ def get_all_payments(
             if to_uuid:
                 base = base.filter(Person.uuid == to_uuid)
         if item_id:
-            # base = base.join(PaymentItem, PaymentItem.payment_id == Payment.uuid, isouter=True)\
-            #            .filter(PaymentItem.is_deleted.is_(False),
-            #                    PaymentItem.item_id == item_id)
             base = base.join(PaymentItem, and_(
                 PaymentItem.payment_id == Payment.uuid,
                 PaymentItem.is_deleted.is_(False)
             )).filter(PaymentItem.item_id == item_id)
-            
+
         base = base.order_by(rank_expr, Payment.created_at.desc())
 
         uuids, total = paginate(base)
@@ -924,8 +961,8 @@ def get_all_payments(
         grouped = assemble_payments_response(group_query_results(results), db, current_user)
         records_out = order_records(uuids, grouped)
 
-        # Project manager's project names
-        if current_user.role == UserRole.PROJECT_MANAGER.value:
+        # Group by project for project managers, site engineers, and sub contractors
+        if current_user.role in [UserRole.PROJECT_MANAGER.value, UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
             projects_dict = {}
             for record in records_out:
                 project_info = record.get('project')
@@ -939,7 +976,7 @@ def get_all_payments(
                         }
                     projects_dict[project_id]['payments'].append(record)
             records_out = [
-                {'project_id': pid, 'project_name': data['project_name'], 'payments': data['payments']} 
+                {'project_id': pid, 'project_name': data['project_name'], 'payments': data['payments']}
                 for pid, data in projects_dict.items()
             ]
 
@@ -959,9 +996,17 @@ def get_all_payments(
           .filter(Payment.is_deleted.is_(False))
     )
 
-    if project_manager_projects is not None:
-        base = base.filter(Payment.project_id.in_(project_manager_projects))
-    elif current_user.role != UserRole.SUPER_ADMIN.value:
+    # Filter by user's mapped projects if applicable
+    if user_mapped_projects is not None:
+        if not user_mapped_projects:  # If user has no mapped projects
+            return PaymentServiceResponse(
+                data={"records": [], "total_count": 0},
+                message="No projects mapped to your account.",
+                status_code=200
+            ).model_dump()
+        base = base.filter(Payment.project_id.in_(user_mapped_projects))
+    elif current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value, UserRole.ACCOUNTANT.value]:
+        # For other roles without project mapping, show only their own payments
         base = base.filter(Payment.created_by == current_user.uuid)
 
     base = apply_role_restrictions(base, current_user)
@@ -1009,8 +1054,8 @@ def get_all_payments(
     grouped = assemble_payments_response(group_query_results(main_q.all()), db, current_user)
     records_out = order_records(uuids, grouped)
 
-    # Group by project for project managers
-    if current_user.role == UserRole.PROJECT_MANAGER.value:
+    # Group by project for project managers, site engineers, and sub contractors
+    if current_user.role in [UserRole.PROJECT_MANAGER.value, UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
         projects_dict = {}
         for record in records_out:
             project_info = record.get('project')
@@ -1024,7 +1069,7 @@ def get_all_payments(
                     }
                 projects_dict[project_id]['payments'].append(record)
         records_out = [
-            {'project_id': pid, 'project_name': data['project_name'], 'payments': data['payments']} 
+            {'project_id': pid, 'project_name': data['project_name'], 'payments': data['payments']}
             for pid, data in projects_dict.items()
         ]
 
