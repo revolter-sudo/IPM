@@ -815,10 +815,12 @@ def get_all_payments(
             base = base.filter(Payment.created_by == current_user.uuid)
 
         base = apply_role_restrictions(base, current_user)
-        base = base.order_by(Payment.created_at.desc()).limit(5)
 
+        # Apply accountant role filter before limit
         if current_user.role == UserRole.ACCOUNTANT.value:
             base = base.filter(Payment.amount <= 10_000)
+
+        base = base.order_by(Payment.created_at.desc()).limit(5)
 
         uuids, total = paginate(base)
 
