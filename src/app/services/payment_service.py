@@ -123,8 +123,6 @@ def create_payment(
         # Validate Project
         project = db.query(Project).filter(
             Project.uuid == payment_request.project_id).first()
-        project = db.query(Project).filter(
-            Project.uuid == payment_request.project_id).first()
         if not project:
             return PaymentServiceResponse(
                 status_code=404,
@@ -210,15 +208,7 @@ def create_payment(
             db=db
         )
         if not notification:
-            logging.error(
-                f"Something Went wrong while sending create payment notification")
-        notification = notify_create_payment(
-            amount=payment_request.amount,
-            user=current_user,
-            db=db
-        )
-        if not notification:
-            logging.error("Something Went wrong while sending create payment notification")
+            logging.error("Something went wrong while sending create payment notification")
         return PaymentServiceResponse(
             data={"payment_uuid": current_payment_uuid},
             message="Payment created successfully.",
@@ -807,7 +797,7 @@ def get_all_payments(
             db.query(Payment.uuid)
               .filter(
                   Payment.is_deleted.is_(False),
-                  Payment.status.notin_(["transferred", "declined"])
+                  Payment.status.in_(["requested"])
               )
         )
 
@@ -845,8 +835,8 @@ def get_all_payments(
         grouped = assemble_payments_response(group_query_results(results), db, current_user)
         records_out = order_records(uuids, grouped)
 
-        # Group by project for project managers
-        if current_user.role == UserRole.PROJECT_MANAGER.value:
+        # Group by project for project managers, site engineers, and sub contractors
+        if current_user.role in [UserRole.PROJECT_MANAGER.value, UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
             projects_dict = {}
             for record in records_out:
                 project_info = record.get('project')
@@ -1633,8 +1623,6 @@ def create_person(
         if request_data.parent_id:
             parent = db.query(Person).filter(
                 Person.uuid == request_data.parent_id, Person.is_deleted.is_(False)).first()
-            parent = db.query(Person).filter(
-                Person.uuid == request_data.parent_id, Person.is_deleted.is_(False)).first()
             if not parent:
                 return PaymentServiceResponse(
                     data=None,
@@ -2190,8 +2178,6 @@ def create_priority(priority_name: str, db: Session = Depends(get_db)):
     db.refresh(new_priority)
     response = {"priority_uuid": str(
         new_priority.uuid), "priority": new_priority.priority}
-    response = {"priority_uuid": str(
-        new_priority.uuid), "priority": new_priority.priority}
     return PaymentServiceResponse(
         data=response,
         message="priority created successfully",
@@ -2200,10 +2186,6 @@ def create_priority(priority_name: str, db: Session = Depends(get_db)):
 
 @payment_router.get("/priority", status_code=200)
 def list_priorities(db: Session = Depends(get_db)):
-    priorities = db.query(Priority).filter(
-        Priority.is_deleted.is_(False)).all()
-    response = [{"uuid": str(p.uuid), "priority": p.priority}
-                for p in priorities]
     priorities = db.query(Priority).filter(
         Priority.is_deleted.is_(False)).all()
     response = [{"uuid": str(p.uuid), "priority": p.priority}
