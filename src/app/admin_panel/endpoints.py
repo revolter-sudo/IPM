@@ -1031,16 +1031,6 @@ def get_project_items_list(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        if current_user.role not in [
-            UserRole.SUPER_ADMIN.value,
-            UserRole.ADMIN.value,
-            UserRole.PROJECT_MANAGER.value,
-        ]:
-            return ProjectServiceResponse(
-                data=None,
-                status_code=403,
-                message="Unauthorized to view project items"
-            ).model_dump()
 
         project = db.query(Project).filter(Project.uuid == project_id).first()
         if not project:

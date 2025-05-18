@@ -164,6 +164,11 @@ class StatusDatePair(BaseModel):
     created_by: str
 
 
+class ItemDetail(BaseModel):
+    uuid: str
+    name: str
+
+
 class PaymentsResponse(BaseModel):
     uuid: UUID
     amount: float
@@ -173,7 +178,7 @@ class PaymentsResponse(BaseModel):
     payment_details: Optional[Dict[str, Optional[str]]] = None
     created_by: Optional[Dict[str, Optional[str]]] = None
     files: List[str] = []
-    items: List[str] = []
+    items: List[ItemDetail] = []
     remarks: Optional[str] = None
 
     # We'll store status + date pairs in this list

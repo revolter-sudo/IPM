@@ -30,6 +30,7 @@ from src.app.database.models import (
     PaymentEditHistory,
     Priority,
     BalanceDetail,
+    ProjectItemMap,
     ProjectUserMap
 )
 import logging
@@ -47,7 +48,8 @@ from src.app.schemas.payment_service_schemas import (
     StatusDatePair,
     ItemListTag,
     UpdatePerson,
-    UpdateItemSchema
+    UpdateItemSchema,
+    ItemDetail
 )
 from src.app.notification.notification_service import send_push_notification
 from src.app.notification.notification_schemas import NotificationMessage
@@ -679,9 +681,14 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
                 (approval_files if f.is_approval_upload else file_urls).append(file_url)
 
         # ----------------------------------------------------------- items
-        item_names = [
-            p_item.item.name for p_item in payment.payment_items if p_item.item
+        # Create a list of dictionaries with item name and UUID
+        items_data = [
+            {"name": p_item.item.name, "uuid": str(p_item.item.uuid)}
+            for p_item in payment.payment_items if p_item.item
         ] if payment.payment_items else []
+
+        # Keep the original item_names list for backward compatibility
+        item_names = [item["name"] for item in items_data]
 
         # ----------------------------------------------------------- parent account
         parent_data = get_parent_account_data(person_id=payment.person, db=db)
@@ -719,7 +726,7 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
                     "name": user_name
                 } if payment.created_by else None,
                 files=file_urls,
-                items=item_names,
+                items=[ItemDetail(uuid=item["uuid"], name=item["name"]) for item in items_data],
                 remarks=payment.remarks,
                 status_history=[StatusDatePair(**h) for h in data["statuses"]],
                 current_status=payment.status,
@@ -1410,15 +1417,15 @@ def approve_payment(
                 # Record in Payment which bank/cash account was used
                 payment.deducted_from_bank_uuid = bank_uuid
 
-                # Deduct from project's actual balance
+                # Add to project's actual balance
                 project = db.query(Project).filter(Project.uuid == payment.project_id).first()
                 if project:
-                    project.actual_balance -= payment.amount
+                    project.actual_balance += payment.amount
                     # Create project balance entry for actual balance
                     create_project_balance_entry(
                         db=db,
                         project_id=payment.project_id,
-                        adjustment=-payment.amount,
+                        adjustment=payment.amount,
                         description=f"Payment deduction for payment {payment.uuid}",
                         current_user=current_user,
                         balance_type="actual"
@@ -1431,15 +1438,30 @@ def approve_payment(
                 ).all()
 
                 for payment_item in payment_items:
-                    item = db.query(Item).filter(Item.uuid == payment_item.item_id).first()
-                    if item:
-                        # Calculate the proportion of the payment amount for this item
-                        # For now, we'll distribute the amount equally among all items
-                        item_count = len(payment_items)
-                        item_amount = payment.amount / item_count if item_count > 0 else 0
+                    item = db.query(ProjectItemMap).filter(
+                        ProjectItemMap.project_id == payment.project_id,
+                        ProjectItemMap.item_id == payment_item.item_id
+                    ).first()
 
-                        # Update item balance
-                        item.balance -= item_amount
+                    if item:
+                        # Deduct the full payment amount from each item's balance
+                        # Initialize item_balance to 0 if it's None
+                        if item.item_balance is None:
+                            item.item_balance = 0
+
+                        # Update item balance by deducting the full payment amount
+                        item.item_balance -= payment.amount
+
+                        # Log the deduction
+                        log_entry = Log(
+                            uuid=str(uuid4()),
+                            entity="ProjectItemMap",
+                            action="DeductBalance",
+                            entity_id=item.uuid,
+                            performed_by=current_user.uuid,
+                            details=f"Deducted {payment.amount} from item {payment_item.item_id} for payment {payment.uuid}"
+                        )
+                        db.add(log_entry)
 
         # 6) Handle optional file uploads
         if files:
