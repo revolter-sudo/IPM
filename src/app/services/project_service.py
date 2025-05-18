@@ -369,7 +369,7 @@ def list_all_projects(
     """
     try:
         # 1. Base project list depending on role
-        if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+        if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, UserRole.ACCOUNTANT.value]:
             projects = db.query(
                 Project
             ).filter(
