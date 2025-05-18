@@ -592,7 +592,7 @@ def list_all_active_users(db: Session = Depends(get_db)):
         users = db.query(User).filter(
             User.is_active.is_(True),
             User.is_deleted.is_(False)
-        ).all()
+        ).order_by(User.id.desc()).all()
 
         user_response_data = []
         for user in users:

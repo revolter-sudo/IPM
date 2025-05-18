@@ -320,7 +320,9 @@ def can_edit_payment(status_history: List[str], current_user_role: str) -> bool:
     return False
 
 
-### ---------------------------------------------------------------------------------------------------------
+# ========================== Payments API Started =======================================================================
+# region Payments API
+
 def build_recent_subquery(db: Session, current_user: User, recent: bool):
     """
     Builds a subquery of Payment UUIDs if `recent` is True.
@@ -369,6 +371,7 @@ def build_main_payments_query(db: Session, pending_request: bool):
             PaymentStatusHistory.status.label("history_status"),
             PaymentStatusHistory.created_at.label("history_created_at"),
             StatusUser.name.label("status_created_by_name"),
+            StatusUser.role.label("status_created_by_role"),
             PaymentEditHistory.old_amount.label("edit_old_amount"),
             PaymentEditHistory.new_amount.label("edit_new_amount"),
             PaymentEditHistory.remarks.label("edit_remarks"),
@@ -428,40 +431,35 @@ def build_main_payments_query(db: Session, pending_request: bool):
     return query
 
 
-def apply_role_restrictions(query, current_user: User):
+def get_user_project_ids(db: Session, user_uuid: UUID):
     """
-    Restrict payments based on user role:
-    - ADMIN, SUPER_ADMIN: can see all payments
-    - ACCOUNTANT: can see all payments (with amount restrictions applied elsewhere)
-    - PROJECT_MANAGER, SITE_ENGINEER, SUB_CONTRACTOR: can only see payments for projects
-      they are mapped to (this is handled in the main query)
-    - Other roles: can only see their own payments
-
-    Args:
-        query: SQLAlchemy query object for Payment.
-        current_user: User object representing the current logged-in user.
-
-    Returns:
-        Modified query with appropriate filters applied.
+    Get a list of project IDs that the user is assigned to.
+    Returns a list of project UUIDs.
     """
-    exempt_roles = [
-        UserRole.ADMIN.value,
-        UserRole.SUPER_ADMIN.value,
-        UserRole.ACCOUNTANT.value,
-    ]
+    project_mappings = (
+        db.query(ProjectUserMap.project_id)
+        .filter(ProjectUserMap.user_id == user_uuid)
+        .all()
+    )
+    return [mapping[0] for mapping in project_mappings]
 
-    # Project managers, site engineers, and sub contractors are filtered by project mapping
-    # in the main query, so we don't need to apply additional restrictions here
-    project_based_roles = [
-        UserRole.PROJECT_MANAGER.value,
-        UserRole.SITE_ENGINEER.value,
-        UserRole.SUB_CONTRACTOR.value,
-    ]
-
-    # For other roles, restrict to only their own payments
-    if current_user.role not in exempt_roles and current_user.role not in project_based_roles:
+def apply_role_restrictions(query, current_user: User, db: Session = None):
+    """
+    Apply role-based restrictions to the query:
+    - Super Admin, Admin, Accountant: see all payments
+    - Site Engineer, Sub Contractor: see only payments they created
+    - Project Manager: see only payments from projects they're assigned to
+    """
+    if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
         query = query.filter(Payment.created_by == current_user.uuid)
-
+    elif current_user.role == UserRole.PROJECT_MANAGER.value and db is not None:
+        # Project Managers can only see payments from projects they're assigned to
+        project_ids = get_user_project_ids(db, current_user.uuid)
+        if project_ids:
+            query = query.filter(Payment.project_id.in_(project_ids))
+        else:
+            # If not assigned to any projects, don't show any payments
+            query = query.filter(False)
     return query
 
 
@@ -611,16 +609,18 @@ def group_query_results(results):
         history_status = row.history_status
         history_created_at = row.history_created_at
         status_created_by_name = row.status_created_by_name
+        status_created_by_role = row.status_created_by_role
 
         if history_status and history_created_at:
             date_str = history_created_at.strftime("%Y-%m-%d %H:%M:%S")
-            status_key = (history_status, date_str, status_created_by_name)
+            status_key = (history_status, date_str, status_created_by_name, status_created_by_role)
             if status_key not in grouped_data[payment_obj.uuid]["status_seen"]:
                 grouped_data[payment_obj.uuid]["status_seen"].add(status_key)
                 grouped_data[payment_obj.uuid]["statuses"].append({
                     "status": history_status,
                     "date": date_str,
-                    "created_by": status_created_by_name
+                    "created_by": status_created_by_name,
+                    "role": status_created_by_role
                 })
 
         # Collect edit histories
@@ -758,38 +758,101 @@ def get_all_payments(
     from_uuid: Optional[UUID] = Query(None, description="UUID of the user who created the payment"),
     to_uuid: Optional[UUID] = Query(None, description="UUID of the person receiving the payment"),
     pending_request: Optional[bool] = Query(False, description="If true, show only role‑specific pending payments."),
-    page: Optional[int] = Query(None, ge=1, description="Page number (10 rows per page, omit/null = all)"),
+    page: Optional[int] = Query(None, ge=1, description="Page number (10 rows per page, omit/null = all)"),
 ):
+    """
+    Three modes:
+    1) recent=True            → last 5 payments (excl. transferred / declined) newest‑first
+    2) pending_request=True   → role queue:   approved → verified → requested
+    3) default                → full list, newest‑first
+
+    In every mode we:
+      • build an *ordered* list of UUIDs (with pagination)
+      • fetch full rows & assemble the response
+      • return records in that exact order
+    """
+
+    # ------------------------------------------------------------------ helpers
     def paginate(q):
+        """return (uuid_list_in_order, total_count) after optional pagination"""
         total = q.count()
         if page:
             q = q.offset((page - 1) * 10).limit(10)
         return [r[0] for r in q.all()], total
 
     def order_records(selected_uuids, assembled_records):
+        """Preserve the SQL ordering after JSON assembly"""
         by_id = {rec["uuid"]: rec for rec in assembled_records}
         return [by_id[u] for u in selected_uuids if u in by_id]
 
-    # Get user's assigned projects based on role
-    def get_user_mapped_projects():
-        # Admin and super admin can see all projects
-        if current_user.role in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]:
-            return None
+    def calculate_total_request_amount(db):
+        """Calculate total amount of all payments with status requested, approved, verified, or transferred"""
+        # Get all payments with the specified statuses, regardless of pagination
+        query = db.query(func.sum(Payment.amount)).filter(
+            Payment.is_deleted.is_(False),
+            Payment.status.in_([
+                PaymentStatus.REQUESTED.value,
+                PaymentStatus.APPROVED.value,
+                PaymentStatus.VERIFIED.value,
+                PaymentStatus.TRANSFERRED.value
+            ])
+        )
 
-        # For site engineers, sub contractors, and project managers, get their mapped projects
-        if current_user.role in [
-            UserRole.SITE_ENGINEER.value,
-            UserRole.SUB_CONTRACTOR.value,
-            UserRole.PROJECT_MANAGER.value
-        ]:
-            project_mappings = db.query(ProjectUserMap).filter(
-                ProjectUserMap.user_id == current_user.uuid
-            ).all()
-            return [mapping.project_id for mapping in project_mappings]
+        # Apply the same role-based restrictions as the main query
+        query = apply_role_restrictions(query, current_user, db)
+        if project_id is not None:
+            query = query.filter(Payment.project_id == project_id)
+        if status is not None:
+            query = query.filter(Payment.status.in_(status))
+        if start_date and end_date:
+            end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            query = query.filter(Payment.created_at.between(start_date, end_date_with_time))
+        else:
+            if start_date:
+                query = query.filter(Payment.created_at >= start_date)
+            if end_date:
+                end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                query = query.filter(Payment.created_at <= end_date_with_time)
+        if from_uuid:
+            query = query.filter(Payment.created_by == from_uuid)
+        if person_id:
+            query = query.filter(Payment.person == person_id)
 
-        return None
+        return query.scalar() or 0.0
 
-    user_mapped_projects = get_user_mapped_projects()
+    def calculate_total_pending_amount(db):
+        """Calculate total amount of all payments with status requested, approved, or verified (excluding transferred)"""
+        # Get all payments with the specified statuses, regardless of pagination
+        query = db.query(func.sum(Payment.amount)).filter(
+            Payment.is_deleted.is_(False),
+            Payment.status.in_([
+                PaymentStatus.REQUESTED.value,
+                PaymentStatus.APPROVED.value,
+                PaymentStatus.VERIFIED.value
+            ])
+        )
+
+        # Apply the same role-based restrictions as the main query
+        query = apply_role_restrictions(query, current_user, db)
+        if project_id is not None:
+            query = query.filter(Payment.project_id == project_id)
+        if status is not None:
+            query = query.filter(Payment.status.in_(status))
+        if start_date and end_date:
+            end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            query = query.filter(Payment.created_at.between(start_date, end_date_with_time))
+        else:
+            if start_date:
+                query = query.filter(Payment.created_at >= start_date)
+            if end_date:
+                end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                query = query.filter(Payment.created_at <= end_date_with_time)
+        if from_uuid:
+            query = query.filter(Payment.created_by == from_uuid)
+        if person_id:
+            query = query.filter(Payment.person == person_id)
+
+        return query.scalar() or 0.0
 
     # ------------------------------------------------------------------ 1) RECENT MODE
     if recent:
@@ -797,36 +860,35 @@ def get_all_payments(
             db.query(Payment.uuid)
               .filter(
                   Payment.is_deleted.is_(False),
-                  Payment.status.in_(["requested"])
-              )
+                  Payment.status.notin_(
+                      ["transferred", "declined"])  # exclude first!
+            )
+            .order_by(Payment.created_at.desc())
+            # guarantee 5 rows
+            .limit(5)
         )
 
-        # Filter by user's mapped projects if applicable
-        if user_mapped_projects is not None:
-            if not user_mapped_projects:  # If user has no mapped projects
-                return PaymentServiceResponse(
-                    data={"records": [], "total_count": 0},
-                    message="No projects mapped to your account.",
-                    status_code=200
-                ).model_dump()
-            base = base.filter(Payment.project_id.in_(user_mapped_projects))
-        elif current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value, UserRole.ACCOUNTANT.value]:
-            # For other roles without project mapping, show only their own payments
-            base = base.filter(Payment.created_by == current_user.uuid)
+        # Apply role-based restrictions
+        base = apply_role_restrictions(base, current_user, db)
 
-        base = apply_role_restrictions(base, current_user)
-
-        # Apply accountant role filter before limit
+        # accountants ≤10 000
         if current_user.role == UserRole.ACCOUNTANT.value:
             base = base.filter(Payment.amount <= 10_000)
 
-        base = base.order_by(Payment.created_at.desc()).limit(5)
-
         uuids, total = paginate(base)
+
+        # Calculate total amounts using the helper functions
+        total_request_amount = calculate_total_request_amount(db)
+        total_pending_amount = calculate_total_pending_amount(db)
 
         if not uuids:
             return PaymentServiceResponse(
-                data={"records": [], "total_count": 0},
+                data={
+                    "records": [],
+                    "total_count": 0,
+                    "total_request_amount": total_request_amount,
+                    "total_pending_amount": total_pending_amount
+                },
                 message="No recent payments found.",
                 status_code=200
             ).model_dump()
@@ -834,29 +896,16 @@ def get_all_payments(
         main_q = build_main_payments_query(db, pending_request=False)\
             .filter(Payment.uuid.in_(uuids))
         results = main_q.all()
-        grouped = assemble_payments_response(group_query_results(results), db, current_user)
+        grouped = assemble_payments_response(
+            group_query_results(results), db, current_user)
         records_out = order_records(uuids, grouped)
 
-        # Group by project for project managers, site engineers, and sub contractors
-        if current_user.role in [UserRole.PROJECT_MANAGER.value, UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-            projects_dict = {}
-            for record in records_out:
-                project_info = record.get('project')
-                if project_info:
-                    project_id = project_info['uuid']
-                    project_name = project_info['name']
-                    if project_id not in projects_dict:
-                        projects_dict[project_id] = {
-                            'project_name': project_name,
-                            'payments': []
-                        }
-                    projects_dict[project_id]['payments'].append(record)
-            records_out = [
-                {'project_id': pid, 'project_name': data['project_name'], 'payments': data['payments']}
-                for pid, data in projects_dict.items()
-            ]
-
-        payload = {"records": records_out, "total_count": total}
+        payload = {
+            "records": records_out,
+            "total_count": total,
+            "total_request_amount": total_request_amount,
+            "total_pending_amount": total_pending_amount
+        }
         if page:
             payload.update({"page": page, "limit": 10})
 
@@ -872,41 +921,29 @@ def get_all_payments(
             UserRole.ACCOUNTANT.value:  ["approved", "verified", "requested"],
             UserRole.SUPER_ADMIN.value: ["approved", "verified", "requested"],
             UserRole.ADMIN.value:       ["verified",  "requested"],
-            UserRole.PROJECT_MANAGER.value: ["requested"],# Project managers only see requested
-            UserRole.SITE_ENGINEER.value: ["requested"],  # Site engineers only see requested
-            UserRole.SUB_CONTRACTOR.value: ["requested"], # Sub contractors only see requested
         }
         wanted_statuses = role_status_map.get(current_user.role, ["requested"])
+
         status_rank = {s: i for i, s in enumerate(wanted_statuses)}
-        rank_expr = case(*[(Payment.status == s, r) for s, r in status_rank.items()], else_=99)
+        rank_expr = case(*[(Payment.status == s, r) for s, r in status_rank.items()],
+                         else_=99)
 
         base = (
             db.query(Payment.uuid)
               .filter(
                   Payment.is_deleted.is_(False),
                   Payment.status.in_(wanted_statuses)
-              )
+            )
         )
 
-        # Filter by user's mapped projects if applicable
-        if user_mapped_projects is not None:
-            if not user_mapped_projects:  # If user has no mapped projects
-                return PaymentServiceResponse(
-                    data={"records": [], "total_count": 0},
-                    message="No projects mapped to your account.",
-                    status_code=200
-                ).model_dump()
-            base = base.filter(Payment.project_id.in_(user_mapped_projects))
-        elif current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value, UserRole.ACCOUNTANT.value]:
-            # For other roles without project mapping, show only their own payments
-            base = base.filter(Payment.created_by == current_user.uuid)
+        # Apply role-based restrictions
+        base = apply_role_restrictions(base, current_user, db)
 
-        base = apply_role_restrictions(base, current_user)
-
+        # accountants ≤10 000 in queue view
         if current_user.role == UserRole.ACCOUNTANT.value:
             base = base.filter(Payment.amount <= 10_000)
 
-        # Filters
+        # user‑supplied filters (“normal” section reused):
         if amount is not None:
             base = base.filter(Payment.amount == amount)
         if project_id is not None:
@@ -931,18 +968,28 @@ def get_all_payments(
             if to_uuid:
                 base = base.filter(Person.uuid == to_uuid)
         if item_id:
-            base = base.join(PaymentItem, and_(
-                PaymentItem.payment_id == Payment.uuid,
-                PaymentItem.is_deleted.is_(False)
-            )).filter(PaymentItem.item_id == item_id)
+            base = base.join(PaymentItem,
+                             PaymentItem.payment_id == Payment.uuid, isouter=True)\
+                       .filter(PaymentItem.is_deleted.is_(False),
+                               PaymentItem.item_id == item_id)
 
+        # ORDER: status_rank asc, then created_at desc
         base = base.order_by(rank_expr, Payment.created_at.desc())
 
         uuids, total = paginate(base)
 
+        # Calculate total amounts using the helper functions
+        total_request_amount = calculate_total_request_amount(db)
+        total_pending_amount = calculate_total_pending_amount(db)
+
         if not uuids:
             return PaymentServiceResponse(
-                data={"records": [], "total_count": 0},
+                data={
+                    "records": [],
+                    "total_count": 0,
+                    "total_request_amount": total_request_amount,
+                    "total_pending_amount": total_pending_amount
+                },
                 message="No pending payments.",
                 status_code=200
             ).model_dump()
@@ -950,29 +997,16 @@ def get_all_payments(
         main_q = build_main_payments_query(db, pending_request=True)\
             .filter(Payment.uuid.in_(uuids))
         results = main_q.all()
-        grouped = assemble_payments_response(group_query_results(results), db, current_user)
+        grouped = assemble_payments_response(
+            group_query_results(results), db, current_user)
         records_out = order_records(uuids, grouped)
 
-        # Group by project for project managers, site engineers, and sub contractors
-        if current_user.role in [UserRole.PROJECT_MANAGER.value, UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-            projects_dict = {}
-            for record in records_out:
-                project_info = record.get('project')
-                if project_info:
-                    project_id = project_info['uuid']
-                    project_name = project_info['name']
-                    if project_id not in projects_dict:
-                        projects_dict[project_id] = {
-                            'project_name': project_name,
-                            'payments': []
-                        }
-                    projects_dict[project_id]['payments'].append(record)
-            records_out = [
-                {'project_id': pid, 'project_name': data['project_name'], 'payments': data['payments']}
-                for pid, data in projects_dict.items()
-            ]
-
-        payload = {"records": records_out, "total_count": total}
+        payload = {
+            "records": records_out,
+            "total_count": total,
+            "total_request_amount": total_request_amount,
+            "total_pending_amount": total_pending_amount
+        }
         if page:
             payload.update({"page": page, "limit": 10})
 
@@ -986,24 +1020,13 @@ def get_all_payments(
     base = (
         db.query(Payment.uuid)
           .filter(Payment.is_deleted.is_(False))
+          .order_by(Payment.created_at.desc())
     )
 
-    # Filter by user's mapped projects if applicable
-    if user_mapped_projects is not None:
-        if not user_mapped_projects:  # If user has no mapped projects
-            return PaymentServiceResponse(
-                data={"records": [], "total_count": 0},
-                message="No projects mapped to your account.",
-                status_code=200
-            ).model_dump()
-        base = base.filter(Payment.project_id.in_(user_mapped_projects))
-    elif current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value, UserRole.ACCOUNTANT.value]:
-        # For other roles without project mapping, show only their own payments
-        base = base.filter(Payment.created_by == current_user.uuid)
+    # Apply role-based restrictions
+    base = apply_role_restrictions(base, current_user, db)
 
-    base = apply_role_restrictions(base, current_user)
-    base = base.order_by(Payment.created_at.desc())
-
+    # --- same user‑supplied filters as above ---
     if amount is not None:
         base = base.filter(Payment.amount == amount)
     if project_id is not None:
@@ -1028,44 +1051,41 @@ def get_all_payments(
         if to_uuid:
             base = base.filter(Person.uuid == to_uuid)
     if item_id:
-        base = base.join(PaymentItem, PaymentItem.payment_id == Payment.uuid, isouter=True)\
+        base = base.join(PaymentItem,
+                         PaymentItem.payment_id == Payment.uuid, isouter=True)\
             .filter(PaymentItem.is_deleted.is_(False),
                     PaymentItem.item_id == item_id)
+
+    # Calculate total amounts using the helper functions
+    total_request_amount = calculate_total_request_amount(db)
+    total_pending_amount = calculate_total_pending_amount(db)
 
     uuids, total = paginate(base)
 
     if not uuids:
         return PaymentServiceResponse(
-            data={"records": [], "total_count": 0},
+            data={
+                "records": [],
+                "total_count": 0,
+                "total_request_amount": total_request_amount,
+                "total_pending_amount": total_pending_amount
+            },
             message="No payments found.",
             status_code=200
         ).model_dump()
 
     main_q = build_main_payments_query(db, pending_request=False)\
         .filter(Payment.uuid.in_(uuids))
-    grouped = assemble_payments_response(group_query_results(main_q.all()), db, current_user)
+    grouped = assemble_payments_response(
+        group_query_results(main_q.all()), db, current_user)
     records_out = order_records(uuids, grouped)
 
-    # Group by project for project managers, site engineers, and sub contractors
-    if current_user.role in [UserRole.PROJECT_MANAGER.value, UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-        projects_dict = {}
-        for record in records_out:
-            project_info = record.get('project')
-            if project_info:
-                project_id = project_info['uuid']
-                project_name = project_info['name']
-                if project_id not in projects_dict:
-                    projects_dict[project_id] = {
-                        'project_name': project_name,
-                        'payments': []
-                    }
-                projects_dict[project_id]['payments'].append(record)
-        records_out = [
-            {'project_id': pid, 'project_name': data['project_name'], 'payments': data['payments']}
-            for pid, data in projects_dict.items()
-        ]
-
-    payload = {"records": records_out, "total_count": total}
+    payload = {
+        "records": records_out,
+        "total_count": total,
+        "total_request_amount": total_request_amount,
+        "total_pending_amount": total_pending_amount
+    }
     if page:
         payload.update({"page": page, "limit": 10})
 
@@ -1075,7 +1095,8 @@ def get_all_payments(
         status_code=200
     ).model_dump()
 
-### ------------------------------------------------------------------------------------------------------------------------
+# endregion
+# ========================== Payments API Finished =======================================================================
 
 @payment_router.delete("")
 def delete_payment(
