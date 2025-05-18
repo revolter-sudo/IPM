@@ -178,7 +178,7 @@ class PaymentsResponse(BaseModel):
     payment_details: Optional[Dict[str, Optional[str]]] = None
     created_by: Optional[Dict[str, Optional[str]]] = None
     files: List[str] = []
-    items: List[ItemDetail] = []
+    items: List[str] = []
     remarks: Optional[str] = None
 
     # We'll store status + date pairs in this list

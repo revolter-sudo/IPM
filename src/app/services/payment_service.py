@@ -726,7 +726,8 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
                     "name": user_name
                 } if payment.created_by else None,
                 files=file_urls,
-                items=[ItemDetail(uuid=item["uuid"], name=item["name"]) for item in items_data],
+                # items=[ItemDetail(uuid=item["uuid"], name=item["name"]) for item in items_data],
+                items=item_names,
                 remarks=payment.remarks,
                 status_history=[StatusDatePair(**h) for h in data["statuses"]],
                 current_status=payment.status,
