@@ -781,6 +781,56 @@ def get_bank_balance(
         ).model_dump()
 
 
+@balance_router.delete(
+        "/bank/{bank_uuid}",
+        status_code=status.HTTP_200_OK,
+        tags=["Bank Balance"]
+)
+def delete_bank(
+    bank_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> ProjectServiceResponse:
+    try:
+        if current_user.role not in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=400,
+                message="Only Accountant or Super Admin can delete bank data"
+            ).model_dump()
+
+        bank_data = db.query(
+            BalanceDetail
+        ).filter(
+            BalanceDetail.uuid == bank_uuid
+        ).first()
+
+        if not bank_data:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Bank Not Found"
+            ).model_dump()
+
+        db.delete(bank_data)
+        db.commit()
+
+        return ProjectServiceResponse(
+            data=None,
+            status_code=200,
+            message="Bank Deleted Successfully"
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in delete_bank API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while deleting bank"
+        ).model_dump()
+
+
 @project_router.delete("/{project_uuid}", status_code=status.HTTP_200_OK, tags=["Projects"])
 def delete_project(
     project_uuid: UUID,

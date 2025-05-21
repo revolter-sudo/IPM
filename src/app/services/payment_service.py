@@ -1575,10 +1575,10 @@ def decline_payment(
         )
         db.add(payment_status)
         db.flush()
+
         # 5) Update Payment table's status
         payment.status = PaymentStatus.DECLINED.value
         if remarks:
-            payment.decline_remark = remarks
             payment.decline_remark = remarks
 
         # 6) Log the action
@@ -1592,6 +1592,8 @@ def decline_payment(
         db.add(log_entry)
         db.flush()
         db.commit()
+
+        # 7) Send notification
         notify_payment_status_update(
             amount=payment.amount,
             status=PaymentStatus.DECLINED.value,
@@ -1599,13 +1601,7 @@ def decline_payment(
             payment_user=payment.created_by,
             db=db
         )
-        notify_payment_status_update(
-            amount=payment.amount,
-            status=PaymentStatus.DECLINED.value,
-            user=current_user,
-            payment_user=payment.created_by,
-            db=db
-        )
+
         return PaymentServiceResponse(
             data=None,
             message="Payment declined successfully",
