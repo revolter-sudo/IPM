@@ -51,6 +51,18 @@ class ProjectPaymentAnalyticsResponse(BaseModel):
     status_analytics: List[PaymentStatusAnalytics]
 
 
+class ItemAnalytics(BaseModel):
+    item_name: str
+    estimation: float
+    current_expense: float
+
+
+class ProjectItemAnalyticsResponse(BaseModel):
+    project_id: UUID
+    project_name: str
+    items_analytics: List[ItemAnalytics]
+
+
 class ProjectUserMap(BaseModel):
     uuid: UUID
     user_id: UUID

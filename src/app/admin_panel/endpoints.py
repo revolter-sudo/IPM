@@ -55,7 +55,8 @@ from src.app.database.models import (
     KhatabookItem,
     KhatabookFile,
     Person,
-    DefaultConfig
+    DefaultConfig,
+    PaymentItem
 )
 from sqlalchemy.orm import Session, joinedload
 from src.app.schemas import constants
@@ -68,7 +69,9 @@ from src.app.admin_panel.schemas import (
     DefaultConfigCreate,
     DefaultConfigUpdate,
     PaymentStatusAnalytics,
-    ProjectPaymentAnalyticsResponse
+    ProjectPaymentAnalyticsResponse,
+    ItemAnalytics,
+    ProjectItemAnalyticsResponse
 )
 logging.basicConfig(level=logging.INFO)
 
@@ -1913,6 +1916,229 @@ def get_all_khatabook_entries_admin(
             data=None,
             status_code=500,
             message=f"An error occurred while fetching khatabook entries: {str(e)}"
+        ).model_dump()
+
+
+@admin_app.get(
+    "/item-analytics",
+    tags=["Analytics"],
+    description="Get item analytics data for all projects (estimation vs current expense)"
+)
+def get_all_item_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get analytics data for all items across all projects.
+    Returns item name, estimation (balance added when assigned), and current expense (sum of transferred payments).
+    """
+    try:
+        # Check if user has permission
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value
+        ]:
+            return AdminPanelResponse(
+                data=None,
+                message="Only admin and super admin can access all item analytics",
+                status_code=403
+            ).model_dump()
+
+        # Get all items with their balances from all projects
+        all_items = (
+            db.query(ProjectItemMap, Item, Project)
+            .join(Item, ProjectItemMap.item_id == Item.uuid)
+            .join(Project, ProjectItemMap.project_id == Project.uuid)
+            .filter(Project.is_deleted.is_(False))
+            .all()
+        )
+
+        if not all_items:
+            # Return empty analytics if no items found
+            return AdminPanelResponse(
+                data={
+                    "items_analytics": []
+                },
+                message="No items found in any project",
+                status_code=200
+            ).model_dump()
+
+        # Prepare items analytics
+        items_analytics = []
+        for project_item, item, project in all_items:
+            # Get estimation (balance added when assigned)
+            estimation = project_item.item_balance or 0.0
+
+            # Get current expense (sum of transferred payments for this item)
+            # First, get all payment items for this item in this project
+            payment_items = (
+                db.query(PaymentItem)
+                .join(Payment, PaymentItem.payment_id == Payment.uuid)
+                .filter(
+                    PaymentItem.item_id == item.uuid,
+                    Payment.project_id == project.uuid,
+                    Payment.status == PaymentStatus.TRANSFERRED.value,
+                    Payment.is_deleted.is_(False),
+                    PaymentItem.is_deleted.is_(False)
+                )
+                .all()
+            )
+
+            # Get the payment amounts
+            payment_ids = [pi.payment_id for pi in payment_items]
+            current_expense = 0.0
+            if payment_ids:
+                current_expense = (
+                    db.query(func.sum(Payment.amount))
+                    .filter(
+                        Payment.uuid.in_(payment_ids),
+                        Payment.status == PaymentStatus.TRANSFERRED.value,
+                        Payment.is_deleted.is_(False)
+                    )
+                    .scalar() or 0.0
+                )
+
+            items_analytics.append({
+                "item_name": item.name,
+                "project_name": project.name,
+                "estimation": estimation,
+                "current_expense": current_expense
+            })
+
+        # Prepare response
+        response_data = {
+            "items_analytics": items_analytics
+        }
+
+        return AdminPanelResponse(
+            data=response_data,
+            message="Item analytics fetched successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        logging.error(f"Error in get_all_item_analytics API: {str(e)}")
+        return AdminPanelResponse(
+            data=None,
+            message=f"An error occurred while fetching item analytics: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+
+@admin_app.get(
+    "/projects/{project_id}/item-analytics",
+    tags=["Analytics"],
+    description="Get item analytics data for a specific project (estimation vs current expense)"
+)
+def get_project_item_analytics(
+    project_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get analytics data for items in a specific project.
+    Returns item name, estimation (balance added when assigned), and current expense (sum of transferred payments).
+    """
+    try:
+        # Check if user has permission
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value
+        ]:
+            return AdminPanelResponse(
+                data=None,
+                message="Only admin, super admin, or project manager can access item analytics",
+                status_code=403
+            ).model_dump()
+
+        # Check if project exists
+        project = db.query(Project).filter(Project.uuid == project_id, Project.is_deleted.is_(False)).first()
+        if not project:
+            return AdminPanelResponse(
+                data=None,
+                message="Project not found",
+                status_code=404
+            ).model_dump()
+
+        # Get all items mapped to this project with their balances
+        project_items = (
+            db.query(ProjectItemMap, Item)
+            .join(Item, ProjectItemMap.item_id == Item.uuid)
+            .filter(ProjectItemMap.project_id == project_id)
+            .all()
+        )
+
+        if not project_items:
+            # Return empty analytics if no items found
+            return AdminPanelResponse(
+                data={
+                    "project_id": str(project_id),
+                    "project_name": project.name,
+                    "items_analytics": []
+                },
+                message="No items found for this project",
+                status_code=200
+            ).model_dump()
+
+        # Prepare items analytics
+        items_analytics = []
+        for project_item, item in project_items:
+            # Get estimation (balance added when assigned)
+            estimation = project_item.item_balance or 0.0
+
+            # Get current expense (sum of transferred payments for this item)
+            # First, get all payment items for this item in this project
+            payment_items = (
+                db.query(PaymentItem)
+                .join(Payment, PaymentItem.payment_id == Payment.uuid)
+                .filter(
+                    PaymentItem.item_id == item.uuid,
+                    Payment.project_id == project_id,
+                    Payment.status == PaymentStatus.TRANSFERRED.value,
+                    Payment.is_deleted.is_(False),
+                    PaymentItem.is_deleted.is_(False)
+                )
+                .all()
+            )
+
+            # Get the payment amounts
+            payment_ids = [pi.payment_id for pi in payment_items]
+            current_expense = 0.0
+            if payment_ids:
+                current_expense = (
+                    db.query(func.sum(Payment.amount))
+                    .filter(
+                        Payment.uuid.in_(payment_ids),
+                        Payment.status == PaymentStatus.TRANSFERRED.value,
+                        Payment.is_deleted.is_(False)
+                    )
+                    .scalar() or 0.0
+                )
+
+            items_analytics.append({
+                "item_name": item.name,
+                "estimation": estimation,
+                "current_expense": current_expense
+            })
+
+        # Prepare response
+        response_data = {
+            "project_id": str(project_id),
+            "project_name": project.name,
+            "items_analytics": items_analytics
+        }
+
+        return AdminPanelResponse(
+            data=response_data,
+            message="Item analytics fetched successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        logging.error(f"Error in get_project_item_analytics API: {str(e)}")
+        return AdminPanelResponse(
+            data=None,
+            message=f"An error occurred while fetching item analytics: {str(e)}",
+            status_code=500
         ).model_dump()
 
 
