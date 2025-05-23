@@ -5,7 +5,7 @@ import pandas as pd
 from io import BytesIO
 from src.app.schemas.auth_service_schamas import UserRole
 from typing import Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Response
 from sqlalchemy.orm import Session
 from src.app.database.database import get_db
@@ -31,10 +31,16 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 def save_uploaded_file(upload_file: UploadFile) -> str:
-    file_location = os.path.join(UPLOAD_DIR, upload_file.filename)
+    # Create a unique filename to avoid collisions
+    file_ext = os.path.splitext(upload_file.filename)[1]
+    unique_filename = f"{str(uuid4())}{file_ext}"
+    file_location = os.path.join(UPLOAD_DIR, unique_filename)
+
+    # Save the file
     with open(file_location, "wb") as f:
         shutil.copyfileobj(upload_file.file, f)
-    return upload_file.filename
+
+    return unique_filename
 
 @khatabook_router.post("")
 async def create_khatabook_entry(

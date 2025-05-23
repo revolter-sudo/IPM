@@ -139,7 +139,7 @@ def upload_user_photo(
     """
     try:
         # 1) Define your upload directory (following your pattern in payment_service.py)
-        upload_dir = os.path.join(constants.UPLOAD_DIR, "users")  # e.g. "uploads/users"
+        upload_dir = os.path.join(constants.UPLOAD_DIR, "users")  # e.g. "uploads/payments/users"
         os.makedirs(upload_dir, exist_ok=True)
 
         # 2) Create a unique filename or use the original filename
@@ -152,11 +152,8 @@ def upload_user_photo(
         with open(file_path, "wb") as buffer:
             buffer.write(file.file.read())
 
-        # 4) Update user.photo_path.
-        #    If you have a HOST_URL to build a public URL, you can do that too.
-        # current_user.photo_path = file_path
+        # 4) Update user.photo_path with the URL that will be accessible through nginx
         current_user.photo_path = f"{constants.HOST_URL}/uploads/payments/users/{unique_filename}"
-        # Alternatively, you can store the final URL if you have a static server for images:
 
         db.commit()
         db.refresh(current_user)

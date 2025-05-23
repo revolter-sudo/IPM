@@ -195,9 +195,16 @@ def create_payment(
             upload_dir = constants.UPLOAD_DIR
             os.makedirs(upload_dir, exist_ok=True)
             for file in files:
-                file_path = os.path.join(upload_dir, file.filename)
+                # Create a unique filename to avoid collisions
+                file_ext = os.path.splitext(file.filename)[1]
+                unique_filename = f"{str(uuid4())}{file_ext}"
+                file_path = os.path.join(upload_dir, unique_filename)
+
+                # Save the file
                 with open(file_path, "wb") as buffer:
                     buffer.write(file.file.read())
+
+                # Store the relative path in the database
                 db.add(PaymentFile(
                     payment_id=new_payment.uuid,
                     file_path=file_path
@@ -1469,7 +1476,12 @@ def approve_payment(
             upload_dir = constants.UPLOAD_DIR_ADMIN
             os.makedirs(upload_dir, exist_ok=True)
             for file in files:
-                file_path = os.path.join(upload_dir, file.filename)
+                # Create a unique filename to avoid collisions
+                file_ext = os.path.splitext(file.filename)[1]
+                unique_filename = f"{str(uuid4())}{file_ext}"
+                file_path = os.path.join(upload_dir, unique_filename)
+
+                # Save the file
                 with open(file_path, "wb") as buffer:
                     buffer.write(file.file.read())
 

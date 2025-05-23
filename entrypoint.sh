@@ -20,6 +20,7 @@ fi
 # Create uploads directory if it doesn't exist
 mkdir -p /app/uploads
 mkdir -p /app/uploads/payments
+mkdir -p /app/uploads/payments/users
 mkdir -p /app/uploads/admin
 mkdir -p /app/uploads/khatabook_files
 

@@ -251,7 +251,13 @@ def create_project(
         if po_document:
             upload_dir = constants.UPLOAD_DIR
             os.makedirs(upload_dir, exist_ok=True)
-            file_path = os.path.join(upload_dir, f"PO_{project_uuid}_{po_document.filename}")
+
+            # Create a unique filename with UUID to avoid collisions
+            file_ext = os.path.splitext(po_document.filename)[1]
+            unique_filename = f"PO_{project_uuid}_{str(uuid4())}{file_ext}"
+            file_path = os.path.join(upload_dir, unique_filename)
+
+            # Save the file
             with open(file_path, "wb") as buffer:
                 buffer.write(po_document.file.read())
             po_document_path = file_path

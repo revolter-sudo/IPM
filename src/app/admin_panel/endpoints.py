@@ -1518,7 +1518,13 @@ def upload_invoice(
         if invoice_file:
             upload_dir = "uploads/invoices"
             os.makedirs(upload_dir, exist_ok=True)
-            file_path = os.path.join(upload_dir, f"Invoice_{str(uuid4())}_{invoice_file.filename}")
+
+            # Create a unique filename to avoid collisions
+            file_ext = os.path.splitext(invoice_file.filename)[1]
+            unique_filename = f"Invoice_{str(uuid4())}{file_ext}"
+            file_path = os.path.join(upload_dir, unique_filename)
+
+            # Save the file
             with open(file_path, "wb") as buffer:
                 buffer.write(invoice_file.file.read())
 
