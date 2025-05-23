@@ -19,7 +19,8 @@ from src.app.database.models import (
     ProjectUserMap,
     Item,
     ProjectItemMap,
-    Invoice
+    Invoice,
+    PaymentItem
 )
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
@@ -362,7 +363,19 @@ def list_all_projects(
             "po_balance": <po_balance_float>,
             "estimated_balance": <estimated_balance_float>,
             "actual_balance": <actual_balance_float>,
-            "po_document_path": <po_document_path_string>
+            "po_document_path": <po_document_path_string>,
+            "items_count": <total_number_of_items_in_project>,
+            "exceeding_items": {
+                "count": <number_of_items_exceeding_estimation>,
+                "items": [
+                    {
+                        "item_name": "<item-name>",
+                        "estimation": <estimation_amount>,
+                        "current_expense": <current_expense_amount>
+                    },
+                    ...
+                ]
+            }
         },
         ...
     ]
@@ -430,6 +443,60 @@ def list_all_projects(
                 .scalar()
             ) or project.actual_balance
 
+            # Get all items mapped to this project with their balances
+            project_items = (
+                db.query(ProjectItemMap, Item)
+                .join(Item, ProjectItemMap.item_id == Item.uuid)
+                .filter(ProjectItemMap.project_id == project.uuid)
+                .all()
+            )
+
+            # Count total items
+            items_count = len(project_items)
+
+            # Find items where current expense exceeds estimation
+            exceeding_items = []
+            for project_item, item in project_items:
+                # Get estimation (balance added when assigned)
+                estimation = project_item.item_balance or 0.0
+
+                # Get current expense (sum of transferred payments for this item)
+                # First, get all payment items for this item in this project
+                payment_items = (
+                    db.query(PaymentItem)
+                    .join(Payment, PaymentItem.payment_id == Payment.uuid)
+                    .filter(
+                        PaymentItem.item_id == item.uuid,
+                        Payment.project_id == project.uuid,
+                        Payment.status == 'transferred',
+                        Payment.is_deleted.is_(False),
+                        PaymentItem.is_deleted.is_(False)
+                    )
+                    .all()
+                )
+
+                # Get the payment amounts
+                payment_ids = [pi.payment_id for pi in payment_items]
+                current_expense = 0.0
+                if payment_ids:
+                    current_expense = (
+                        db.query(func.sum(Payment.amount))
+                        .filter(
+                            Payment.uuid.in_(payment_ids),
+                            Payment.status == 'transferred',
+                            Payment.is_deleted.is_(False)
+                        )
+                        .scalar() or 0.0
+                    )
+
+                # Check if current expense exceeds estimation
+                if current_expense > estimation:
+                    exceeding_items.append({
+                        "item_name": item.name,
+                        "estimation": estimation,
+                        "current_expense": current_expense
+                    })
+
             projects_response_data.append(
                 {
                     "uuid": project.uuid,
@@ -440,7 +507,12 @@ def list_all_projects(
                     "po_balance": po_balance,
                     "estimated_balance": estimated_balance,
                     "actual_balance": actual_balance,
-                    "po_document_path": project.po_document_path
+                    "po_document_path": project.po_document_path,
+                    "items_count": items_count,
+                    "exceeding_items": {
+                        "count": len(exceeding_items),
+                        "items": exceeding_items
+                    }
                 }
             )
 

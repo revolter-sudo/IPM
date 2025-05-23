@@ -1,6 +1,5 @@
 import os
-import traceback
-from fastapi import FastAPI, Body, HTTPException
+from fastapi import FastAPI, Body
 from fastapi_sqlalchemy import DBSessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from src.app.database.database import settings
@@ -22,7 +21,6 @@ from src.app.admin_panel.services import (
 from src.app.schemas.project_service_schemas import (
     ProjectServiceResponse,
     InvoiceCreateRequest,
-    InvoiceResponse,
     InvoiceStatusUpdateRequest
 )
 from src.app.schemas.payment_service_schemas import PaymentStatus
@@ -31,7 +29,6 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from sqlalchemy import and_, func
 from fastapi import (
-    APIRouter,
     Depends,
     File,
     Query,
@@ -77,28 +74,26 @@ logging.basicConfig(level=logging.INFO)
 
 admin_app = FastAPI(
     title="Admin API",
-    docs_url="/docs",          # docs within this sub-app will be at /admin/docs
+    docs_url="/docs",
     openapi_url="/openapi.json"
 )
 
-# Add DB middleware for database access
 admin_app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 
-# Configure CORS for admin sub-application
 admin_app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "*",  # Allow all origins as a fallback
-        "https://ipm-development.netlify.app",  # Explicitly allow the Netlify domain
-        "http://localhost:3000",  # For local development
-        "http://localhost:8000",  # For local development
+        "*",
+        "https://ipm-development.netlify.app",
+        "http://localhost:3000",
+        "http://localhost:8000",
     ],
-    allow_origin_regex="https://.*\.netlify\.app",  # Allow all Netlify subdomains
+    allow_origin_regex="https://.*\.netlify\.app",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # Explicitly list all methods
-    allow_headers=["*"],  # Allow all headers
-    expose_headers=["*"],  # Expose all headers to the browser
-    max_age=86400,  # Cache preflight requests for 24 hours (in seconds)
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
 )
 
 
@@ -137,8 +132,11 @@ def create_default_config(
     current_user: User = Depends(get_current_user)
 ):
     try:
-        # Check if user has permission
-        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value
+        ]:
             return AdminPanelResponse(
                 data=None,
                 message="Only admin and super admin can create default config",
@@ -204,7 +202,10 @@ def update_default_config(
 ):
     try:
         # Check if user has permission
-        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value
+        ]:
             return AdminPanelResponse(
                 data=None,
                 message="Only admin and super admin can update default config",
