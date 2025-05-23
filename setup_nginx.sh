@@ -24,8 +24,13 @@ mkdir -p "$UPLOADS_DIR/invoices"
 
 # Set proper permissions
 echo "Setting permissions..."
+# First, make sure the /root directory is accessible by nginx
+chmod 755 /root
+# Then set permissions for the uploads directory and its contents
 chown -R www-data:www-data "$UPLOADS_DIR"
 chmod -R 755 "$UPLOADS_DIR"
+# Make sure all files are readable
+find "$UPLOADS_DIR" -type f -exec chmod 644 {} \;
 
 # Copy the configuration file
 echo "Installing nginx configuration..."

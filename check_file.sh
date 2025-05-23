@@ -24,8 +24,14 @@ mkdir -p "$UPLOADS_DIR/invoices"
 
 # Set permissions for all directories
 echo "Setting permissions for all directories..."
+# First, make sure the /root directory is accessible by nginx
+chmod 755 /root
+# Then set permissions for the uploads directory and its contents
 find "$UPLOADS_DIR" -type d -exec chmod 755 {} \;
 find "$UPLOADS_DIR" -type d -exec chown www-data:www-data {} \;
+# Make sure all existing files are readable
+find "$UPLOADS_DIR" -type f -exec chmod 644 {} \;
+find "$UPLOADS_DIR" -type f -exec chown www-data:www-data {} \;
 
 # Check if the specific file exists
 if [ -f "$FILE_PATH" ]; then
