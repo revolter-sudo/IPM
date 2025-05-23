@@ -210,6 +210,87 @@ def create_multiple_project_item_mappings(
     return mappings
 
 
+def sync_project_item_mappings(
+    db: Session, item_data_list: List[dict], project_id: UUID
+):
+    """
+    Synchronize project-item mappings based on the provided list.
+    This function will:
+    1. Add new mappings for items not already mapped to the project
+    2. Update balances for existing mappings
+    3. Remove mappings for items that are in the database but not in the provided list
+
+    Args:
+        db: Database session
+        item_data_list: List of dictionaries with item_id and balance
+        project_id: Project UUID to sync items with
+
+    Returns:
+        Dict containing added, updated, and removed mapping counts
+    """
+    # Extract item IDs and balances from the input data
+    item_ids = []
+    item_balances = []
+
+    for item_data in item_data_list:
+        item_id = UUID(item_data.get("item_id"))
+        balance = float(item_data.get("balance", 0.0))
+        item_ids.append(item_id)
+        item_balances.append(balance)
+
+    # Get existing mappings for this project
+    existing_mappings = db.query(ProjectItemMap).filter(
+        ProjectItemMap.project_id == project_id
+    ).all()
+
+    existing_item_ids = {mapping.item_id for mapping in existing_mappings}
+
+    # Identify items to add, update, and remove
+    items_to_add = [i for i, item_id in enumerate(item_ids) if item_id not in existing_item_ids]
+    items_to_update = [i for i, item_id in enumerate(item_ids) if item_id in existing_item_ids]
+    items_to_remove = [mapping.item_id for mapping in existing_mappings if mapping.item_id not in item_ids]
+
+    # Add new mappings
+    added_mappings = []
+    for i in items_to_add:
+        new_mapping = ProjectItemMap(
+            uuid=str(uuid4()),
+            item_id=item_ids[i],
+            project_id=project_id,
+            item_balance=item_balances[i]
+        )
+        db.add(new_mapping)
+        added_mappings.append(new_mapping)
+
+    # Update existing mappings
+    updated_mappings = []
+    for i in items_to_update:
+        existing_mapping = next(m for m in existing_mappings if m.item_id == item_ids[i])
+        existing_mapping.item_balance = item_balances[i]
+        updated_mappings.append(existing_mapping)
+
+    # Remove mappings not in the provided list
+    removed_count = 0
+    for item_id in items_to_remove:
+        mapping_to_remove = next(m for m in existing_mappings if m.item_id == item_id)
+        db.delete(mapping_to_remove)
+        removed_count += 1
+
+    # Commit changes
+    db.commit()
+
+    # Refresh added and updated mappings
+    for mapping in added_mappings + updated_mappings:
+        db.refresh(mapping)
+
+    return {
+        "added": len(added_mappings),
+        "updated": len(updated_mappings),
+        "removed": removed_count,
+        "mappings": added_mappings + updated_mappings
+    }
+
+
 def create_user_item_mapping(
     db: Session, user_id: UUID, item_id: UUID, item_balance: Optional[float] = None
 ):
@@ -332,6 +413,66 @@ def create_multiple_project_user_mappings(
         db.refresh(mapping)
 
     return mappings
+
+
+def sync_project_user_mappings(
+    db: Session, user_ids: List[UUID], project_id: UUID
+):
+    """
+    Synchronize project-user mappings based on the provided list.
+    This function will:
+    1. Add new mappings for users not already mapped to the project
+    2. Remove mappings for users that are in the database but not in the provided list
+
+    Args:
+        db: Database session
+        user_ids: List of user UUIDs to sync with the project
+        project_id: Project UUID to sync users with
+
+    Returns:
+        Dict containing added and removed mapping counts
+    """
+    # Get existing mappings for this project
+    existing_mappings = db.query(ProjectUserMap).filter(
+        ProjectUserMap.project_id == project_id
+    ).all()
+
+    existing_user_ids = {mapping.user_id for mapping in existing_mappings}
+
+    # Identify users to add and remove
+    users_to_add = [user_id for user_id in user_ids if user_id not in existing_user_ids]
+    users_to_remove = [mapping.user_id for mapping in existing_mappings if mapping.user_id not in user_ids]
+
+    # Add new mappings
+    added_mappings = []
+    for user_id in users_to_add:
+        new_mapping = ProjectUserMap(
+            uuid=str(uuid4()),
+            user_id=user_id,
+            project_id=project_id
+        )
+        db.add(new_mapping)
+        added_mappings.append(new_mapping)
+
+    # Remove mappings not in the provided list
+    removed_count = 0
+    for user_id in users_to_remove:
+        mapping_to_remove = next(m for m in existing_mappings if m.user_id == user_id)
+        db.delete(mapping_to_remove)
+        removed_count += 1
+
+    # Commit changes
+    db.commit()
+
+    # Refresh added mappings
+    for mapping in added_mappings:
+        db.refresh(mapping)
+
+    return {
+        "added": len(added_mappings),
+        "removed": removed_count,
+        "mappings": added_mappings
+    }
 
 
 def remove_project_item_mapping(db: Session, item_id: UUID, project_id: UUID):

@@ -7,16 +7,16 @@ from src.app.services.auth_service import get_current_user
 from src.app.schemas.auth_service_schamas import UserRole
 from src.app.admin_panel.services import (
     create_project_user_mapping,
-    create_multiple_project_user_mappings,
     create_project_item_mapping,
-    create_multiple_project_item_mappings,
     create_user_item_mapping,
     create_multiple_user_item_mappings,
     remove_project_item_mapping,
     remove_project_user_mapping,
     remove_user_item_mapping,
     create_default_config_service,
-    update_default_config_service
+    update_default_config_service,
+    sync_project_user_mappings,
+    sync_project_item_mappings
 )
 from src.app.schemas.project_service_schemas import (
     ProjectServiceResponse,
@@ -315,7 +315,7 @@ def map_user_to_project(
 @admin_app.post(
     "/project_users_mapping/{project_id}",
     tags=["admin_panel"],
-    description="Map multiple users to a project at once"
+    description="Map multiple users to a project at once (handles both assignment and unassignment)"
 )
 def map_multiple_users_to_project(
     project_id: UUID,
@@ -323,6 +323,20 @@ def map_multiple_users_to_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Map multiple users to a project at once.
+
+    This API handles both assignment and unassignment:
+    - Users in the list that are not already mapped to the project will be assigned
+    - Users currently mapped to the project but not in the list will be unassigned
+
+    Request body should be in the format:
+    ```json
+    {
+        "user_ids": ["uuid1", "uuid2", "uuid3"]
+    }
+    ```
+    """
     try:
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
@@ -354,7 +368,7 @@ def map_multiple_users_to_project(
             ).model_dump()
 
         try:
-            mappings = create_multiple_project_user_mappings(
+            result = sync_project_user_mappings(
                 db=db,
                 project_id=project_id,
                 user_ids=user_ids
@@ -362,10 +376,12 @@ def map_multiple_users_to_project(
 
             return ProjectServiceResponse(
                 data={
-                    "mapped_count": len(mappings),
-                    "project_id": str(project_id)
+                    "project_id": str(project_id),
+                    "added_count": result["added"],
+                    "removed_count": result["removed"],
+                    "total_mapped": len(result["mappings"]) + result["removed"]
                 },
-                message="Users assigned to project successfully",
+                message="Users synchronized with project successfully",
                 status_code=200
             ).model_dump()
         except Exception as db_error:
@@ -461,7 +477,7 @@ def map_item_to_project(
 @admin_app.post(
     "/project_items_mapping/{project_id}",
     tags=["admin_panel"],
-    description="Map multiple items to a project at once"
+    description="Map multiple items to a project at once (handles both assignment and unassignment)"
 )
 def map_multiple_items_to_project(
     project_id: UUID,
@@ -471,6 +487,10 @@ def map_multiple_items_to_project(
 ):
     """
     Map multiple items to a project at once.
+
+    This API handles both assignment and unassignment:
+    - Items in the list that are not already mapped to the project will be assigned
+    - Items currently mapped to the project but not in the list will be unassigned
 
     Request body should be in the format:
     ```json
@@ -503,16 +523,12 @@ def map_multiple_items_to_project(
                 message="Project not found"
             ).model_dump()
 
-        # Extract item IDs and balances
+        # Extract item IDs for validation
         item_ids = []
-        item_balances = []
-
         for item_data in items_data:
             try:
                 item_id = UUID(item_data.get("item_id"))
-                balance = float(item_data.get("balance", 0.0))
                 item_ids.append(item_id)
-                item_balances.append(balance)
             except (ValueError, TypeError) as e:
                 return ProjectServiceResponse(
                     data=None,
@@ -530,19 +546,22 @@ def map_multiple_items_to_project(
             ).model_dump()
 
         try:
-            mappings = create_multiple_project_item_mappings(
+            # Use the sync function to handle both assignment and unassignment
+            result = sync_project_item_mappings(
                 db=db,
-                item_ids=item_ids,
-                project_id=project_id,
-                item_balances=item_balances
+                item_data_list=items_data,
+                project_id=project_id
             )
 
             return ProjectServiceResponse(
                 data={
-                    "mapped_count": len(mappings),
-                    "project_id": str(project_id)
+                    "project_id": str(project_id),
+                    "added_count": result["added"],
+                    "updated_count": result["updated"],
+                    "removed_count": result["removed"],
+                    "total_mapped": len(result["mappings"])
                 },
-                message="Items mapped to project successfully",
+                message="Items synchronized with project successfully",
                 status_code=200
             ).model_dump()
         except Exception as db_error:
