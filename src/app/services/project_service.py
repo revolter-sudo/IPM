@@ -513,7 +513,7 @@ def list_all_projects(
                     "po_balance": po_balance,
                     "estimated_balance": estimated_balance,
                     "actual_balance": actual_balance,
-                    "po_document_path": constants.HOST_URL + "/" + project.po_document_path,
+                    "po_document_path": constants.HOST_URL + "/" + project.po_document_path if project.po_document_path else None,
                     "items_count": items_count,
                     "exceeding_items": {
                         "count": len(exceeding_items),
