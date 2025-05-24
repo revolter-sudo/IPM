@@ -1538,6 +1538,7 @@ def upload_invoice(
             created_by=current_user.uuid
         )
         db.add(new_invoice)
+        db.flush()
 
         # Create log entry
         log_entry = Log(
