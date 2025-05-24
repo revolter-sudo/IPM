@@ -1558,7 +1558,7 @@ def upload_invoice(
                 "project_id": str(new_invoice.project_id),
                 "amount": new_invoice.amount,
                 "description": new_invoice.description,
-                "file_path": {constants.HOST_URL} + "/" + new_invoice.file_path,
+                "file_path": constants.HOST_URL + "/" + new_invoice.file_path,
                 "status": new_invoice.status,
                 "created_at": new_invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
             },
@@ -1695,7 +1695,7 @@ def list_invoices(
                 "project_id": str(invoice.project_id),
                 "amount": invoice.amount,
                 "description": invoice.description,
-                "file_path": {constants.HOST_URL} + "/" + invoice.file_path,
+                "file_path": constants.HOST_URL + "/" + invoice.file_path if invoice.file_path else None,
                 "status": invoice.status,
                 "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
             })
@@ -1749,7 +1749,7 @@ def get_invoice(
                 "project_name": project.name if project else None,
                 "amount": invoice.amount,
                 "description": invoice.description,
-                "file_path": {constants.HOST_URL} + "/" + invoice.file_path,
+                "file_path": constants.HOST_URL + "/" + invoice.file_path if invoice.file_path else None,
                 "status": invoice.status,
                 "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S"),
                 "created_by": str(invoice.created_by)
