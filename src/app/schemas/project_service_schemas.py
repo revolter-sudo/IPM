@@ -87,7 +87,6 @@ class InvoiceResponse(BaseModel):
 
 
 class InvoiceStatusUpdateRequest(BaseModel):
-    invoice_id: UUID
     status: str = "received"
 
 
