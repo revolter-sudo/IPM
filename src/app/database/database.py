@@ -2,17 +2,21 @@ from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from src.app.schemas.constants import HOST_URL
 
 
 # Configuration
 class Settings(BaseSettings):
     DB_USERNAME: str
     DB_PASSWORD: str
-    DB_HOST: str = "147.93.31.224"
+    DB_HOST: str = HOST_URL
     DB_PORT: int = 5432
     DB_NAME: str
     UPLOADS_DIR: str
     SERVICE_FILE: str
+    TWILIO_ACCOUNT_SID: str
+    TWILIO_AUTH_TOKEN: str
+    TWILIO_VERIFY_SERVICE_SID: str
 
     @property
     def DATABASE_URL(self) -> str:
