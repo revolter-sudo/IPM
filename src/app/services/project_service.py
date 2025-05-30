@@ -121,7 +121,11 @@ def update_project_balance(
         ).model_dump()
 
 
-@project_router.get("/balance", tags=["Projects"])
+@project_router.get(
+        "/balance",
+        tags=["Projects"],
+        deprecated=True
+    )
 def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)):
     try:
         project = (
@@ -355,7 +359,7 @@ def list_all_projects(
     Fetch all projects visible to the current user.
 
     • Super-Admin / Admin → every non-deleted project
-    • Everyone else      → only projects they’re mapped to (ProjectUserMap)
+    • Everyone else      → only projects they're mapped to (ProjectUserMap)
 
     Response schema
     ----------------
@@ -413,41 +417,20 @@ def list_all_projects(
         projects_response_data = []
         for project in projects:
             # Get total balance (for backward compatibility)
-            total_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(ProjectBalance.project_id == project.uuid)
-                .scalar()
-            ) or 0.0
+            # total_balance = (
+            #     db.query(func.sum(ProjectBalance.adjustment))
+            #     .filter(ProjectBalance.project_id == project.uuid)
+            #     .scalar()
+            # ) or 0.0
 
             # Get PO balance
-            po_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(
-                    ProjectBalance.project_id == project.uuid,
-                    ProjectBalance.balance_type == "po"
-                )
-                .scalar()
-            ) or project.po_balance
+            po_balance = project.po_balance if project.po_balance else 0
 
             # Get estimated balance
-            estimated_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(
-                    ProjectBalance.project_id == project.uuid,
-                    ProjectBalance.balance_type == "estimated"
-                )
-                .scalar()
-            ) or project.estimated_balance
+            estimated_balance = project.estimated_balance if project.estimated_balance else 0
 
             # Get actual balance
-            actual_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(
-                    ProjectBalance.project_id == project.uuid,
-                    ProjectBalance.balance_type == "actual"
-                )
-                .scalar()
-            ) or project.actual_balance
+            actual_balance = project.actual_balance if project.actual_balance else 0
 
             # Get all items mapped to this project with their balances
             project_items = (
@@ -509,7 +492,6 @@ def list_all_projects(
                     "name": project.name,
                     "description": project.description,
                     "location": project.location,
-                    "balance": total_balance,  # For backward compatibility
                     "po_balance": po_balance,
                     "estimated_balance": estimated_balance,
                     "actual_balance": actual_balance,
@@ -559,48 +541,26 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             ).model_dump()
 
         # Get total balance (for backward compatibility)
-        total_balance = (
-            db.query(func.sum(ProjectBalance.adjustment))
-            .filter(ProjectBalance.project_id == project_uuid)
-            .scalar()
-        ) or 0.0
+        # total_balance = (
+        #     db.query(func.sum(ProjectBalance.adjustment))
+        #     .filter(ProjectBalance.project_id == project_uuid)
+        #     .scalar()
+        # ) or 0.0
 
         # Get PO balance
-        po_balance = (
-            db.query(func.sum(ProjectBalance.adjustment))
-            .filter(
-                ProjectBalance.project_id == project_uuid,
-                ProjectBalance.balance_type == "po"
-            )
-            .scalar()
-        ) or project.po_balance
+        po_balance = project.po_balance if project.po_balance else 0
 
         # Get estimated balance
-        estimated_balance = (
-            db.query(func.sum(ProjectBalance.adjustment))
-            .filter(
-                ProjectBalance.project_id == project_uuid,
-                ProjectBalance.balance_type == "estimated"
-            )
-            .scalar()
-        ) or project.estimated_balance
+        estimated_balance = project.estimated_balance if project.estimated_balance else 0
 
         # Get actual balance
-        actual_balance = (
-            db.query(func.sum(ProjectBalance.adjustment))
-            .filter(
-                ProjectBalance.project_id == project_uuid,
-                ProjectBalance.balance_type == "actual"
-            )
-            .scalar()
-        ) or project.actual_balance
+        actual_balance = project.actual_balance if project.actual_balance else 0
 
         project_response_data = ProjectResponse(
             uuid=project.uuid,
             description=project.description,
             name=project.name,
             location=project.location,
-            balance=total_balance,
             po_balance=po_balance,
             estimated_balance=estimated_balance,
             actual_balance=actual_balance,

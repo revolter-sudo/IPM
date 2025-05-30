@@ -1184,48 +1184,26 @@ def get_user_projects(
         project_response = []
         for project in projects:
             # Get total balance (for backward compatibility)
-            total_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(ProjectBalance.project_id == project.uuid)
-                .scalar()
-            ) or 0.0
+            # total_balance = (
+            #     db.query(func.sum(ProjectBalance.adjustment))
+            #     .filter(ProjectBalance.project_id == project.uuid)
+            #     .scalar()
+            # ) or 0.0
 
             # Get PO balance
-            po_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(
-                    ProjectBalance.project_id == project.uuid,
-                    ProjectBalance.balance_type == "po"
-                )
-                .scalar()
-            ) or project.po_balance
+            po_balance = project.po_balance if project.po_balance else 0
 
             # Get estimated balance
-            estimated_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(
-                    ProjectBalance.project_id == project.uuid,
-                    ProjectBalance.balance_type == "estimated"
-                )
-                .scalar()
-            ) or project.estimated_balance
+            estimated_balance = project.estimated_balance if project.estimated_balance else 0
 
             # Get actual balance
-            actual_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(
-                    ProjectBalance.project_id == project.uuid,
-                    ProjectBalance.balance_type == "actual"
-                )
-                .scalar()
-            ) or project.actual_balance
+            actual_balance = project.actual_balance if project.actual_balance else 0
 
             project_response.append({
                 "uuid": str(project.uuid),
                 "name": project.name,
                 "description": project.description,
                 "location": project.location,
-                "balance": total_balance,  # For backward compatibility
                 "po_balance": po_balance,
                 "estimated_balance": estimated_balance,
                 "actual_balance": actual_balance,
@@ -1302,48 +1280,26 @@ def get_user_details(
             } for item, item_mapping in project_items]
 
             # Get total balance (for backward compatibility)
-            total_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(ProjectBalance.project_id == project.uuid)
-                .scalar()
-            ) or 0.0
+            # total_balance = (
+            #     db.query(func.sum(ProjectBalance.adjustment))
+            #     .filter(ProjectBalance.project_id == project.uuid)
+            #     .scalar()
+            # ) or 0.0
 
             # Get PO balance
-            po_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(
-                    ProjectBalance.project_id == project.uuid,
-                    ProjectBalance.balance_type == "po"
-                )
-                .scalar()
-            ) or project.po_balance
+            po_balance = project.po_balance if project.po_balance else 0
 
             # Get estimated balance
-            estimated_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(
-                    ProjectBalance.project_id == project.uuid,
-                    ProjectBalance.balance_type == "estimated"
-                )
-                .scalar()
-            ) or project.estimated_balance
+            estimated_balance = project.estimated_balance if project.estimated_balance else 0
 
             # Get actual balance
-            actual_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(
-                    ProjectBalance.project_id == project.uuid,
-                    ProjectBalance.balance_type == "actual"
-                )
-                .scalar()
-            ) or project.actual_balance
+            actual_balance = project.actual_balance if project.actual_balance else 0
 
             projects_list.append({
                 "uuid": str(project.uuid),
                 "name": project.name,
                 "description": project.description,
                 "location": project.location,
-                "balance": total_balance,  # For backward compatibility
                 "po_balance": po_balance,
                 "estimated_balance": estimated_balance,
                 "actual_balance": actual_balance,
@@ -1423,18 +1379,17 @@ def get_user_project_items(
             } for item, item_mapping in project_items]
 
             # Get project balances
-            total_balance = (
-                db.query(func.sum(ProjectBalance.adjustment))
-                .filter(ProjectBalance.project_id == project.uuid)
-                .scalar()
-            ) or 0.0
+            # total_balance = (
+            #     db.query(func.sum(ProjectBalance.adjustment))
+            #     .filter(ProjectBalance.project_id == project.uuid)
+            #     .scalar()
+            # ) or 0.0
 
             projects_list.append({
                 "uuid": str(project.uuid),
                 "name": project.name,
                 "description": project.description,
                 "location": project.location,
-                "balance": total_balance,
                 "po_balance": project.po_balance,
                 "estimated_balance": project.estimated_balance,
                 "actual_balance": project.actual_balance,

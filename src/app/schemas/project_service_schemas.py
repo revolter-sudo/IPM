@@ -9,7 +9,6 @@ class ProjectResponse(BaseModel):
     name: str
     description: Optional[str] = None
     location: Optional[str] = None
-    balance: float  # For backward compatibility
     po_balance: float = 0.0
     estimated_balance: float = 0.0
     actual_balance: float = 0.0
@@ -24,7 +23,6 @@ class ProjectResponse(BaseModel):
             "name": self.name,
             "description": self.description,
             "location": self.location,
-            "balance": self.balance,  # For backward compatibility
             "po_balance": self.po_balance,
             "estimated_balance": self.estimated_balance,
             "actual_balance": self.actual_balance,
