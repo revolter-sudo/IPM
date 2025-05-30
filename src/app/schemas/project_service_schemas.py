@@ -70,15 +70,29 @@ class BankEditSchema(BaseModel):
 
 class InvoiceCreateRequest(BaseModel):
     project_id: UUID
+    client_name: str
+    invoice_item: str
     amount: float
     description: Optional[str] = None
+    due_date: str  # Format: "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
+
+
+class InvoiceUpdateRequest(BaseModel):
+    client_name: Optional[str] = None
+    invoice_item: Optional[str] = None
+    amount: Optional[float] = None
+    description: Optional[str] = None
+    due_date: Optional[str] = None  # Format: "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
 
 
 class InvoiceResponse(BaseModel):
     uuid: UUID
     project_id: UUID
+    client_name: str
+    invoice_item: str
     amount: float
     description: Optional[str] = None
+    due_date: str
     file_path: Optional[str] = None
     status: str
     created_at: str

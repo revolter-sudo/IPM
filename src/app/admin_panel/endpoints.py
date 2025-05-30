@@ -21,6 +21,7 @@ from src.app.admin_panel.services import (
 from src.app.schemas.project_service_schemas import (
     ProjectServiceResponse,
     InvoiceCreateRequest,
+    InvoiceUpdateRequest,
     InvoiceStatusUpdateRequest
 )
 from src.app.schemas.payment_service_schemas import PaymentStatus
@@ -1432,8 +1433,11 @@ def get_user_project_items(
     ```json
     {
         "project_id": "123e4567-e89b-12d3-a456-426614174000",
+        "client_name": "ABC Company",
+        "invoice_item": "Construction Materials",
         "amount": 500.0,
-        "description": "Invoice for materials"
+        "description": "Invoice for materials",
+        "due_date": "2025-06-15"
     }
     ```
 
@@ -1483,11 +1487,28 @@ def upload_invoice(
             with open(file_path, "wb") as buffer:
                 buffer.write(invoice_file.file.read())
 
+        # Parse due_date string to datetime
+        from datetime import datetime
+        try:
+            due_date = datetime.strptime(invoice_request.due_date, "%Y-%m-%d")
+        except ValueError:
+            try:
+                due_date = datetime.strptime(invoice_request.due_date, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message="Invalid due_date format. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
+                ).model_dump()
+
         # Create new invoice
         new_invoice = Invoice(
             project_id=invoice_request.project_id,
+            client_name=invoice_request.client_name,
+            invoice_item=invoice_request.invoice_item,
             amount=invoice_request.amount,
             description=invoice_request.description,
+            due_date=due_date,
             file_path=file_path,
             status="uploaded",
             created_by=current_user.uuid
@@ -1511,9 +1532,12 @@ def upload_invoice(
             data={
                 "uuid": str(new_invoice.uuid),
                 "project_id": str(new_invoice.project_id),
+                "client_name": new_invoice.client_name,
+                "invoice_item": new_invoice.invoice_item,
                 "amount": new_invoice.amount,
                 "description": new_invoice.description,
-                "file_path": constants.HOST_URL + "/" + new_invoice.file_path,
+                "due_date": new_invoice.due_date.strftime("%Y-%m-%d"),
+                "file_path": constants.HOST_URL + "/" + new_invoice.file_path if new_invoice.file_path else None,
                 "status": new_invoice.status,
                 "created_at": new_invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
             },
@@ -1648,8 +1672,11 @@ def list_invoices(
             invoice_list.append({
                 "uuid": str(invoice.uuid),
                 "project_id": str(invoice.project_id),
+                "client_name": invoice.client_name,
+                "invoice_item": invoice.invoice_item,
                 "amount": invoice.amount,
                 "description": invoice.description,
+                "due_date": invoice.due_date.strftime("%Y-%m-%d"),
                 "file_path": constants.HOST_URL + "/" + invoice.file_path if invoice.file_path else None,
                 "status": invoice.status,
                 "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
@@ -1702,8 +1729,11 @@ def get_invoice(
                 "uuid": str(invoice.uuid),
                 "project_id": str(invoice.project_id),
                 "project_name": project.name if project else None,
+                "client_name": invoice.client_name,
+                "invoice_item": invoice.invoice_item,
                 "amount": invoice.amount,
                 "description": invoice.description,
+                "due_date": invoice.due_date.strftime("%Y-%m-%d"),
                 "file_path": constants.HOST_URL + "/" + invoice.file_path if invoice.file_path else None,
                 "status": invoice.status,
                 "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S"),
@@ -1718,6 +1748,199 @@ def get_invoice(
             data=None,
             status_code=500,
             message=f"An error occurred while fetching invoice: {str(e)}"
+        ).model_dump()
+
+
+@admin_app.put(
+    "/invoices/{invoice_id}",
+    tags=["Invoices"],
+    description="""
+    Update invoice information.
+
+    Request body should contain the fields to update:
+    ```json
+    {
+        "client_name": "Updated Company Name",
+        "invoice_item": "Updated Item",
+        "amount": 600.0,
+        "description": "Updated description",
+        "due_date": "2025-07-15"
+    }
+    ```
+
+    All fields are optional - only provided fields will be updated.
+    """
+)
+def update_invoice(
+    invoice_id: UUID,
+    update_request: InvoiceUpdateRequest = Body(
+        ...,
+        description="Invoice update information"
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Update invoice information.
+    """
+    try:
+        # Verify user has permission
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Not authorized to update invoice"
+            ).model_dump()
+
+        # Find the invoice
+        invoice = db.query(Invoice).filter(
+            Invoice.uuid == invoice_id,
+            Invoice.is_deleted.is_(False)
+        ).first()
+
+        if not invoice:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Invoice not found"
+            ).model_dump()
+
+        # Update fields if provided
+        if update_request.client_name is not None:
+            invoice.client_name = update_request.client_name
+
+        if update_request.invoice_item is not None:
+            invoice.invoice_item = update_request.invoice_item
+
+        if update_request.amount is not None:
+            invoice.amount = update_request.amount
+
+        if update_request.description is not None:
+            invoice.description = update_request.description
+
+        if update_request.due_date is not None:
+            # Parse due_date string to datetime
+            from datetime import datetime
+            try:
+                due_date = datetime.strptime(update_request.due_date, "%Y-%m-%d")
+            except ValueError:
+                try:
+                    due_date = datetime.strptime(update_request.due_date, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    return ProjectServiceResponse(
+                        data=None,
+                        status_code=400,
+                        message="Invalid due_date format. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
+                    ).model_dump()
+            invoice.due_date = due_date
+
+        # Create log entry
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="Invoice",
+            action="Update",
+            entity_id=invoice_id,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
+        db.commit()
+        db.refresh(invoice)
+
+        return ProjectServiceResponse(
+            data={
+                "uuid": str(invoice.uuid),
+                "project_id": str(invoice.project_id),
+                "client_name": invoice.client_name,
+                "invoice_item": invoice.invoice_item,
+                "amount": invoice.amount,
+                "description": invoice.description,
+                "due_date": invoice.due_date.strftime("%Y-%m-%d"),
+                "file_path": constants.HOST_URL + "/" + invoice.file_path if invoice.file_path else None,
+                "status": invoice.status,
+                "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            },
+            message="Invoice updated successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in update_invoice API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while updating invoice: {str(e)}"
+        ).model_dump()
+
+
+@admin_app.delete(
+    "/invoices/{invoice_id}",
+    tags=["Invoices"],
+    description="Soft delete an invoice"
+)
+def delete_invoice(
+    invoice_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Soft delete an invoice.
+    """
+    try:
+        # Verify user has permission
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Not authorized to delete invoice"
+            ).model_dump()
+
+        # Find the invoice
+        invoice = db.query(Invoice).filter(
+            Invoice.uuid == invoice_id,
+            Invoice.is_deleted.is_(False)
+        ).first()
+
+        if not invoice:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Invoice not found"
+            ).model_dump()
+
+        # Soft delete the invoice
+        invoice.is_deleted = True
+
+        # Create log entry
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="Invoice",
+            action="Delete",
+            entity_id=invoice_id,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
+        db.commit()
+
+        return ProjectServiceResponse(
+            data={"deleted_invoice_id": str(invoice_id)},
+            message="Invoice deleted successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in delete_invoice API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while deleting invoice: {str(e)}"
         ).model_dump()
 
 

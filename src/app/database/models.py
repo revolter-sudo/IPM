@@ -537,10 +537,13 @@ class Invoice(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    client_name = Column(String(255), nullable=False)
+    invoice_item = Column(String(255), nullable=False)
     amount = Column(Float, nullable=False)
     description = Column(Text, nullable=True)
+    due_date = Column(TIMESTAMP, nullable=False)
     file_path = Column(String(255), nullable=True)
-    status = Column(String(20), nullable=False, default="uploaded")  # uploaded, received
+    status = Column(String(20), nullable=False, default="uploaded")
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at = Column(
