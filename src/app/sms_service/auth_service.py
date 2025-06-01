@@ -28,7 +28,11 @@ def forgot_password_request_otp(payload: ForgotPasswordOTPRequest,
         User.is_deleted.is_(False)
     ).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        return AuthServiceResponse(
+            data=None,
+            status_code=404,
+            message="No user found with this phone number."
+        ).model_dump()
 
     send_otp(_e164(payload.phone))          # fire-and-forget
     return AuthServiceResponse(
@@ -42,14 +46,22 @@ def forgot_password_request_otp(payload: ForgotPasswordOTPRequest,
 def forgot_password_verify_otp(payload: ForgotPasswordOTPVerify,
                                db: Session = Depends(get_db)):
     if not check_otp(_e164(payload.phone), payload.otp):
-        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+        return AuthServiceResponse(
+            data=None,
+            status_code=400,
+            message="Invalid or expired OTP"
+        ).model_dump()
 
     user = db.query(User).filter(
         User.phone == payload.phone,
         User.is_deleted.is_(False)
     ).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        return AuthServiceResponse(
+            data=None,
+            status_code=404,
+            message="User not found"
+        ).model_dump()
 
     user.password_hash = pwd_context.hash(payload.new_password)
     db.commit()
