@@ -11,6 +11,7 @@ from sqlalchemy import (
     String,
     Text,
     text,
+    Date
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
@@ -193,6 +194,8 @@ class Project(Base):
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     location = Column(Text, nullable=True)
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
     po_balance = Column(Float, nullable=False, default=0.0)
     estimated_balance = Column(Float, nullable=False, default=0.0)
     actual_balance = Column(Float, nullable=False, default=0.0)

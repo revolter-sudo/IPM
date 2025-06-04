@@ -213,6 +213,8 @@ def adjust_project_balance(
         "name": "Project Name",
         "description": "Project Description",
         "location": "Project Location",
+        "start_date": "2025-06-04"
+        "end_date": "2026-06-04"
         "po_balance": 1000.0,
         "estimated_balance": 1500.0,
         "actual_balance": 500.0
@@ -271,6 +273,8 @@ def create_project(
             uuid=project_uuid,
             name=project_request.name,
             description=project_request.description,
+            start_date=project_request.start_date,
+            end_date=project_request.end_date,
             location=project_request.location,
             po_balance=project_request.po_balance,
             estimated_balance=project_request.estimated_balance,
@@ -332,6 +336,8 @@ def create_project(
                 "name": new_project.name,
                 "description": new_project.description,
                 "location": new_project.location,
+                "start_date": new_project.start_date,
+                "end_date": new_project.end_date,
                 "po_balance": new_project.po_balance,
                 "estimated_balance": new_project.estimated_balance,
                 "actual_balance": new_project.actual_balance,
@@ -369,6 +375,8 @@ def list_all_projects(
             "name": "<project-name>",
             "description": "<project-description>",
             "location": "<project-location>",
+            "start_date": "project-start_date",
+            "end_date": "project-end_date",
             "balance": <current_balance_float>,  # For backward compatibility
             "po_balance": <po_balance_float>,
             "estimated_balance": <estimated_balance_float>,
@@ -492,6 +500,8 @@ def list_all_projects(
                     "name": project.name,
                     "description": project.description,
                     "location": project.location,
+                    "start_date": project.start_date,
+                    "end_date": project.end_date,
                     "po_balance": po_balance,
                     "estimated_balance": estimated_balance,
                     "actual_balance": actual_balance,
@@ -561,6 +571,8 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             description=project.description,
             name=project.name,
             location=project.location,
+            start_date=project.start_date,
+            end_date=project.end_date,
             po_balance=po_balance,
             estimated_balance=estimated_balance,
             actual_balance=actual_balance,

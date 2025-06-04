@@ -1,6 +1,6 @@
 from typing import Optional, Any, List
 from uuid import UUID
-
+from datetime import date
 from pydantic import BaseModel
 
 
@@ -9,6 +9,8 @@ class ProjectResponse(BaseModel):
     name: str
     description: Optional[str] = None
     location: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     po_balance: float = 0.0
     estimated_balance: float = 0.0
     actual_balance: float = 0.0
@@ -23,6 +25,8 @@ class ProjectResponse(BaseModel):
             "name": self.name,
             "description": self.description,
             "location": self.location,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
             "po_balance": self.po_balance,
             "estimated_balance": self.estimated_balance,
             "actual_balance": self.actual_balance,
@@ -46,6 +50,8 @@ class ProjectCreateRequest(BaseModel):
     name: str
     description: Optional[str] = None
     location: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
     balance: float = 0.0  # For backward compatibility
     po_balance: float = 0.0
     estimated_balance: float = 0.0
@@ -56,6 +62,8 @@ class UpdateProjectSchema(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
 
 
 class BankCreateSchema(BaseModel):
