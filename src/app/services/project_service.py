@@ -605,6 +605,8 @@ def update_project(
       - name
       - description
       - location
+      - start_date
+      - end_date
 
     Returns 404 if project not found.
     """
@@ -640,6 +642,10 @@ def update_project(
             project.description = payload.description
         if payload.location is not None:
             project.location = payload.location
+        if payload.start_date is not None:
+            project.start_date = payload.start_date
+        if payload.end_date is not None:
+            project.end_date = payload.end_date
 
         # Optionally add a log entry
         log_entry = Log(
@@ -659,7 +665,9 @@ def update_project(
                 "uuid": str(project.uuid),
                 "name": project.name,
                 "description": project.description,
-                "location": project.location
+                "location": project.location,
+                "start_date": project.start_date,
+                "end_date": project.end_date
             },
             message="Project updated successfully",
             status_code=200
