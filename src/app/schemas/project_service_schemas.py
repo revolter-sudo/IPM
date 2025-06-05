@@ -64,6 +64,9 @@ class UpdateProjectSchema(BaseModel):
     location: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    po_balance: Optional[float] = None
+    estimated_balance: Optional[float] = None
+    actual_balance: Optional[float] = None
 
 
 class BankCreateSchema(BaseModel):

@@ -2557,3 +2557,52 @@ def get_all_logs(
             status_code=500,
             message=f"An error occurred while fetching logs: {str(e)}"
         ).model_dump()
+
+from fastapi import HTTPException
+from sqlalchemy import select
+
+@admin_app.get("/items/user-project/{user_id}/{project_id}", tags=["Mappings"])
+def get_user_project_items(
+    user_id: UUID,
+    project_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value
+        ]:
+            return AdminPanelResponse(
+                data=None,
+                status_code=403,
+                message="Only admin, super admin, or project manager can access user project items"
+            ).model_dump()
+
+        # ✅ Subquery using select() to avoid SAWarning
+        project_items_subq = (
+            select(ProjectItemMap.item_id)
+            .where(ProjectItemMap.project_id == project_id)
+        )
+
+        # ✅ JOIN using Item.uuid (UUID match)
+        items = (
+            db.query(Item)
+            .join(UserItemMap, UserItemMap.item_id == Item.uuid)
+            .filter(
+                UserItemMap.user_id == user_id,
+                UserItemMap.item_id.in_(project_items_subq)
+            )
+            .all()
+        )
+
+        return AdminPanelResponse(
+            data=[{"uuid": item.uuid, "name": item.name} for item in items],
+            status_code=200,
+            message="Items assigned to user in project fetched successfully"
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

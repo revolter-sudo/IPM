@@ -440,6 +440,9 @@ class Item(Base):
         cascade="all, delete-orphan"
     )
 
+    def __repr__(self):
+        return f"<Item(name={self.name})>"
+
 
 class PaymentItem(Base):
     __tablename__ = "payment_items"

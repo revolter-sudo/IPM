@@ -607,6 +607,9 @@ def update_project(
       - location
       - start_date
       - end_date
+      - po_balance
+      - estimated_balance
+      - actual_balance
 
     Returns 404 if project not found.
     """
@@ -646,6 +649,12 @@ def update_project(
             project.start_date = payload.start_date
         if payload.end_date is not None:
             project.end_date = payload.end_date
+        if payload.po_balance is not None:
+            project.po_balance = payload.po_balance
+        if payload.estimated_balance is not None:
+            project.estimated_balance = payload.estimated_balance
+        if payload.actual_balance is not None:
+            project.actual_balance = payload.actual_balance
 
         # Optionally add a log entry
         log_entry = Log(
@@ -667,7 +676,10 @@ def update_project(
                 "description": project.description,
                 "location": project.location,
                 "start_date": project.start_date,
-                "end_date": project.end_date
+                "end_date": project.end_date,
+                "po_balance": project.po_balance,
+                "estimated_balance": project.estimated_balance,
+                "actual_balance": project.actual_balance
             },
             message="Project updated successfully",
             status_code=200
