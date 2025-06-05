@@ -213,8 +213,8 @@ def adjust_project_balance(
         "name": "Project Name",
         "description": "Project Description",
         "location": "Project Location",
-        "start_date": "2025-06-04"
-        "end_date": "2026-06-04"
+        "start_date": "2025-06-04",
+        "end_date": "2026-06-04",
         "po_balance": 1000.0,
         "estimated_balance": 1500.0,
         "actual_balance": 500.0

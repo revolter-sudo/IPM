@@ -617,6 +617,7 @@ class DefaultConfig(Base):
     def __repr__(self):
         return f"<DefaultConfig(uuid={self.uuid}, item_id={self.item_id}, admin_amount={self.admin_amount})>"
 
+
 class ProjectUserItemMap(Base):
     __tablename__ = "project_user_item_map"
 

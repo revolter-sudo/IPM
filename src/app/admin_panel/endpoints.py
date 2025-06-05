@@ -16,7 +16,8 @@ from src.app.admin_panel.services import (
     create_default_config_service,
     update_default_config_service,
     sync_project_user_mappings,
-    sync_project_item_mappings
+    sync_project_item_mappings,
+    sync_project_user_item_mappings
 )
 from src.app.schemas.project_service_schemas import (
     ProjectServiceResponse,
@@ -40,9 +41,7 @@ from fastapi import (
 from src.app.database.models import (
     Log,
     Project,
-    ProjectBalance,
     User,
-    BalanceDetail,
     Payment,
     ProjectUserMap,
     Item,
@@ -63,20 +62,18 @@ from src.app.database.models import (
 from sqlalchemy.orm import Session, joinedload
 from src.app.schemas import constants
 from src.app.admin_panel.services import get_default_config_service
-from src.app.database.database import get_db, SessionLocal
+from src.app.database.database import get_db
 import logging
 from src.app.admin_panel.schemas import (
     AdminPanelResponse,
-    LogResponse,
     DefaultConfigCreate,
     DefaultConfigUpdate,
-    PaymentStatusAnalytics,
-    ProjectPaymentAnalyticsResponse,
-    ItemAnalytics,
-    ProjectItemAnalyticsResponse,
     ProjectUserItemMapCreate,
-    ProjectUserItemMapResponse
 )
+from fastapi import HTTPException
+from sqlalchemy import select
+
+
 logging.basicConfig(level=logging.INFO)
 
 admin_app = FastAPI(
@@ -484,7 +481,15 @@ def map_item_to_project(
 @admin_app.post(
     "/project_items_mapping/{project_id}",
     tags=["admin_panel"],
-    description="Map multiple items to a project at once (handles both assignment and unassignment)"
+    description="""
+    Map multiple items to a project at once (handles both assignment and unassignment)
+    {
+        "items_data": [
+            {"item_id": "uuid1", "balance": 100.0},
+            {"item_id": "uuid2", "balance": 200.0}
+        ]
+    }
+    """
 )
 def map_multiple_items_to_project(
     project_id: UUID,
@@ -968,7 +973,8 @@ def remove_item_from_user(
 
 @admin_app.get(
     "/user/{user_id}/items",
-    tags=["admin_panel"]
+    tags=["admin_panel"],
+    deprecated=True
 )
 def get_user_items(
     user_id: UUID,
@@ -1343,9 +1349,10 @@ def get_user_details(
 @admin_app.get(
     "/user/{user_id}/project-items",
     tags=["admin_panel"],
-    description="Get all projects and their assigned items for a specific user"
+    description="Get all projects and their assigned items for a specific user",
+    deprecated=True
 )
-def get_user_project_items(
+def get_user_project_items_old(
     user_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1952,7 +1959,6 @@ def delete_invoice(
             status_code=500,
             message=f"An error occurred while deleting invoice: {str(e)}"
         ).model_dump()
-
 
 @admin_app.get(
     "/khatabook",
@@ -2564,10 +2570,8 @@ def get_all_logs(
             message=f"An error occurred while fetching logs: {str(e)}"
         ).model_dump()
 
-from fastapi import HTTPException
-from sqlalchemy import select
 
-@admin_app.get("/items/user-project/{user_id}/{project_id}", tags=["Mappings"])
+@admin_app.get("/items/user-project/{user_id}/{project_id}", tags=["Mappings"], deprecated=True)
 def get_user_project_items(
     user_id: UUID,
     project_id: UUID,
@@ -2617,9 +2621,25 @@ def get_user_project_items(
 @admin_app.post(
     "/project-user-item-map",
     tags=["Mappings"],
-    description="Map multiple items to a user under a project"
+    description="""
+    Synchronize items mapped to a user under a project.
+
+    This API handles both assignment and unassignment:
+    - Items in the list that are not already mapped to the user will be
+      assigned
+    - Items currently mapped to the user but not in the list will be unassigned
+
+    Request body should be in the format:
+    ```json
+    {
+        "project_id": "uuid",
+        "user_id": "uuid",
+        "item_ids": ["item_uuid1", "item_uuid2"]
+    }
+    ```
+    """
 )
-def create_project_user_item_map(
+def sync_project_user_item_map(
     payload: ProjectUserItemMapCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -2650,49 +2670,58 @@ def create_project_user_item_map(
         ).all()
     }
 
-    invalid_items = [str(item_id) for item_id in payload.item_ids if item_id not in assigned_item_ids]
+    invalid_items = [
+        str(item_id) for item_id in payload.item_ids
+        if item_id not in assigned_item_ids
+    ]
     if invalid_items:
         raise HTTPException(
             status_code=400,
-            detail=f"The following items are not assigned to the project: {', '.join(invalid_items)}"
+            detail=(
+                f"The following items are not assigned to the project: "
+                f"{', '.join(invalid_items)}"
+            )
         )
 
-    # Proceed to assign only valid project items to the user
-    created_mappings = []
-    for item_id in payload.item_ids:
-        existing = db.query(ProjectUserItemMap).filter_by(
+    # Use sync function to handle both assignment and unassignment
+    try:
+        result = sync_project_user_item_mappings(
+            db=db,
             project_id=payload.project_id,
             user_id=payload.user_id,
-            item_id=item_id
-        ).first()
+            item_ids=payload.item_ids
+        )
 
-        if not existing:
-            mapping = ProjectUserItemMap(
-                uuid=uuid4(),
-                project_id=payload.project_id,
-                user_id=payload.user_id,
-                item_id=item_id
-            )
-            db.add(mapping)
-            created_mappings.append(mapping)
+        return {
+            "status_code": 200,
+            "message": (
+                f"Items synchronized successfully. Added: {result['added']}, "
+                f"Removed: {result['removed']}"
+            ),
+            "data": {
+                "project_id": str(payload.project_id),
+                "user_id": str(payload.user_id),
+                "added_count": result["added"],
+                "removed_count": result["removed"],
+                "total_mapped": len(result["mappings"]),
+                "mappings": [
+                    {
+                        "uuid": str(m.uuid),
+                        "project_id": str(m.project_id),
+                        "user_id": str(m.user_id),
+                        "item_id": str(m.item_id)
+                    } for m in result["mappings"]
+                ]
+            }
+        }
+    except Exception as db_error:
+        db.rollback()
+        logging.error(f"Database error in sync_project_user_item_mappings: {str(db_error)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Database error while synchronizing items: {str(db_error)}"
+        )
 
-    db.commit()
-
-    for m in created_mappings:
-        db.refresh(m)
-
-    return {
-        "status_code": 200,
-        "message": f"{len(created_mappings)} item(s) mapped successfully.",
-        "data": [
-            {
-                "uuid": m.uuid,
-                "project_id": m.project_id,
-                "user_id": m.user_id,
-                "item_id": m.item_id
-            } for m in created_mappings
-        ]
-    }
 
 @admin_app.get(
     "/project-user-item-map/{project_id}/{user_id}",
@@ -2720,13 +2749,21 @@ def get_project_user_item_mappings(
     ).first()
 
     if not user_assigned:
-        raise HTTPException(status_code=400, detail="User is not assigned to the selected project.")
+        raise HTTPException(
+            status_code=400,
+            detail="User is not assigned to the selected project."
+        )
 
     # ✅ Fetch item mappings safely
-    mappings = db.query(ProjectUserItemMap).join(ProjectUserItemMap.item).filter(
-        ProjectUserItemMap.project_id == project_id,
-        ProjectUserItemMap.user_id == user_id
-    ).all()
+    mappings = (
+        db.query(ProjectUserItemMap)
+        .join(Item, ProjectUserItemMap.item_id == Item.uuid)
+        .filter(
+            ProjectUserItemMap.project_id == project_id,
+            ProjectUserItemMap.user_id == user_id
+        )
+        .all()
+    )
 
     return {
         "status_code": 200,
@@ -2739,9 +2776,10 @@ def get_project_user_item_mappings(
                 "item_name": m.item.name if m.item else None,
                 "item_category": m.item.category if m.item else None,
                 "item_list_tag": m.item.list_tag if m.item else None,
-                "item_has_additional_info": m.item.has_additional_info if m.item else None
+                "item_has_additional_info": (
+                    m.item.has_additional_info if m.item else None
+                )
             } for m in mappings
         ],
         "count": len(mappings)
     }
-

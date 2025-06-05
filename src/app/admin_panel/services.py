@@ -1,11 +1,17 @@
-from src.app.database.models import Item, ProjectUserMap, ProjectItemMap, UserItemMap, DefaultConfig
+from src.app.database.models import (
+    Item,
+    ProjectUserMap,
+    ProjectItemMap,
+    UserItemMap,
+    DefaultConfig,
+    ProjectUserItemMap
+)
 from uuid import UUID, uuid4
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from src.app.database.database import SessionLocal
 from src.app.admin_panel import constants
 from sqlalchemy import func
-from datetime import datetime
 
 
 def get_default_config_service() -> dict:
@@ -549,3 +555,65 @@ def remove_user_item_mapping(db: Session, user_id: UUID, item_id: UUID):
     db.commit()
     return True
 
+
+def sync_project_user_item_mappings(
+    db: Session, project_id: UUID, user_id: UUID, item_ids: List[UUID]
+):
+    """
+    Synchronize project-user-item mappings based on the provided list.
+    This function will:
+    1. Add new mappings for items not already mapped to the user under the project
+    2. Remove mappings for items that are in the database but not in the provided list
+
+    Args:
+        db: Database session
+        project_id: Project UUID
+        user_id: User UUID
+        item_ids: List of item UUIDs to sync with the user under the project
+
+    Returns:
+        Dict containing added and removed mapping counts
+    """
+    # Get existing mappings for this project-user combination
+    existing_mappings = db.query(ProjectUserItemMap).filter(
+        ProjectUserItemMap.project_id == project_id,
+        ProjectUserItemMap.user_id == user_id
+    ).all()
+
+    existing_item_ids = {mapping.item_id for mapping in existing_mappings}
+
+    # Identify items to add and remove
+    items_to_add = [item_id for item_id in item_ids if item_id not in existing_item_ids]
+    items_to_remove = [mapping.item_id for mapping in existing_mappings if mapping.item_id not in item_ids]
+
+    # Add new mappings
+    added_mappings = []
+    for item_id in items_to_add:
+        new_mapping = ProjectUserItemMap(
+            uuid=uuid4(),
+            project_id=project_id,
+            user_id=user_id,
+            item_id=item_id
+        )
+        db.add(new_mapping)
+        added_mappings.append(new_mapping)
+
+    # Remove mappings not in the provided list
+    removed_count = 0
+    for item_id in items_to_remove:
+        mapping_to_remove = next(m for m in existing_mappings if m.item_id == item_id)
+        db.delete(mapping_to_remove)
+        removed_count += 1
+
+    # Commit changes
+    db.commit()
+
+    # Refresh added mappings
+    for mapping in added_mappings:
+        db.refresh(mapping)
+
+    return {
+        "added": len(added_mappings),
+        "removed": removed_count,
+        "mappings": added_mappings
+    }
