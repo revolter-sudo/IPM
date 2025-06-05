@@ -842,8 +842,12 @@ def get_all_payments(
                 query = query.filter(Payment.created_at <= end_date_with_time)
         if from_uuid:
             query = query.filter(Payment.created_by == from_uuid)
-        if person_id:
-            query = query.filter(Payment.person == person_id)
+        if person_id or to_uuid:
+            query = query.join(Person, Payment.person == Person.uuid, isouter=True)
+            if person_id:
+                query = query.filter(Payment.person == person_id)
+            if to_uuid:
+                query = query.filter(Person.uuid == to_uuid)
 
         return query.scalar() or 0.0
 
@@ -877,8 +881,12 @@ def get_all_payments(
                 query = query.filter(Payment.created_at <= end_date_with_time)
         if from_uuid:
             query = query.filter(Payment.created_by == from_uuid)
-        if person_id:
-            query = query.filter(Payment.person == person_id)
+        if person_id or to_uuid:
+            query = query.join(Person, Payment.person == Person.uuid, isouter=True)
+            if person_id:
+                query = query.filter(Payment.person == person_id)
+            if to_uuid:
+                query = query.filter(Person.uuid == to_uuid)
 
         return query.scalar() or 0.0
 
