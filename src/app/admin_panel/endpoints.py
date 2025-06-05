@@ -54,7 +54,11 @@ from src.app.database.models import (
     KhatabookFile,
     Person,
     DefaultConfig,
-    PaymentItem
+    PaymentItem,
+    ProjectUserItemMap,
+    ProjectItemMap,
+    UserItemMap,
+    ProjectUserMap
 )
 from sqlalchemy.orm import Session, joinedload
 from src.app.schemas import constants
@@ -69,7 +73,9 @@ from src.app.admin_panel.schemas import (
     PaymentStatusAnalytics,
     ProjectPaymentAnalyticsResponse,
     ItemAnalytics,
-    ProjectItemAnalyticsResponse
+    ProjectItemAnalyticsResponse,
+    ProjectUserItemMapCreate,
+    ProjectUserItemMapResponse
 )
 logging.basicConfig(level=logging.INFO)
 
@@ -2580,13 +2586,13 @@ def get_user_project_items(
                 message="Only admin, super admin, or project manager can access user project items"
             ).model_dump()
 
-        # ✅ Subquery using select() to avoid SAWarning
+        # Subquery using select() to avoid SAWarning
         project_items_subq = (
             select(ProjectItemMap.item_id)
             .where(ProjectItemMap.project_id == project_id)
         )
 
-        # ✅ JOIN using Item.uuid (UUID match)
+        # JOIN using Item.uuid (UUID match)
         items = (
             db.query(Item)
             .join(UserItemMap, UserItemMap.item_id == Item.uuid)
@@ -2606,3 +2612,136 @@ def get_user_project_items(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@admin_app.post(
+    "/project-user-item-map",
+    tags=["Mappings"],
+    description="Map multiple items to a user under a project"
+)
+def create_project_user_item_map(
+    payload: ProjectUserItemMapCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role not in [
+        UserRole.SUPER_ADMIN.value,
+        UserRole.ADMIN.value,
+        UserRole.PROJECT_MANAGER.value
+    ]:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    # Check if user is assigned to the project
+    user_assigned = db.query(ProjectUserMap).filter_by(
+        project_id=payload.project_id,
+        user_id=payload.user_id
+    ).first()
+
+    if not user_assigned:
+        raise HTTPException(
+            status_code=400,
+            detail="User is not assigned to the selected project. Please assign the user first."
+        )
+
+    # Check which items are actually assigned to this project
+    assigned_item_ids = {
+        row.item_id for row in db.query(ProjectItemMap.item_id).filter_by(
+            project_id=payload.project_id
+        ).all()
+    }
+
+    invalid_items = [str(item_id) for item_id in payload.item_ids if item_id not in assigned_item_ids]
+    if invalid_items:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The following items are not assigned to the project: {', '.join(invalid_items)}"
+        )
+
+    # Proceed to assign only valid project items to the user
+    created_mappings = []
+    for item_id in payload.item_ids:
+        existing = db.query(ProjectUserItemMap).filter_by(
+            project_id=payload.project_id,
+            user_id=payload.user_id,
+            item_id=item_id
+        ).first()
+
+        if not existing:
+            mapping = ProjectUserItemMap(
+                uuid=uuid4(),
+                project_id=payload.project_id,
+                user_id=payload.user_id,
+                item_id=item_id
+            )
+            db.add(mapping)
+            created_mappings.append(mapping)
+
+    db.commit()
+
+    for m in created_mappings:
+        db.refresh(m)
+
+    return {
+        "status_code": 200,
+        "message": f"{len(created_mappings)} item(s) mapped successfully.",
+        "data": [
+            {
+                "uuid": m.uuid,
+                "project_id": m.project_id,
+                "user_id": m.user_id,
+                "item_id": m.item_id
+            } for m in created_mappings
+        ]
+    }
+
+@admin_app.get(
+    "/project-user-item-map/{project_id}/{user_id}",
+    tags=["Mappings"],
+    description="Get all items mapped to a user under a specific project"
+)
+def get_project_user_item_mappings(
+    project_id: UUID,
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # 🔐 Role check
+    if current_user.role not in [
+        UserRole.SUPER_ADMIN.value,
+        UserRole.ADMIN.value,
+        UserRole.PROJECT_MANAGER.value
+    ]:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    # ✅ Check if user is assigned to the project
+    user_assigned = db.query(ProjectUserMap).filter_by(
+        project_id=project_id,
+        user_id=user_id
+    ).first()
+
+    if not user_assigned:
+        raise HTTPException(status_code=400, detail="User is not assigned to the selected project.")
+
+    # ✅ Fetch item mappings safely
+    mappings = db.query(ProjectUserItemMap).join(ProjectUserItemMap.item).filter(
+        ProjectUserItemMap.project_id == project_id,
+        ProjectUserItemMap.user_id == user_id
+    ).all()
+
+    return {
+        "status_code": 200,
+        "project_id": str(project_id),
+        "user_id": str(user_id),
+        "items": [
+            {
+                "uuid": m.uuid,
+                "item_id": m.item_id,
+                "item_name": m.item.name if m.item else None,
+                "item_category": m.item.category if m.item else None,
+                "item_list_tag": m.item.list_tag if m.item else None,
+                "item_has_additional_info": m.item.has_additional_info if m.item else None
+            } for m in mappings
+        ],
+        "count": len(mappings)
+    }
+

@@ -548,3 +548,4 @@ def remove_user_item_mapping(db: Session, user_id: UUID, item_id: UUID):
     db.delete(mapping)
     db.commit()
     return True
+

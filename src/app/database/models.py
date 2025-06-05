@@ -131,6 +131,12 @@ class User(Base):
         cascade="all, delete-orphan"
     )
 
+    project_user_item_map = relationship(
+        "ProjectUserItemMap",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
 
 class UserTokenMap(Base):
     __tablename__ = "user_token_map"
@@ -216,6 +222,12 @@ class Project(Base):
 
     project_invoices = relationship(
         "Invoice",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+
+    project_user_item_map = relationship(
+        "ProjectUserItemMap",
         back_populates="project",
         cascade="all, delete-orphan"
     )
@@ -440,6 +452,12 @@ class Item(Base):
         cascade="all, delete-orphan"
     )
 
+    project_user_item_map = relationship(
+        "ProjectUserItemMap",
+        back_populates="item",
+        cascade="all, delete-orphan"
+    )
+
     def __repr__(self):
         return f"<Item(name={self.name})>"
 
@@ -598,3 +616,16 @@ class DefaultConfig(Base):
 
     def __repr__(self):
         return f"<DefaultConfig(uuid={self.uuid}, item_id={self.item_id}, admin_amount={self.admin_amount})>"
+
+class ProjectUserItemMap(Base):
+    __tablename__ = "project_user_item_map"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
+
+    project = relationship("Project")
+    user = relationship("User")
+    item = relationship("Item")

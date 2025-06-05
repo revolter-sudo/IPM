@@ -73,6 +73,17 @@ class ProjectItemMap(BaseModel):
     project_id: UUID
     item_id: UUID
 
+class ProjectUserItemMapResponse(BaseModel):
+    uuid: UUID
+    project_id: UUID
+    user_id: UUID
+    item_id: UUID
+
+class ProjectUserItemMapCreate(BaseModel):
+    project_id: UUID
+    user_id: UUID
+    item_ids: List[UUID]
+
 class ProjectItemResponse(BaseModel):
     uuid: UUID
     name: Optional[str] = None
