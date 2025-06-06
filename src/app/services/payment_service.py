@@ -899,9 +899,7 @@ def get_all_payments(
                   Payment.status.notin_(
                       ["transferred", "declined"])  # exclude first!
             )
-            .order_by(Payment.created_at.desc())
-            # guarantee 5 rows
-            .limit(5)
+
         )
 
         # role restriction
@@ -911,6 +909,9 @@ def get_all_payments(
         # accountants ≤10 000
         if current_user.role == UserRole.ACCOUNTANT.value:
             base = base.filter(Payment.amount <= 10_000)
+
+        # Apply ordering and limit AFTER all filters
+        base = base.order_by(Payment.created_at.desc()).limit(5)
 
         uuids, total = paginate(base)
 
