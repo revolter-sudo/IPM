@@ -1983,7 +1983,7 @@ def get_all_persons(
                             "phone_number": child.phone_number,
                             "upi_number": child.upi_number
                         }
-                        for child in person.children
+                        for child in person.children if not child.is_deleted
                     ]
                 }
             )
