@@ -796,11 +796,20 @@ def get_all_payments(
         if from_uuid:
             query = query.filter(Payment.created_by == from_uuid)
         if person_id or to_uuid:
-            query = query.join(Person, Payment.person == Person.uuid, isouter=True)
+            query = query.join(Person, Payment.person ==
+                               Person.uuid, isouter=True)
             if person_id:
                 query = query.filter(Payment.person == person_id)
             if to_uuid:
                 query = query.filter(Person.uuid == to_uuid)
+        if item_id:
+            query = query.join(
+                PaymentItem,
+                PaymentItem.payment_id == Payment.uuid, isouter=True
+            ).filter(
+                PaymentItem.is_deleted.is_(False),
+                PaymentItem.item_id == item_id
+            )
 
         return query.scalar() or 0.0
 
@@ -840,6 +849,14 @@ def get_all_payments(
                 query = query.filter(Payment.person == person_id)
             if to_uuid:
                 query = query.filter(Person.uuid == to_uuid)
+        if item_id:
+            query = query.join(
+                PaymentItem,
+                PaymentItem.payment_id == Payment.uuid, isouter=True
+            ).filter(
+                PaymentItem.is_deleted.is_(False),
+                PaymentItem.item_id == item_id
+            )
 
         return query.scalar() or 0.0
 
@@ -862,6 +879,36 @@ def get_all_payments(
         # accountants ≤10 000
         if current_user.role == UserRole.ACCOUNTANT.value:
             base = base.filter(Payment.amount <= 10_000)
+
+        # Apply user-supplied filters
+        if amount is not None:
+            base = base.filter(Payment.amount == amount)
+        if project_id is not None:
+            base = base.filter(Payment.project_id == project_id)
+        if status is not None:
+            base = base.filter(Payment.status.in_(status))
+        if start_date and end_date:
+            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            base = base.filter(Payment.created_at.between(start_date, end_date))
+        else:
+            if start_date:
+                base = base.filter(Payment.created_at >= start_date)
+            if end_date:
+                end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                base = base.filter(Payment.created_at <= end_date)
+        if from_uuid:
+            base = base.filter(Payment.created_by == from_uuid)
+        if person_id or to_uuid:
+            base = base.join(Person, Payment.person == Person.uuid, isouter=True)
+            if person_id:
+                base = base.filter(Payment.person == person_id)
+            if to_uuid:
+                base = base.filter(Person.uuid == to_uuid)
+        if item_id:
+            base = base.join(PaymentItem,
+                             PaymentItem.payment_id == Payment.uuid, isouter=True)\
+                       .filter(PaymentItem.is_deleted.is_(False),
+                               PaymentItem.item_id == item_id)
 
         # Apply ordering and limit AFTER all filters
         base = base.order_by(Payment.created_at.desc()).limit(5)
