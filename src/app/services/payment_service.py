@@ -1765,15 +1765,12 @@ def update_person(
                     status_code=400
                 ).model_dump()
 
-        # 3) Check uniqueness constraints: account_number/ifsc_code or
-        # phone_number/upi_number
-        # We only apply a uniqueness check if the user
-        # is actually updating these fields.
-
-        # 3a) If updating account_number or ifsc_code:
-        if (request_data.account_number or request_data.ifsc_code):
+        # 3) Check uniqueness constraints only if values are changing
+        # 3a) Check account_number uniqueness if being updated and different
+        if (request_data.account_number is not None and
+                request_data.account_number != person_record.account_number):
             conflict = db.query(Person).filter(
-                (Person.account_number == request_data.account_number),
+                Person.account_number == request_data.account_number,
                 Person.uuid != person_id,  # exclude self
                 Person.is_deleted.is_(False)
             ).first()
@@ -1781,16 +1778,14 @@ def update_person(
                 return PaymentServiceResponse(
                     data=None,
                     status_code=400,
-                    message="A person with the same account number or IFSC code already exists."
+                    message="A person with the same account number exists."
                 ).model_dump()
 
-        # 3b) If updating phone_number or upi_number:
-        if (request_data.phone_number or request_data.upi_number):
+        # 3b) Check phone_number uniqueness if being updated and different
+        if (request_data.phone_number is not None and
+                request_data.phone_number != person_record.phone_number):
             conflict = db.query(Person).filter(
-                (
-                    (Person.phone_number == request_data.phone_number)
-                    | (Person.upi_number == request_data.upi_number)
-                ),
+                Person.phone_number == request_data.phone_number,
                 Person.uuid != person_id,
                 Person.is_deleted.is_(False)
             ).first()
@@ -1798,106 +1793,22 @@ def update_person(
                 return PaymentServiceResponse(
                     data=None,
                     status_code=400,
-                    message="A person with the same phone number or UPI number already exists."
+                    message="A person with the same phone number exists."
                 ).model_dump()
 
-        # 4) Update the fields that were provided
-        if request_data.name is not None:
-            person_record.name = request_data.name
-        if request_data.account_number is not None:
-            person_record.account_number = request_data.account_number
-        if request_data.ifsc_code is not None:
-            person_record.ifsc_code = request_data.ifsc_code
-        if request_data.phone_number is not None:
-            person_record.phone_number = request_data.phone_number
-        if request_data.upi_number is not None:
-            person_record.upi_number = request_data.upi_number
-        if request_data.parent_id is not None:
-            person_record.parent_id = request_data.parent_id
-
-        db.commit()
-        return PaymentServiceResponse(
-            data=str(person_record.uuid),
-            message="Person updated successfully.",
-            status_code=200
-        ).model_dump()
-
-    except Exception as e:
-        db.rollback()
-        return PaymentServiceResponse(
-            data=None,
-            message=f"An Error Occurred: {str(e)}",
-            status_code=500
-        ).model_dump()
-
-@payment_router.put(
-        "/person/{person_id}", tags=["Payments"],
-        status_code=h_status.HTTP_200_OK
-    )
-def update_person(
-    person_id: UUID,
-    request_data: UpdatePerson,
-    db: Session = Depends(get_db),
-):
-    """
-    Partially update a Person's details
-    (account_number, ifsc_code, phone_number, upi_number, parent_id, etc.)
-    """
-    try:
-        # 1) Find the existing person
-        person_record = db.query(Person).filter(
-            Person.uuid == person_id,
-            Person.is_deleted.is_(False)
-        ).first()
-
-        if not person_record:
-            return PaymentServiceResponse(
-                data=None,
-                message="Person not found.",
-                status_code=404
-            ).model_dump()
-
-        # 2) If a new parent_id is provided, check that it exists
-        # (and isn't the same as the person's own UUID)
-        if request_data.parent_id:
-            if request_data.parent_id == person_record.uuid:
-                return PaymentServiceResponse(
-                    data=None,
-                    message="A person cannot be their own parent.",
-                    status_code=400
-                ).model_dump()
-
-            parent_person = db.query(Person).filter(
-                Person.uuid == request_data.parent_id,
-                Person.is_deleted.is_(False)
-            ).first()
-            if not parent_person:
-                return PaymentServiceResponse(
-                    data=None,
-                    message="Parent account not found.",
-                    status_code=400
-                ).model_dump()
-
-        # 3) Check uniqueness constraints: account_number/ifsc_code or
-        # phone_number/upi_number
-        # We only apply a uniqueness check if the user
-        # is actually updating these fields.
-
-        # 3a) If updating account_number or ifsc_code:
-        if (request_data.account_number or request_data.phone_number):
+        # 3c) Check upi_number uniqueness if being updated and different
+        if (request_data.upi_number is not None and
+                request_data.upi_number != person_record.upi_number):
             conflict = db.query(Person).filter(
-                and_(
-                    Person.account_number == request_data.account_number,
-                    Person.phone_number == request_data.phone_number
-                ),
-                Person.uuid != person_id,  # exclude self
+                Person.upi_number == request_data.upi_number,
+                Person.uuid != person_id,
                 Person.is_deleted.is_(False)
             ).first()
             if conflict:
                 return PaymentServiceResponse(
                     data=None,
                     status_code=400,
-                    message="A person with the same account number already exists."
+                    message="A person with the same UPI number exists."
                 ).model_dump()
 
         # 4) Update the fields that were provided
@@ -1928,6 +1839,7 @@ def update_person(
             message=f"An Error Occurred: {str(e)}",
             status_code=500
         ).model_dump()
+
 
 @payment_router.get(
     "/persons", status_code=h_status.HTTP_200_OK, tags=["Payments"]
@@ -2002,12 +1914,17 @@ def get_all_persons(
             status_code=500
         ).model_dump()
 
+
 @payment_router.put(
     "/persons/delete",
     status_code=h_status.HTTP_204_NO_CONTENT,
     tags=["Payments"],
 )
-def delete_person(person_uuid: UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def delete_person(
+    person_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     try:
         person = db.query(Person).filter(Person.uuid == person_uuid).first()
 
@@ -2039,6 +1956,7 @@ def delete_person(person_uuid: UUID, db: Session = Depends(get_db), current_user
             message=f"An Error Occurred: {str(e)}",
             status_code=500
         ).model_dump()
+
 
 @payment_router.post("/items", tags=["Items"], status_code=201)
 def create_item(
@@ -2072,6 +1990,7 @@ def create_item(
             status_code=500
         ).model_dump()
 
+
 @payment_router.get("/items", tags=["Items"], status_code=200)
 def list_items(
     list_tag: Optional[str] = None,
@@ -2100,7 +2019,8 @@ def list_items(
         else:
             return PaymentServiceResponse(
                 data=None,
-                message="Undefined value of list_tag. Allowed Values ['payment', 'khatabook', null]",
+                message="Undefined value of list_tag. Allowed Values "
+                        "['payment', 'khatabook', null]",
                 status_code=400
             ).model_dump()
 
@@ -2125,6 +2045,7 @@ def list_items(
             message=f"Error fetching items: {str(e)}",
             status_code=500
         ).model_dump()
+
 
 @payment_router.put("/items/{item_uuid}", tags=["Items"], status_code=200)
 def update_item(
@@ -2151,7 +2072,7 @@ def update_item(
                 status_code=404
             ).model_dump()
 
-        # Example: Only certain roles can update item (uncomment/adjust as needed)
+        # Example: Only certain roles can update item (adjust as needed)
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
@@ -2225,6 +2146,7 @@ def delete_item(item_uuid: UUID, db: Session = Depends(get_db)):
             status_code=500
         ).model_dump()
 
+
 @payment_router.post("/priority", status_code=201)
 def create_priority(priority_name: str, db: Session = Depends(get_db)):
     new_priority = Priority(priority=priority_name)
@@ -2238,6 +2160,7 @@ def create_priority(priority_name: str, db: Session = Depends(get_db)):
         message="priority created successfully",
         status_code=201
     ).model_dump()
+
 
 @payment_router.get("/priority", status_code=200)
 def list_priorities(db: Session = Depends(get_db)):

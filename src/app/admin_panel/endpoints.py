@@ -89,6 +89,7 @@ admin_app.add_middleware(
     allow_origins=[
         "*",
         "https://ipm-development.netlify.app",
+        "https://inqilab.vercel.app/",
         "http://localhost:3000",
         "http://localhost:8000",
     ],
