@@ -767,3 +767,45 @@ def register_and_outside_user(
             status_code=500,
             message=f"An error occurred: {str(e)}"
         ).model_dump()
+
+
+@auth_router.get(
+    '/outside_users',
+    status_code=status.HTTP_200_OK,
+    tags=['non-user']
+)
+def list_outside_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_required)
+):
+    """
+    List all outside users who have registered through the register_and_outside_user endpoint.
+    Only accessible by SuperAdmin users.
+    """
+    try:
+        outside_users = db.query(UserData).all()
+
+        outside_users_data = []
+        for user in outside_users:
+            outside_users_data.append({
+                "uuid": str(user.uuid),
+                "name": user.name,
+                "email": user.email,
+                "phone_number": user.phone_number,
+                "password": user.password,
+                "created_at": user.created_at.isoformat() if user.created_at else None
+            })
+
+        return AuthServiceResponse(
+            data=outside_users_data,
+            message="Outside users fetched successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        logging.error(f"Error in list_outside_users API: {str(e)}")
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error fetching outside users: {str(e)}"
+        ).model_dump()
