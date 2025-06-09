@@ -83,3 +83,10 @@ class AuthServiceResponse(BaseModel):
             "message": self.message,
             "status_code": self.status_code
         }
+    
+
+class OutsideUserLogin(BaseModel):
+    name: str
+    email: str
+    phone_number: int
+    password: str

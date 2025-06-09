@@ -21,7 +21,7 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session
 from uuid import uuid4
 from src.app.database.database import get_db
-from src.app.database.models import User, Log, Person, UserTokenMap
+from src.app.database.models import User, Log, Person, UserTokenMap , UserData
 from src.app.schemas.auth_service_schamas import (
     UserCreate,
     UserLogin,
@@ -29,7 +29,8 @@ from src.app.schemas.auth_service_schamas import (
     UserRole,
     AuthServiceResponse,
     ForgotPasswordRequest,
-    UserLogout
+    UserLogout,
+    OutsideUserLogin
 )
 from src.app.notification.notification_service import (
     subscribe_news,
@@ -727,6 +728,38 @@ def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
             status_code=200
         ).model_dump()
 
+    except Exception as e:
+        db.rollback()
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred: {str(e)}"
+        ).model_dump()
+    
+
+@auth_router.post(
+    '/register_and_save_user',
+    tags=['non-user']
+)
+def register_and_outside_user(
+    data: OutsideUserLogin,
+    db: Session = Depends(get_db)
+):
+    try:
+        user_data = UserData(
+            name=data.name,
+            email=data.email,
+            phone_number=str(data.phone_number),
+            password=data.password
+        )
+        db.add(user_data)
+        db.commit()
+        db.refresh(user_data)
+        return AuthServiceResponse(
+            data=None,
+            message="We have recieved your request, our team will reach out to you soon.",
+            status_code=201
+        )
     except Exception as e:
         db.rollback()
         return AuthServiceResponse(
