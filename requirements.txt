@@ -17,3 +17,5 @@ python-dotenv
 jinja2
 pandas
 xlsxwriter
+twilio
+phonenumbers

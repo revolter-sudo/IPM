@@ -14,6 +14,8 @@ from src.app.services.payment_service import payment_router
 from src.app.services.project_service import project_router, balance_router
 from src.app.services.khatabook_endpoints import khatabook_router
 from src.app.admin_panel.endpoints import admin_app
+from src.app.sms_service.auth_service import sms_service_router
+
 from dotenv import load_dotenv
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
@@ -89,6 +91,7 @@ app.include_router(project_router)
 app.include_router(payment_router)
 app.include_router(khatabook_router)
 app.include_router(balance_router)
+app.include_router(sms_service_router)
 app.mount(path='/admin', app=admin_app)
 
 SERVICE_ACCOUNT_PATH = SERVICE_FILE # noqa

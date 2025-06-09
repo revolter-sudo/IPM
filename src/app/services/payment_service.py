@@ -66,6 +66,7 @@ logging.basicConfig(level=logging.INFO)
 
 payment_router = APIRouter(prefix="/payments", tags=["Payments"])
 
+
 def notify_create_payment(amount: int, user: User, db: Session):
     try:
         roles_to_notify = [
@@ -162,7 +163,6 @@ def create_payment(
         db.add(new_payment)
         db.flush()  # flush so new_payment.uuid is available
         current_payment_uuid = new_payment.uuid
-        current_payment_uuid = new_payment.uuid
 
         # Create Payment status history
         db.add(
@@ -217,7 +217,8 @@ def create_payment(
             db=db
         )
         if not notification:
-            logging.error("Something went wrong while sending create payment notification")
+            logging.error(
+                "Something went wrong while sending create payment notification")
         return PaymentServiceResponse(
             data={"payment_uuid": current_payment_uuid},
             message="Payment created successfully.",
@@ -225,7 +226,6 @@ def create_payment(
         ).model_dump()
 
     except Exception as e:
-        traceback.print_exc()
         traceback.print_exc()
         db.rollback()
         return PaymentServiceResponse(
@@ -830,8 +830,12 @@ def get_all_payments(
                 query = query.filter(Payment.created_at <= end_date_with_time)
         if from_uuid:
             query = query.filter(Payment.created_by == from_uuid)
-        if person_id:
-            query = query.filter(Payment.person == person_id)
+        if person_id or to_uuid:
+            query = query.join(Person, Payment.person == Person.uuid, isouter=True)
+            if person_id:
+                query = query.filter(Payment.person == person_id)
+            if to_uuid:
+                query = query.filter(Person.uuid == to_uuid)
 
         return query.scalar() or 0.0
 
@@ -864,8 +868,12 @@ def get_all_payments(
                 query = query.filter(Payment.created_at <= end_date_with_time)
         if from_uuid:
             query = query.filter(Payment.created_by == from_uuid)
-        if person_id:
-            query = query.filter(Payment.person == person_id)
+        if person_id or to_uuid:
+            query = query.join(Person, Payment.person == Person.uuid, isouter=True)
+            if person_id:
+                query = query.filter(Payment.person == person_id)
+            if to_uuid:
+                query = query.filter(Person.uuid == to_uuid)
 
         return query.scalar() or 0.0
 
@@ -888,8 +896,8 @@ def get_all_payments(
         if current_user.role == UserRole.ACCOUNTANT.value:
             base = base.filter(Payment.amount <= 10_000)
 
-        # Apply limit after all filters
-        base = base.limit(5)
+        # Apply ordering and limit AFTER all filters
+        base = base.order_by(Payment.created_at.desc()).limit(5)
 
         uuids, total = paginate(base)
 
