@@ -751,7 +751,7 @@ def register_and_outside_user(
         return AuthServiceResponse(
             data=None,
             message=(
-                "You’ve already submitted a request with this number; "
+                "You’ve already submitted a request with this number, "
                 "our team is looking into it and will reach out shortly."
             ),
             status_code=200
