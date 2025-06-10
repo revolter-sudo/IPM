@@ -25,7 +25,10 @@ from sqlalchemy.orm import Session
 
 from src.app.database.database import get_db
 from src.app.database.models import Log, Person, User, UserTokenMap
-from src.app.notification.notification_service import subscribe_news, unsubscribe_news
+from src.app.notification.notification_service import (
+    subscribe_news,
+    unsubscribe_news,
+)
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import (
     AuthServiceResponse,
@@ -82,7 +85,9 @@ def get_current_user(
 
         if not user_uuid:
             return AuthServiceResponse(
-                data=None, status_code=401, message="Invalid authentication token"
+                data=None,
+                status_code=401,
+                message="Invalid authentication token",
             ).model_dump()
 
         user = (
@@ -111,7 +116,9 @@ def get_current_user(
 def superadmin_required(current_user: User = Depends(get_current_user)):
     if current_user.role != UserRole.SUPER_ADMIN:
         return AuthServiceResponse(
-            data=None, status_code=403, message="SuperAdmin privileges required"
+            data=None,
+            status_code=403,
+            message="SuperAdmin privileges required",
         ).model_dump()
     return current_user
 
@@ -179,7 +186,9 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
     )
     if not user:
         return AuthServiceResponse(
-            data=None, status_code=404, message="No user found with this phone number."
+            data=None,
+            status_code=404,
+            message="No user found with this phone number.",
         ).model_dump()
 
     # 2) Hash and set new password
@@ -370,7 +379,9 @@ def delete_user(
     except Exception as e:
         logging.error(f"Error in delete_user API: {str(e)}")
         return AuthServiceResponse(
-            data=None, status_code=500, message=f"Error in delete_user API: {str(e)}"
+            data=None,
+            status_code=500,
+            message=f"Error in delete_user API: {str(e)}",
         ).model_dump()
 
 
@@ -402,7 +413,9 @@ def logout_user(user_data: UserLogout, db: Session = Depends(get_db)):
 
     except Exception as e:
         return AuthServiceResponse(
-            data=None, message=f"Error in logout_user API: {str(e)}", status_code=200
+            data=None,
+            message=f"Error in logout_user API: {str(e)}",
+            status_code=200,
         ).model_dump()
 
 
@@ -448,7 +461,9 @@ def deactivate_user(
         db.commit()
         db.refresh(user_data)
         return AuthServiceResponse(
-            data=None, message="User deactivated successfully.", status_code=200
+            data=None,
+            message="User deactivated successfully.",
+            status_code=200,
         ).model_dump()
     except Exception as e:
         logging.error(f"Error in deactivate_user API: {str(e)}")
@@ -505,7 +520,9 @@ def activate_user(
     except Exception as e:
         logging.error(f"Error in activate_user API: {str(e)}")
         return AuthServiceResponse(
-            data=None, status_code=500, message=f"Error in activate_user API: {str(e)}"
+            data=None,
+            status_code=500,
+            message=f"Error in activate_user API: {str(e)}",
         ).model_dump()
 
 
@@ -550,7 +567,9 @@ def list_all_active_users(db: Session = Depends(get_db)):
     except Exception as e:
         logging.error(f"Error in list_all_active_users API: {str(e)}")
         return AuthServiceResponse(
-            data=None, status_code=500, message=f"Error fetching users: {str(e)}"
+            data=None,
+            status_code=500,
+            message=f"Error fetching users: {str(e)}",
         ).model_dump()
 
 
@@ -796,7 +815,9 @@ def edit_user(
         db.rollback()
         logging.error(f"Error in edit_user API: {str(e)}")
         return AuthServiceResponse(
-            data=None, status_code=500, message=f"Error updating user: {str(e)}"
+            data=None,
+            status_code=500,
+            message=f"Error updating user: {str(e)}",
         ).model_dump()
 
 
@@ -838,11 +859,15 @@ def get_persons(
             )
 
         return AuthServiceResponse(
-            data=persons_data, message="Persons fetched successfully", status_code=200
+            data=persons_data,
+            message="Persons fetched successfully",
+            status_code=200,
         ).model_dump()
     except Exception as e:
         db.rollback()
         logging.error(f"Error in get_persons API: {str(e)}")
         return AuthServiceResponse(
-            data=None, status_code=500, message=f"Error fetching persons: {str(e)}"
+            data=None,
+            status_code=500,
+            message=f"Error fetching persons: {str(e)}",
         ).model_dump()

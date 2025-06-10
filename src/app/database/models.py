@@ -51,10 +51,14 @@ class Khatabook(Base):
     person = relationship("Person", foreign_keys=[person_id])
     created_by_user = relationship("User", foreign_keys=[created_by])
     files = relationship(
-        "KhatabookFile", back_populates="khatabook_entry", cascade="all, delete-orphan"
+        "KhatabookFile",
+        back_populates="khatabook_entry",
+        cascade="all, delete-orphan",
     )
     items = relationship(
-        "KhatabookItem", back_populates="khatabook_entry", cascade="all, delete-orphan"
+        "KhatabookItem",
+        back_populates="khatabook_entry",
+        cascade="all, delete-orphan",
     )
     project = relationship("Project", foreign_keys=[project_id], lazy="joined")
 
@@ -90,7 +94,9 @@ class KhatabookItem(Base):
         nullable=False,
     )
     item_id = Column(
-        UUID(as_uuid=True), ForeignKey("items.uuid", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("items.uuid", ondelete="CASCADE"),
+        nullable=False,
     )
 
     khatabook_entry = relationship("Khatabook", back_populates="items")
@@ -121,7 +127,10 @@ class User(Base):
 
     # Relationship to Person
     person = relationship(
-        "Person", back_populates="user", uselist=False, cascade="all, delete-orphan"
+        "Person",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
     project_user_map = relationship(
@@ -133,7 +142,9 @@ class User(Base):
     )
 
     project_user_item_map = relationship(
-        "ProjectUserItemMap", back_populates="user", cascade="all, delete-orphan"
+        "ProjectUserItemMap",
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
 
 
@@ -143,7 +154,10 @@ class UserTokenMap(Base):
     id = Column(Integer, primary_key=True, index=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     user_id = Column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     fcm_token = Column(String(500), nullable=False)
     device_id = Column(String(255), nullable=True)
@@ -170,7 +184,10 @@ class Person(Base):
     is_deleted = Column(Boolean, nullable=False, default=False)
     upi_number = Column(String(50), nullable=True)
     user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.uuid"), unique=True, nullable=True
+        UUID(as_uuid=True),
+        ForeignKey("users.uuid"),
+        unique=True,
+        nullable=True,
     )
 
     # Relationships
@@ -202,11 +219,15 @@ class Project(Base):
     is_deleted = Column(Boolean, nullable=False, default=False)
 
     project_user_map = relationship(
-        "ProjectUserMap", back_populates="project", cascade="all, delete-orphan"
+        "ProjectUserMap",
+        back_populates="project",
+        cascade="all, delete-orphan",
     )
 
     projecct_items = relationship(
-        "ProjectItemMap", back_populates="project", cascade="all, delete-orphan"
+        "ProjectItemMap",
+        back_populates="project",
+        cascade="all, delete-orphan",
     )
 
     project_invoices = relationship(
@@ -214,7 +235,9 @@ class Project(Base):
     )
 
     project_user_item_map = relationship(
-        "ProjectUserItemMap", back_populates="project", cascade="all, delete-orphan"
+        "ProjectUserItemMap",
+        back_populates="project",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self):
@@ -262,7 +285,10 @@ class Payment(Base):
     decline_remark = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at = Column(
-        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False
+        TIMESTAMP,
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
     is_deleted = Column(Boolean, default=False, nullable=False)
     update_remarks = Column(Text, nullable=True)
@@ -432,7 +458,9 @@ class Item(Base):
     )
 
     project_user_item_map = relationship(
-        "ProjectUserItemMap", back_populates="item", cascade="all, delete-orphan"
+        "ProjectUserItemMap",
+        back_populates="item",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self):
@@ -449,7 +477,9 @@ class PaymentItem(Base):
         nullable=False,
     )
     item_id = Column(
-        UUID(as_uuid=True), ForeignKey("items.uuid", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("items.uuid", ondelete="CASCADE"),
+        nullable=False,
     )
     is_deleted = Column(Boolean, default=False, nullable=False)
 
@@ -467,7 +497,10 @@ class KhatabookBalance(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     user_uuid = Column(
-        UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False, unique=True
+        UUID(as_uuid=True),
+        ForeignKey("users.uuid"),
+        nullable=False,
+        unique=True,
     )
     balance = Column(Float, nullable=False, default=0.0)
 
@@ -548,7 +581,10 @@ class Invoice(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at = Column(
-        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False
+        TIMESTAMP,
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
     is_deleted = Column(Boolean, default=False, nullable=False)
 

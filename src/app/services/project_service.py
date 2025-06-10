@@ -5,7 +5,15 @@ from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
@@ -167,7 +175,9 @@ def adjust_project_balance(
             UserRole.ADMIN.value,
         ]:
             return ProjectServiceResponse(
-                data=None, status_code=403, message="Unauthorized to adjust balance"
+                data=None,
+                status_code=403,
+                message="Unauthorized to adjust balance",
             ).model_dump()
 
         create_project_balance_entry(
@@ -178,7 +188,9 @@ def adjust_project_balance(
             current_user=current_user,
         )
         return ProjectServiceResponse(
-            data=None, message="Project balance adjusted successfully", status_code=200
+            data=None,
+            message="Project balance adjusted successfully",
+            status_code=200,
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -243,7 +255,9 @@ def create_project(
             UserRole.PROJECT_MANAGER.value,
         ]:
             return ProjectServiceResponse(
-                data=None, status_code=403, message=constants.CAN_NOT_CREATE_PROJECT
+                data=None,
+                status_code=403,
+                message=constants.CAN_NOT_CREATE_PROJECT,
             ).model_dump()
 
         project_uuid = str(uuid4())
@@ -735,14 +749,18 @@ def add_bank(
             "balance": new_bank.balance,
         }
         return ProjectServiceResponse(
-            data=response_data, status_code=201, message="Bank created successfully"
+            data=response_data,
+            status_code=201,
+            message="Bank created successfully",
         ).model_dump()
 
     except Exception as e:
         logging.error(f"Error in add_bank: {e}")
         db.rollback()
         return ProjectServiceResponse(
-            data=None, status_code=500, message="An error occurred while creating bank"
+            data=None,
+            status_code=500,
+            message="An error occurred while creating bank",
         ).model_dump()
 
 
@@ -789,14 +807,18 @@ def edit_bank(
             "balance": bank_obj.balance,
         }
         return ProjectServiceResponse(
-            data=response_data, status_code=200, message="Bank updated successfully"
+            data=response_data,
+            status_code=200,
+            message="Bank updated successfully",
         ).model_dump()
 
     except Exception as e:
         logging.error(f"Error in edit_bank: {e}")
         db.rollback()
         return ProjectServiceResponse(
-            data=None, status_code=500, message="An error occurred while updating bank"
+            data=None,
+            status_code=500,
+            message="An error occurred while updating bank",
         ).model_dump()
 
 
@@ -883,7 +905,9 @@ def delete_bank(
         db.rollback()
         logging.error(f"Error in delete_bank API: {str(e)}")
         return ProjectServiceResponse(
-            data=None, status_code=500, message="An error occurred while deleting bank"
+            data=None,
+            status_code=500,
+            message="An error occurred while deleting bank",
         ).model_dump()
 
 
@@ -906,9 +930,14 @@ def delete_project(
                 data=None, status_code=404, message="Project not found"
             ).model_dump()
 
-        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+        ]:
             return ProjectServiceResponse(
-                data=None, status_code=403, message="Unauthorized to delete project"
+                data=None,
+                status_code=403,
+                message="Unauthorized to delete project",
             ).model_dump()
 
         project.is_deleted = True

@@ -5,7 +5,9 @@ import logging
 import firebase_admin
 from firebase_admin import credentials, messaging
 
-from src.app.notification.notification_schemas import NotificationServiceResponse
+from src.app.notification.notification_schemas import (
+    NotificationServiceResponse,
+)
 
 SERVICE_ACCOUNT_PATH = "/app/src/app/utils/firebase/secret_files.json"  # noqa
 
@@ -52,11 +54,15 @@ def subscribe_news(tokens, topic):
         response = messaging.subscribe_to_topic(tokens, str(topic))
         if response.failure_count > 0:
             return NotificationServiceResponse(
-                data=None, message="Failed to subscribe to the topic", status_code=200
+                data=None,
+                message="Failed to subscribe to the topic",
+                status_code=200,
             ).model_dump()
     except Exception as e:
         return NotificationServiceResponse(
-            data=None, message=f"Error in subscribe_news: {str(e)}", status_code=500
+            data=None,
+            message=f"Error in subscribe_news: {str(e)}",
+            status_code=500,
         ).model_dump()
 
 

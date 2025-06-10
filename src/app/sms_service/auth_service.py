@@ -1,6 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from passlib.context import CryptContext
-from phonenumbers import PhoneNumberFormat, format_number, is_possible_number, parse
+from phonenumbers import (
+    PhoneNumberFormat,
+    format_number,
+    is_possible_number,
+    parse,
+)
 from sqlalchemy.orm import Session
 
 from src.app.database.models import User
@@ -36,7 +41,9 @@ def forgot_password_request_otp(
     )
     if not user:
         return AuthServiceResponse(
-            data=None, status_code=404, message="No user found with this phone number."
+            data=None,
+            status_code=404,
+            message="No user found with this phone number.",
         ).model_dump()
 
     send_otp(_e164(payload.phone))  # fire-and-forget

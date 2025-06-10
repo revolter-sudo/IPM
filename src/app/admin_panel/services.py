@@ -114,7 +114,8 @@ def create_project_user_mapping(db: Session, user_id: UUID, project_id: UUID):
     existing_mapping = (
         db.query(ProjectUserMap)
         .filter(
-            ProjectUserMap.user_id == user_id, ProjectUserMap.project_id == project_id
+            ProjectUserMap.user_id == user_id,
+            ProjectUserMap.project_id == project_id,
         )
         .first()
     )
@@ -133,13 +134,17 @@ def create_project_user_mapping(db: Session, user_id: UUID, project_id: UUID):
 
 
 def create_project_item_mapping(
-    db: Session, item_id: UUID, project_id: UUID, item_balance: Optional[float] = None
+    db: Session,
+    item_id: UUID,
+    project_id: UUID,
+    item_balance: Optional[float] = None,
 ):
     # Check if mapping already exists
     existing_mapping = (
         db.query(ProjectItemMap)
         .filter(
-            ProjectItemMap.item_id == item_id, ProjectItemMap.project_id == project_id
+            ProjectItemMap.item_id == item_id,
+            ProjectItemMap.project_id == project_id,
         )
         .first()
     )
@@ -314,7 +319,10 @@ def sync_project_item_mappings(
 
 
 def create_user_item_mapping(
-    db: Session, user_id: UUID, item_id: UUID, item_balance: Optional[float] = None
+    db: Session,
+    user_id: UUID,
+    item_id: UUID,
+    item_balance: Optional[float] = None,
 ):
     # Check if mapping already exists
     existing_mapping = (
@@ -519,7 +527,8 @@ def remove_project_item_mapping(db: Session, item_id: UUID, project_id: UUID):
     mapping = (
         db.query(ProjectItemMap)
         .filter(
-            ProjectItemMap.item_id == item_id, ProjectItemMap.project_id == project_id
+            ProjectItemMap.item_id == item_id,
+            ProjectItemMap.project_id == project_id,
         )
         .first()
     )
@@ -547,7 +556,8 @@ def remove_project_user_mapping(db: Session, user_id: UUID, project_id: UUID):
     mapping = (
         db.query(ProjectUserMap)
         .filter(
-            ProjectUserMap.user_id == user_id, ProjectUserMap.project_id == project_id
+            ProjectUserMap.user_id == user_id,
+            ProjectUserMap.project_id == project_id,
         )
         .first()
     )
@@ -628,7 +638,10 @@ def sync_project_user_item_mappings(
     added_mappings = []
     for item_id in items_to_add:
         new_mapping = ProjectUserItemMap(
-            uuid=uuid4(), project_id=project_id, user_id=user_id, item_id=item_id
+            uuid=uuid4(),
+            project_id=project_id,
+            user_id=user_id,
+            item_id=item_id,
         )
         db.add(new_mapping)
         added_mappings.append(new_mapping)

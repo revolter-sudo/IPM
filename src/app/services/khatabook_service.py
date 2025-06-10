@@ -67,7 +67,11 @@ from src.app.schemas import constants
 
 
 def create_khatabook_entry_service(
-    db: Session, data: Dict, file_paths: List[str], user_id: UUID, current_user: UUID
+    db: Session,
+    data: Dict,
+    file_paths: List[str],
+    user_id: UUID,
+    current_user: UUID,
 ) -> Khatabook:
     """
     Creates a new Khatabook entry and updates the user's balance.
@@ -263,7 +267,10 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
 
         project_info = None
         if entry.project:
-            project_info = {"uuid": str(entry.project.uuid), "name": entry.project.name}
+            project_info = {
+                "uuid": str(entry.project.uuid),
+                "name": entry.project.name,
+            }
         response_data.append(
             {
                 "uuid": str(entry.uuid),

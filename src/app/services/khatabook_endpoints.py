@@ -64,7 +64,9 @@ async def create_khatabook_entry(
             current_user=current_user.uuid,
         )
         return AuthServiceResponse(
-            data=None, status_code=201, message="Khatabook entry created successfully"
+            data=None,
+            status_code=201,
+            message="Khatabook entry created successfully",
         ).model_dump()
     except Exception as e:
         return AuthServiceResponse(
@@ -90,7 +92,9 @@ def update_khatabook_entry(
                 data=None, status_code=404, message="Khatabook entry not found"
             ).model_dump()
         return AuthServiceResponse(
-            data=None, status_code=200, message="Khatabook entry updated successfully"
+            data=None,
+            status_code=200,
+            message="Khatabook entry updated successfully",
         ).model_dump()
     except Exception as e:
         return AuthServiceResponse(
@@ -100,7 +104,8 @@ def update_khatabook_entry(
 
 @khatabook_router.get("")
 def get_all_khatabook_entries(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     # Check if current_user is a dictionary (error response)
     if isinstance(current_user, dict):
@@ -148,7 +153,10 @@ def mark_suspicious(
 
     try:
         # Check if user has permission (admin or super admin)
-        if current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]:
+        if current_user.role not in [
+            UserRole.ADMIN.value,
+            UserRole.SUPER_ADMIN.value,
+        ]:
             return KhatabookServiceResponse(
                 data=None,
                 status_code=403,
@@ -166,7 +174,10 @@ def mark_suspicious(
             ).model_dump()
 
         return KhatabookServiceResponse(
-            data={"uuid": str(entry.uuid), "is_suspicious": entry.is_suspicious},
+            data={
+                "uuid": str(entry.uuid),
+                "is_suspicious": entry.is_suspicious,
+            },
             status_code=200,
             message=f"Khatabook entry marked as {'suspicious' if request.is_suspicious else 'not suspicious'}",
         ).model_dump()
@@ -462,7 +473,10 @@ def hard_delete_khatabook_entry(
 
     try:
         # Check if user has permission (admin or super admin)
-        if current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]:
+        if current_user.role not in [
+            UserRole.ADMIN.value,
+            UserRole.SUPER_ADMIN.value,
+        ]:
             return KhatabookServiceResponse(
                 data=None,
                 status_code=403,
@@ -478,7 +492,9 @@ def hard_delete_khatabook_entry(
             ).model_dump()
 
         return KhatabookServiceResponse(
-            data=None, status_code=200, message="Khatabook entry permanently deleted"
+            data=None,
+            status_code=200,
+            message="Khatabook entry permanently deleted",
         ).model_dump()
     except Exception as e:
         db.rollback()
