@@ -1,17 +1,19 @@
-from src.app.database.models import (
-    Item,
-    ProjectUserMap,
-    ProjectItemMap,
-    UserItemMap,
-    DefaultConfig,
-    ProjectUserItemMap
-)
+from typing import List, Optional
 from uuid import UUID, uuid4
-from typing import Optional, List
-from sqlalchemy.orm import Session
-from src.app.database.database import SessionLocal
-from src.app.admin_panel import constants
+
 from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from src.app.admin_panel import constants
+from src.app.database.database import SessionLocal
+from src.app.database.models import (
+    DefaultConfig,
+    Item,
+    ProjectItemMap,
+    ProjectUserItemMap,
+    ProjectUserMap,
+    UserItemMap,
+)
 
 
 def get_default_config_service() -> dict:
@@ -32,15 +34,11 @@ def get_default_config_service() -> dict:
     if not default_config:
         # If no default config exists, use the old behavior as fallback
         item_data = (
-            db.query(Item)
-            .filter(func.lower(Item.name) == "site expense")
-            .first()
+            db.query(Item).filter(func.lower(Item.name) == "site expense").first()
         )
 
         if not item_data:
-            response = {
-                "admin_amount": constants.ACCOUNTANT_LIMIT
-            }
+            response = {"admin_amount": constants.ACCOUNTANT_LIMIT}
         else:
             response = {
                 "item": {
@@ -48,18 +46,16 @@ def get_default_config_service() -> dict:
                     "uuid": item_data.uuid,
                     "category": item_data.category,
                     "list_tag": item_data.list_tag,
-                    "has_addition_info": item_data.has_additional_info
+                    "has_addition_info": item_data.has_additional_info,
                 },
-                "admin_amount": constants.ACCOUNTANT_LIMIT
+                "admin_amount": constants.ACCOUNTANT_LIMIT,
             }
     else:
         # Get the item data from the item_id in default_config
         item_data = db.query(Item).filter(Item.uuid == default_config.item_id).first()
 
         if not item_data:
-            response = {
-                "admin_amount": default_config.admin_amount
-            }
+            response = {"admin_amount": default_config.admin_amount}
         else:
             response = {
                 "item": {
@@ -67,9 +63,9 @@ def get_default_config_service() -> dict:
                     "uuid": item_data.uuid,
                     "category": item_data.category,
                     "list_tag": item_data.list_tag,
-                    "has_addition_info": item_data.has_additional_info
+                    "has_addition_info": item_data.has_additional_info,
                 },
-                "admin_amount": default_config.admin_amount
+                "admin_amount": default_config.admin_amount,
             }
 
     db.close()
@@ -85,15 +81,14 @@ def create_default_config_service(item_id: UUID, admin_amount: float) -> Default
 
     try:
         # Mark all existing default configs as deleted
-        existing_configs = db.query(DefaultConfig).filter(DefaultConfig.is_deleted.is_(False)).all()
+        existing_configs = (
+            db.query(DefaultConfig).filter(DefaultConfig.is_deleted.is_(False)).all()
+        )
         for config in existing_configs:
             config.is_deleted = True
 
         # Create a new default config
-        new_config = DefaultConfig(
-            item_id=item_id,
-            admin_amount=admin_amount
-        )
+        new_config = DefaultConfig(item_id=item_id, admin_amount=admin_amount)
 
         db.add(new_config)
         db.commit()
@@ -114,14 +109,15 @@ def update_default_config_service(item_id: UUID, admin_amount: float) -> Default
     return create_default_config_service(item_id, admin_amount)
 
 
-def create_project_user_mapping(
-    db: Session, user_id: UUID, project_id: UUID
-):
+def create_project_user_mapping(db: Session, user_id: UUID, project_id: UUID):
     # Check if mapping already exists
-    existing_mapping = db.query(ProjectUserMap).filter(
-        ProjectUserMap.user_id == user_id,
-        ProjectUserMap.project_id == project_id
-    ).first()
+    existing_mapping = (
+        db.query(ProjectUserMap)
+        .filter(
+            ProjectUserMap.user_id == user_id, ProjectUserMap.project_id == project_id
+        )
+        .first()
+    )
     if existing_mapping:
         return existing_mapping
 
@@ -140,10 +136,13 @@ def create_project_item_mapping(
     db: Session, item_id: UUID, project_id: UUID, item_balance: Optional[float] = None
 ):
     # Check if mapping already exists
-    existing_mapping = db.query(ProjectItemMap).filter(
-        ProjectItemMap.item_id == item_id,
-        ProjectItemMap.project_id == project_id
-    ).first()
+    existing_mapping = (
+        db.query(ProjectItemMap)
+        .filter(
+            ProjectItemMap.item_id == item_id, ProjectItemMap.project_id == project_id
+        )
+        .first()
+    )
     if existing_mapping:
         if item_balance is not None:  # Only update balance if provided
             existing_mapping.item_balance = item_balance
@@ -155,7 +154,7 @@ def create_project_item_mapping(
         uuid=str(uuid4()),
         item_id=item_id,
         project_id=project_id,
-        item_balance=item_balance  # Will be None if not provided
+        item_balance=item_balance,  # Will be None if not provided
     )
     db.add(project_item_mapping)
     db.commit()
@@ -164,7 +163,10 @@ def create_project_item_mapping(
 
 
 def create_multiple_project_item_mappings(
-    db: Session, item_ids: List[UUID], project_id: UUID, item_balances: Optional[List[float]] = None
+    db: Session,
+    item_ids: List[UUID],
+    project_id: UUID,
+    item_balances: Optional[List[float]] = None,
 ):
     """
     Map multiple items to a project at once.
@@ -187,10 +189,14 @@ def create_multiple_project_item_mappings(
         balance = item_balances[i] if item_balances else None
 
         # Check if mapping already exists
-        existing_mapping = db.query(ProjectItemMap).filter(
-            ProjectItemMap.item_id == item_id,
-            ProjectItemMap.project_id == project_id
-        ).first()
+        existing_mapping = (
+            db.query(ProjectItemMap)
+            .filter(
+                ProjectItemMap.item_id == item_id,
+                ProjectItemMap.project_id == project_id,
+            )
+            .first()
+        )
 
         if existing_mapping:
             if balance is not None:  # Only update balance if provided
@@ -202,7 +208,7 @@ def create_multiple_project_item_mappings(
                 uuid=str(uuid4()),
                 item_id=item_id,
                 project_id=project_id,
-                item_balance=balance
+                item_balance=balance,
             )
             db.add(new_mapping)
             mappings.append(new_mapping)
@@ -245,16 +251,24 @@ def sync_project_item_mappings(
         item_balances.append(balance)
 
     # Get existing mappings for this project
-    existing_mappings = db.query(ProjectItemMap).filter(
-        ProjectItemMap.project_id == project_id
-    ).all()
+    existing_mappings = (
+        db.query(ProjectItemMap).filter(ProjectItemMap.project_id == project_id).all()
+    )
 
     existing_item_ids = {mapping.item_id for mapping in existing_mappings}
 
     # Identify items to add, update, and remove
-    items_to_add = [i for i, item_id in enumerate(item_ids) if item_id not in existing_item_ids]
-    items_to_update = [i for i, item_id in enumerate(item_ids) if item_id in existing_item_ids]
-    items_to_remove = [mapping.item_id for mapping in existing_mappings if mapping.item_id not in item_ids]
+    items_to_add = [
+        i for i, item_id in enumerate(item_ids) if item_id not in existing_item_ids
+    ]
+    items_to_update = [
+        i for i, item_id in enumerate(item_ids) if item_id in existing_item_ids
+    ]
+    items_to_remove = [
+        mapping.item_id
+        for mapping in existing_mappings
+        if mapping.item_id not in item_ids
+    ]
 
     # Add new mappings
     added_mappings = []
@@ -263,7 +277,7 @@ def sync_project_item_mappings(
             uuid=str(uuid4()),
             item_id=item_ids[i],
             project_id=project_id,
-            item_balance=item_balances[i]
+            item_balance=item_balances[i],
         )
         db.add(new_mapping)
         added_mappings.append(new_mapping)
@@ -271,7 +285,9 @@ def sync_project_item_mappings(
     # Update existing mappings
     updated_mappings = []
     for i in items_to_update:
-        existing_mapping = next(m for m in existing_mappings if m.item_id == item_ids[i])
+        existing_mapping = next(
+            m for m in existing_mappings if m.item_id == item_ids[i]
+        )
         existing_mapping.item_balance = item_balances[i]
         updated_mappings.append(existing_mapping)
 
@@ -293,7 +309,7 @@ def sync_project_item_mappings(
         "added": len(added_mappings),
         "updated": len(updated_mappings),
         "removed": removed_count,
-        "mappings": added_mappings + updated_mappings
+        "mappings": added_mappings + updated_mappings,
     }
 
 
@@ -301,10 +317,11 @@ def create_user_item_mapping(
     db: Session, user_id: UUID, item_id: UUID, item_balance: Optional[float] = None
 ):
     # Check if mapping already exists
-    existing_mapping = db.query(UserItemMap).filter(
-        UserItemMap.user_id == user_id,
-        UserItemMap.item_id == item_id
-    ).first()
+    existing_mapping = (
+        db.query(UserItemMap)
+        .filter(UserItemMap.user_id == user_id, UserItemMap.item_id == item_id)
+        .first()
+    )
     if existing_mapping:
         if item_balance is not None:  # Only update balance if provided
             existing_mapping.item_balance = item_balance
@@ -316,7 +333,7 @@ def create_user_item_mapping(
         uuid=str(uuid4()),
         user_id=user_id,
         item_id=item_id,
-        item_balance=item_balance  # Will be None if not provided
+        item_balance=item_balance,  # Will be None if not provided
     )
     db.add(user_item_mapping)
     db.commit()
@@ -325,7 +342,10 @@ def create_user_item_mapping(
 
 
 def create_multiple_user_item_mappings(
-    db: Session, user_id: UUID, item_ids: List[UUID], item_balances: Optional[List[float]] = None
+    db: Session,
+    user_id: UUID,
+    item_ids: List[UUID],
+    item_balances: Optional[List[float]] = None,
 ):
     """
     Map multiple items to a user at once.
@@ -348,10 +368,11 @@ def create_multiple_user_item_mappings(
         balance = item_balances[i] if item_balances else None
 
         # Check if mapping already exists
-        existing_mapping = db.query(UserItemMap).filter(
-            UserItemMap.user_id == user_id,
-            UserItemMap.item_id == item_id
-        ).first()
+        existing_mapping = (
+            db.query(UserItemMap)
+            .filter(UserItemMap.user_id == user_id, UserItemMap.item_id == item_id)
+            .first()
+        )
 
         if existing_mapping:
             if balance is not None:  # Only update balance if provided
@@ -363,7 +384,7 @@ def create_multiple_user_item_mappings(
                 uuid=str(uuid4()),
                 user_id=user_id,
                 item_id=item_id,
-                item_balance=balance
+                item_balance=balance,
             )
             db.add(new_mapping)
             mappings.append(new_mapping)
@@ -395,19 +416,21 @@ def create_multiple_project_user_mappings(
 
     for user_id in user_ids:
         # Check if mapping already exists
-        existing_mapping = db.query(ProjectUserMap).filter(
-            ProjectUserMap.user_id == user_id,
-            ProjectUserMap.project_id == project_id
-        ).first()
+        existing_mapping = (
+            db.query(ProjectUserMap)
+            .filter(
+                ProjectUserMap.user_id == user_id,
+                ProjectUserMap.project_id == project_id,
+            )
+            .first()
+        )
 
         if existing_mapping:
             mappings.append(existing_mapping)
         else:
             # Create new mapping
             new_mapping = ProjectUserMap(
-                uuid=str(uuid4()),
-                user_id=user_id,
-                project_id=project_id
+                uuid=str(uuid4()), user_id=user_id, project_id=project_id
             )
             db.add(new_mapping)
             mappings.append(new_mapping)
@@ -421,9 +444,7 @@ def create_multiple_project_user_mappings(
     return mappings
 
 
-def sync_project_user_mappings(
-    db: Session, user_ids: List[UUID], project_id: UUID
-):
+def sync_project_user_mappings(db: Session, user_ids: List[UUID], project_id: UUID):
     """
     Synchronize project-user mappings based on the provided list.
     This function will:
@@ -439,23 +460,25 @@ def sync_project_user_mappings(
         Dict containing added and removed mapping counts
     """
     # Get existing mappings for this project
-    existing_mappings = db.query(ProjectUserMap).filter(
-        ProjectUserMap.project_id == project_id
-    ).all()
+    existing_mappings = (
+        db.query(ProjectUserMap).filter(ProjectUserMap.project_id == project_id).all()
+    )
 
     existing_user_ids = {mapping.user_id for mapping in existing_mappings}
 
     # Identify users to add and remove
     users_to_add = [user_id for user_id in user_ids if user_id not in existing_user_ids]
-    users_to_remove = [mapping.user_id for mapping in existing_mappings if mapping.user_id not in user_ids]
+    users_to_remove = [
+        mapping.user_id
+        for mapping in existing_mappings
+        if mapping.user_id not in user_ids
+    ]
 
     # Add new mappings
     added_mappings = []
     for user_id in users_to_add:
         new_mapping = ProjectUserMap(
-            uuid=str(uuid4()),
-            user_id=user_id,
-            project_id=project_id
+            uuid=str(uuid4()), user_id=user_id, project_id=project_id
         )
         db.add(new_mapping)
         added_mappings.append(new_mapping)
@@ -477,7 +500,7 @@ def sync_project_user_mappings(
     return {
         "added": len(added_mappings),
         "removed": removed_count,
-        "mappings": added_mappings
+        "mappings": added_mappings,
     }
 
 
@@ -493,10 +516,13 @@ def remove_project_item_mapping(db: Session, item_id: UUID, project_id: UUID):
     Returns:
         True if mapping was removed, False if mapping didn't exist
     """
-    mapping = db.query(ProjectItemMap).filter(
-        ProjectItemMap.item_id == item_id,
-        ProjectItemMap.project_id == project_id
-    ).first()
+    mapping = (
+        db.query(ProjectItemMap)
+        .filter(
+            ProjectItemMap.item_id == item_id, ProjectItemMap.project_id == project_id
+        )
+        .first()
+    )
 
     if not mapping:
         return False
@@ -518,10 +544,13 @@ def remove_project_user_mapping(db: Session, user_id: UUID, project_id: UUID):
     Returns:
         True if mapping was removed, False if mapping didn't exist
     """
-    mapping = db.query(ProjectUserMap).filter(
-        ProjectUserMap.user_id == user_id,
-        ProjectUserMap.project_id == project_id
-    ).first()
+    mapping = (
+        db.query(ProjectUserMap)
+        .filter(
+            ProjectUserMap.user_id == user_id, ProjectUserMap.project_id == project_id
+        )
+        .first()
+    )
 
     if not mapping:
         return False
@@ -543,10 +572,11 @@ def remove_user_item_mapping(db: Session, user_id: UUID, item_id: UUID):
     Returns:
         True if mapping was removed, False if mapping didn't exist
     """
-    mapping = db.query(UserItemMap).filter(
-        UserItemMap.user_id == user_id,
-        UserItemMap.item_id == item_id
-    ).first()
+    mapping = (
+        db.query(UserItemMap)
+        .filter(UserItemMap.user_id == user_id, UserItemMap.item_id == item_id)
+        .first()
+    )
 
     if not mapping:
         return False
@@ -575,25 +605,30 @@ def sync_project_user_item_mappings(
         Dict containing added and removed mapping counts
     """
     # Get existing mappings for this project-user combination
-    existing_mappings = db.query(ProjectUserItemMap).filter(
-        ProjectUserItemMap.project_id == project_id,
-        ProjectUserItemMap.user_id == user_id
-    ).all()
+    existing_mappings = (
+        db.query(ProjectUserItemMap)
+        .filter(
+            ProjectUserItemMap.project_id == project_id,
+            ProjectUserItemMap.user_id == user_id,
+        )
+        .all()
+    )
 
     existing_item_ids = {mapping.item_id for mapping in existing_mappings}
 
     # Identify items to add and remove
     items_to_add = [item_id for item_id in item_ids if item_id not in existing_item_ids]
-    items_to_remove = [mapping.item_id for mapping in existing_mappings if mapping.item_id not in item_ids]
+    items_to_remove = [
+        mapping.item_id
+        for mapping in existing_mappings
+        if mapping.item_id not in item_ids
+    ]
 
     # Add new mappings
     added_mappings = []
     for item_id in items_to_add:
         new_mapping = ProjectUserItemMap(
-            uuid=uuid4(),
-            project_id=project_id,
-            user_id=user_id,
-            item_id=item_id
+            uuid=uuid4(), project_id=project_id, user_id=user_id, item_id=item_id
         )
         db.add(new_mapping)
         added_mappings.append(new_mapping)
@@ -615,5 +650,5 @@ def sync_project_user_item_mappings(
     return {
         "added": len(added_mappings),
         "removed": removed_count,
-        "mappings": added_mappings
+        "mappings": added_mappings,
     }

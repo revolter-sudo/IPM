@@ -5,15 +5,17 @@ Revises: 8b77d13f892f
 Create Date: 2025-02-27 01:54:18.479643
 
 """
+
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 
+from alembic import op
+
 # revision identifiers, used by Alembic.
-revision: str = '8d072359b0ae'
-down_revision: Union[str, None] = '8b77d13f892f'
+revision: str = "8d072359b0ae"
+down_revision: Union[str, None] = "8b77d13f892f"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -30,14 +32,11 @@ def upgrade():
             "payment_id",
             UUID(as_uuid=True),
             sa.ForeignKey("payments.uuid"),
-            nullable=False
+            nullable=False,
         ),
         sa.Column("file_path", sa.String(255), nullable=False),
         sa.Column(
-            "created_at",
-            sa.TIMESTAMP,
-            server_default=sa.func.now(),
-            nullable=False
+            "created_at", sa.TIMESTAMP, server_default=sa.func.now(), nullable=False
         ),
     )
 

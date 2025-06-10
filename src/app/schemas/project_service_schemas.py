@@ -1,6 +1,7 @@
-from typing import Optional, Any, List
-from uuid import UUID
 from datetime import date
+from typing import Any, List, Optional
+from uuid import UUID
+
 from pydantic import BaseModel
 
 
@@ -122,5 +123,5 @@ class ProjectServiceResponse(BaseModel):
         return {
             "data": self.data,
             "message": self.message,
-            "status_code": self.status_code
+            "status_code": self.status_code,
         }

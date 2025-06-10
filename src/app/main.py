@@ -1,27 +1,30 @@
 import logging
-import firebase_admin
-from firebase_admin import credentials
-from fastapi import FastAPI, Request
-from fastapi_sqlalchemy import DBSessionMiddleware
 import os
-import uvicorn
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware  # Add CORS import
-from fastapi.templating import Jinja2Templates
-from src.app.database.database import settings
-from src.app.services.auth_service import auth_router
-from src.app.services.payment_service import payment_router
-from src.app.services.project_service import project_router, balance_router
-from src.app.services.khatabook_endpoints import khatabook_router
-from src.app.admin_panel.endpoints import admin_app
-from src.app.sms_service.auth_service import sms_service_router
+import time
 
+import firebase_admin
+import redis
+import uvicorn
 from dotenv import load_dotenv
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware  # Add CORS import
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
-from fastapi_cache.decorator import cache
-import redis
-import time
+
+# from fastapi_cache.decorator import cache
+from fastapi_sqlalchemy import DBSessionMiddleware
+from firebase_admin import credentials
+
+from src.app.admin_panel.endpoints import admin_app
+from src.app.database.database import settings
+from src.app.services.auth_service import auth_router
+from src.app.services.khatabook_endpoints import khatabook_router
+from src.app.services.payment_service import payment_router
+from src.app.services.project_service import balance_router, project_router
+from src.app.sms_service.auth_service import sms_service_router
+
 logging.basicConfig(level=logging.INFO)
 logging.info("************************************")
 logging.info("Test log from main.py startup")
@@ -52,13 +55,21 @@ app.add_middleware(
     ],
     allow_origin_regex="https://.*\.netlify\.app",  # Allow all Netlify subdomains
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # Explicitly list all methods
+    allow_methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "OPTIONS",
+        "PATCH",
+    ],  # Explicitly list all methods
     allow_headers=["*"],  # Allow all headers
     expose_headers=["*"],  # Expose all headers to the browser
     max_age=86400,  # Cache preflight requests for 24 hours (in seconds)
 )
 
 app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
+
 
 # Performance middleware to track request timing
 @app.middleware("http")
@@ -68,6 +79,7 @@ async def add_process_time_header(request: Request, call_next):
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
     return response
+
 
 # Local
 # os.makedirs("uploads", exist_ok=True)
@@ -92,9 +104,9 @@ app.include_router(payment_router)
 app.include_router(khatabook_router)
 app.include_router(balance_router)
 app.include_router(sms_service_router)
-app.mount(path='/admin', app=admin_app)
+app.mount(path="/admin", app=admin_app)
 
-SERVICE_ACCOUNT_PATH = SERVICE_FILE # noqa
+SERVICE_ACCOUNT_PATH = SERVICE_FILE  # noqa
 
 
 if not firebase_admin._apps:
@@ -113,9 +125,7 @@ async def startup_event():
         redis_host = os.getenv("REDIS_HOST", "localhost")
         redis_port = int(os.getenv("REDIS_PORT", "6379"))
         redis_instance = redis.Redis(
-            host=redis_host,
-            port=redis_port,
-            decode_responses=True
+            host=redis_host, port=redis_port, decode_responses=True
         )
         FastAPICache.init(RedisBackend(redis_instance), prefix="ipm-cache")
         logging.info("Redis cache initialized successfully")
@@ -123,13 +133,16 @@ async def startup_event():
         # Fallback to in-memory cache if Redis is not available
         logging.warning(f"Redis connection failed: {str(e)}. Using in-memory cache.")
         from fastapi_cache.backends.memory import InMemoryBackend
+
         FastAPICache.init(InMemoryBackend(), prefix="ipm-cache")
 
 
 @app.get("/")
 async def root():
     from fastapi.responses import RedirectResponse
+
     return RedirectResponse(url="/admin/docs")
+
 
 @app.get("/healthcheck")
 def healthcheck():
@@ -144,10 +157,7 @@ def performance_stats():
     # Get database query statistics
     query_stats = get_query_stats()
 
-    return {
-        "query_stats": query_stats,
-        "cache_status": "active"
-    }
+    return {"query_stats": query_stats, "cache_status": "active"}
 
 
 if __name__ == "__main__":

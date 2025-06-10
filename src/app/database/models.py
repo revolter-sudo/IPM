@@ -5,17 +5,19 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Date,
     Float,
     ForeignKey,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     text,
-    Date
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+
 from src.app.database.database import Base
 
 
@@ -27,25 +29,33 @@ class Khatabook(Base):
 
     amount = Column(Float, nullable=False)
     remarks = Column(Text, nullable=True)
-    person_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=False)  # Ensure person_id is required
+    person_id = Column(
+        UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=False
+    )  # Ensure person_id is required
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     expense_date = Column(TIMESTAMP, nullable=True)  # New field for user-entered date
     payment_mode = Column(String(50), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     balance_after_entry = Column(Float, nullable=True)
-    is_suspicious = Column(Boolean, nullable=False, server_default='false')  # New field to mark entries as suspicious
+    is_suspicious = Column(
+        Boolean, nullable=False, server_default="false"
+    )  # New field to mark entries as suspicious
     project_id = Column(
         UUID(as_uuid=True),
         ForeignKey("projects.uuid"),
-        nullable=True  # <--- optional field
+        nullable=True,  # <--- optional field
     )
 
     # Relationships
     person = relationship("Person", foreign_keys=[person_id])
     created_by_user = relationship("User", foreign_keys=[created_by])
-    files = relationship("KhatabookFile", back_populates="khatabook_entry", cascade="all, delete-orphan")
-    items = relationship("KhatabookItem", back_populates="khatabook_entry", cascade="all, delete-orphan")
+    files = relationship(
+        "KhatabookFile", back_populates="khatabook_entry", cascade="all, delete-orphan"
+    )
+    items = relationship(
+        "KhatabookItem", back_populates="khatabook_entry", cascade="all, delete-orphan"
+    )
     project = relationship("Project", foreign_keys=[project_id], lazy="joined")
 
     def __repr__(self):
@@ -59,7 +69,7 @@ class KhatabookFile(Base):
     khatabook_id = Column(
         UUID(as_uuid=True),
         ForeignKey("khatabook_entries.uuid", ondelete="CASCADE"),
-        nullable=False
+        nullable=False,
     )
     file_path = Column(String(255), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
@@ -77,19 +87,19 @@ class KhatabookItem(Base):
     khatabook_id = Column(
         UUID(as_uuid=True),
         ForeignKey("khatabook_entries.uuid", ondelete="CASCADE"),
-        nullable=False
+        nullable=False,
     )
     item_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("items.uuid", ondelete="CASCADE"),
-        nullable=False
+        UUID(as_uuid=True), ForeignKey("items.uuid", ondelete="CASCADE"), nullable=False
     )
 
     khatabook_entry = relationship("Khatabook", back_populates="items")
     item = relationship("Item", back_populates="khatabook_items")
 
     def __repr__(self):
-        return f"<KhatabookItem(khatabook_id={self.khatabook_id}, item_id={self.item_id})>"
+        return (
+            f"<KhatabookItem(khatabook_id={self.khatabook_id}, item_id={self.item_id})>"
+        )
 
 
 class User(Base):
@@ -106,35 +116,24 @@ class User(Base):
     photo_path = Column(String(255), nullable=True)
 
     token_maps = relationship(
-        "UserTokenMap",
-        back_populates="user",
-        cascade="all, delete-orphan"
+        "UserTokenMap", back_populates="user", cascade="all, delete-orphan"
     )
 
     # Relationship to Person
     person = relationship(
-        "Person",
-        back_populates="user",
-        uselist=False,
-        cascade="all, delete-orphan"
+        "Person", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
 
     project_user_map = relationship(
-        "ProjectUserMap",
-        back_populates="user",
-        cascade="all, delete-orphan"
+        "ProjectUserMap", back_populates="user", cascade="all, delete-orphan"
     )
 
     user_items = relationship(
-        "UserItemMap",
-        back_populates="user",
-        cascade="all, delete-orphan"
+        "UserItemMap", back_populates="user", cascade="all, delete-orphan"
     )
 
     project_user_item_map = relationship(
-        "ProjectUserItemMap",
-        back_populates="user",
-        cascade="all, delete-orphan"
+        "ProjectUserItemMap", back_populates="user", cascade="all, delete-orphan"
     )
 
 
@@ -143,7 +142,9 @@ class UserTokenMap(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     fcm_token = Column(String(500), nullable=False)
     device_id = Column(String(255), nullable=True)
     created_at = Column(
@@ -161,12 +162,7 @@ class Person(Base):
     __tablename__ = "person"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(
-        UUID(as_uuid=True),
-        default=uuid.uuid4,
-        unique=True,
-        nullable=False
-    )
+    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
     name = Column(String(25), nullable=False)
     account_number = Column(String(17), nullable=False)
     ifsc_code = Column(String(11), nullable=False)
@@ -174,17 +170,16 @@ class Person(Base):
     is_deleted = Column(Boolean, nullable=False, default=False)
     upi_number = Column(String(50), nullable=True)
     user_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("users.uuid"),
-        unique=True,
-        nullable=True
+        UUID(as_uuid=True), ForeignKey("users.uuid"), unique=True, nullable=True
     )
 
     # Relationships
     user = relationship("User", back_populates="person")
     parent_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
     parent = relationship("Person", remote_side=[uuid], back_populates="children")
-    children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")
+    children = relationship(
+        "Person", back_populates="parent", cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<Person(id={self.id}, name={self.name}, user_id={self.user_id})>"
@@ -194,9 +189,7 @@ class Project(Base):
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(
-        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
-    )
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     location = Column(Text, nullable=True)
@@ -209,27 +202,19 @@ class Project(Base):
     is_deleted = Column(Boolean, nullable=False, default=False)
 
     project_user_map = relationship(
-        "ProjectUserMap",
-        back_populates="project",
-        cascade="all, delete-orphan"
+        "ProjectUserMap", back_populates="project", cascade="all, delete-orphan"
     )
 
     projecct_items = relationship(
-        "ProjectItemMap",
-        back_populates="project",
-        cascade="all, delete-orphan"
+        "ProjectItemMap", back_populates="project", cascade="all, delete-orphan"
     )
 
     project_invoices = relationship(
-        "Invoice",
-        back_populates="project",
-        cascade="all, delete-orphan"
+        "Invoice", back_populates="project", cascade="all, delete-orphan"
     )
 
     project_user_item_map = relationship(
-        "ProjectUserItemMap",
-        back_populates="project",
-        cascade="all, delete-orphan"
+        "ProjectUserItemMap", back_populates="project", cascade="all, delete-orphan"
     )
 
     def __repr__(self):
@@ -240,15 +225,11 @@ class Log(Base):
     __tablename__ = "logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(
-        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
-    )
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     entity = Column(String(255), nullable=False)
     action = Column(String(20), nullable=False)
     entity_id = Column(UUID(as_uuid=True), nullable=False)
-    performed_by = Column(
-        UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False
-    )
+    performed_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     timestamp = Column(
         TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"), nullable=False
     )
@@ -291,18 +272,14 @@ class Payment(Base):
     priority_id = Column(
         UUID(as_uuid=True),
         ForeignKey("priorities.uuid"),
-        nullable=True  # or nullable=False if you want to make it mandatory
+        nullable=True,  # or nullable=False if you want to make it mandatory
     )
     deducted_from_bank_uuid = Column(
-        UUID(as_uuid=True),
-        ForeignKey("balance_details.uuid"),
-        nullable=True
+        UUID(as_uuid=True), ForeignKey("balance_details.uuid"), nullable=True
     )
 
     deducted_from_bank = relationship(
-        "BalanceDetail",
-        foreign_keys=[deducted_from_bank_uuid],
-        lazy="joined"
+        "BalanceDetail", foreign_keys=[deducted_from_bank_uuid], lazy="joined"
     )
     priority_rel = relationship("Priority", foreign_keys=[priority_id], lazy="joined")
 
@@ -320,13 +297,13 @@ class Payment(Base):
         "PaymentStatusHistory",
         back_populates="payment",
         cascade="all, delete-orphan",
-        order_by="PaymentStatusHistory.created_at"
+        order_by="PaymentStatusHistory.created_at",
     )
     edit_histories = relationship(
         "PaymentEditHistory",
         back_populates="payment",
         cascade="all, delete-orphan",
-        order_by="PaymentEditHistory.updated_at"
+        order_by="PaymentEditHistory.updated_at",
     )
 
     def __repr__(self):
@@ -338,7 +315,11 @@ class PaymentEditHistory(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
-    payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
+    payment_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("payments.uuid", ondelete="CASCADE"),
+        nullable=False,
+    )
     old_amount = Column(Float, nullable=False)
     new_amount = Column(Float, nullable=False)
     remarks = Column(Text, nullable=True)
@@ -361,9 +342,11 @@ class PaymentStatusHistory(Base):
     payment_id = Column(
         UUID(as_uuid=True),
         ForeignKey("payments.uuid", ondelete="CASCADE"),
-        nullable=False
+        nullable=False,
     )
-    status = Column(String(20), nullable=False)      # e.g. "requested", "verified", "approved", "done"x``
+    status = Column(
+        String(20), nullable=False
+    )  # e.g. "requested", "verified", "approved", "done"x``
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
@@ -385,7 +368,7 @@ class PaymentFile(Base):
     payment_id = Column(
         UUID(as_uuid=True),
         ForeignKey("payments.uuid", ondelete="CASCADE"),
-        nullable=False
+        nullable=False,
     )
     file_path = Column(String(255), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
@@ -404,12 +387,8 @@ class ProjectBalance(Base):
     __tablename__ = "project_balances"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(
-        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
-    )
-    project_id = Column(
-        UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False
-    )
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
     adjustment = Column(
         Float, nullable=False
     )  # Positive for additions, negative for deductions
@@ -434,28 +413,26 @@ class Item(Base):
     has_additional_info = Column(Boolean, nullable=False, default=False)
 
     # Relationship for payments associated with this item
-    payments = relationship("PaymentItem", back_populates="item", cascade="all, delete-orphan")
-    khatabook_items = relationship("KhatabookItem", back_populates="item", cascade="all, delete-orphan")
+    payments = relationship(
+        "PaymentItem", back_populates="item", cascade="all, delete-orphan"
+    )
+    khatabook_items = relationship(
+        "KhatabookItem", back_populates="item", cascade="all, delete-orphan"
+    )
 
-    def __repr__(self):
-        return f"<Item(id={self.id}, name={self.name}, category={self.category})>"
+    # def __repr__(self):
+    #     return f"<Item(id={self.id}, name={self.name}, category={self.category})>"
 
     project_items = relationship(
-        "ProjectItemMap",
-        back_populates="item",
-        cascade="all, delete-orphan"
+        "ProjectItemMap", back_populates="item", cascade="all, delete-orphan"
     )
 
     user_items = relationship(
-        "UserItemMap",
-        back_populates="item",
-        cascade="all, delete-orphan"
+        "UserItemMap", back_populates="item", cascade="all, delete-orphan"
     )
 
     project_user_item_map = relationship(
-        "ProjectUserItemMap",
-        back_populates="item",
-        cascade="all, delete-orphan"
+        "ProjectUserItemMap", back_populates="item", cascade="all, delete-orphan"
     )
 
     def __repr__(self):
@@ -466,8 +443,14 @@ class PaymentItem(Base):
     __tablename__ = "payment_items"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False)
-    item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid", ondelete="CASCADE"), nullable=False)
+    payment_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("payments.uuid", ondelete="CASCADE"),
+        nullable=False,
+    )
+    item_id = Column(
+        UUID(as_uuid=True), ForeignKey("items.uuid", ondelete="CASCADE"), nullable=False
+    )
     is_deleted = Column(Boolean, default=False, nullable=False)
 
     # Relationships
@@ -483,7 +466,9 @@ class KhatabookBalance(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
-    user_uuid = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False, unique=True)
+    user_uuid = Column(
+        UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False, unique=True
+    )
     balance = Column(Float, nullable=False, default=0.0)
 
     user = relationship("User", foreign_keys=[user_uuid])
@@ -496,12 +481,7 @@ class BalanceDetail(Base):
     __tablename__ = "balance_details"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(
-        UUID(as_uuid=True),
-        unique=True,
-        nullable=False,
-        default=uuid.uuid4
-    )
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     balance = Column(Float, nullable=False)
 
@@ -510,21 +490,18 @@ class Priority(Base):
     __tablename__ = "priorities"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(
-        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
-    )
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     priority = Column(String(50), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
 
     def __repr__(self):
         return f"<Priority(id={self.id}, uuid={self.uuid}, priority={self.priority})>"
 
-from sqlalchemy import UniqueConstraint
 
 class ProjectUserMap(Base):
     __tablename__ = "project_user_map"
     __table_args__ = (
-        UniqueConstraint('user_id', 'project_id', name='uq_user_project'),
+        UniqueConstraint("user_id", "project_id", name="uq_user_project"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -584,9 +561,7 @@ class Invoice(Base):
 
 class UserItemMap(Base):
     __tablename__ = "user_item_map"
-    __table_args__ = (
-        UniqueConstraint('user_id', 'item_id', name='uq_user_item'),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "item_id", name="uq_user_item"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)

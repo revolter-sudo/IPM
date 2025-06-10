@@ -1,5 +1,6 @@
-from pydantic import BaseModel
 from typing import Any
+
+from pydantic import BaseModel
 
 
 class NotificationServiceResponse(BaseModel):
@@ -11,7 +12,7 @@ class NotificationServiceResponse(BaseModel):
         return {
             "data": self.data,
             "message": self.message,
-            "status_code": self.status_code
+            "status_code": self.status_code,
         }
 
 

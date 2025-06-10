@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+
 from src.app.schemas.constants import HOST_URL
 
 
@@ -40,7 +41,7 @@ engine = create_engine(
     max_overflow=10,
     pool_timeout=30,
     pool_recycle=1800,  # Recycle connections after 30 minutes
-    pool_pre_ping=True  # Verify connections before using them
+    pool_pre_ping=True,  # Verify connections before using them
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

@@ -1,0 +1,55 @@
+[tool.black]
+line-length = 88
+target-version = ["py39"]
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | env
+  | build
+  | dist
+  | migrations
+  | alembic
+  | __pycache__
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 88
+include_trailing_comma = true
+multi_line_output = 3
+skip_gitignore = true
+known_first_party = ["src"]
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203", "W503"]
+exclude = [
+    ".git",
+    ".venv",
+    "env",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "alembic",
+    "migrations"
+]
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
+explicit_package_bases = true
+strict = false
+exclude = '''
+/(
+    alembic
+  | build
+  | dist
+  | migrations
+  | \.venv
+  | __pycache__
+)/
+'''

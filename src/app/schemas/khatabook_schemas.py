@@ -1,6 +1,8 @@
-from pydantic import BaseModel, field_validator
-from typing import Optional, List, Any
+from typing import Any, List, Optional
 from uuid import UUID
+
+from pydantic import BaseModel, field_validator
+
 
 #
 # PersonOut
@@ -12,6 +14,7 @@ class PersonOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+
 #
 # UserOut
 #
@@ -21,6 +24,7 @@ class UserOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+
 #
 # ItemOut
 #
@@ -29,6 +33,7 @@ class ItemOut(BaseModel):
     name: str
 
     model_config = {"from_attributes": True}
+
 
 #
 # KhatabookFileOut
@@ -52,6 +57,7 @@ class KhatabookFileOut(BaseModel):
         # E.g. some default path. Real usage might depend on a request context
         return f"/khatabook/files/{file_id}/download"
 
+
 #
 # KhatabookItemOut for the pivot table
 #
@@ -60,6 +66,7 @@ class KhatabookItemOut(BaseModel):
     item: ItemOut
 
     model_config = {"from_attributes": True}
+
 
 #
 # Finally, the main KhatabookOut

@@ -1,7 +1,9 @@
 from enum import Enum
-from uuid import UUID
 from typing import Any, Optional
+from uuid import UUID
+
 from pydantic import BaseModel, field_validator
+
 from src.app.schemas.payment_service_schemas import CreatePerson, UpdatePerson
 
 
@@ -81,7 +83,7 @@ class UserResponse(BaseModel):
             "name": self.name,
             "phone": self.phone,
             "role": self.role,
-            "photo_path": self.photo_path
+            "photo_path": self.photo_path,
         }
 
 
@@ -94,5 +96,5 @@ class AuthServiceResponse(BaseModel):
         return {
             "data": self.data,
             "message": self.message,
-            "status_code": self.status_code
+            "status_code": self.status_code,
         }

@@ -1,39 +1,40 @@
+import json
 import logging
 import os
-import json
+from decimal import Decimal
+from typing import List, Optional
 from uuid import UUID, uuid4
-from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
-from decimal import Decimal
 
 from src.app.database.database import get_db
 from src.app.database.models import (
+    BalanceDetail,
+    Invoice,
+    Item,
     Log,
+    Payment,
+    PaymentItem,
     Project,
     ProjectBalance,
-    User,
-    BalanceDetail,
-    Payment,
-    ProjectUserMap,
-    Item,
     ProjectItemMap,
-    Invoice,
-    PaymentItem
+    ProjectUserMap,
+    User,
 )
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
 from src.app.schemas.project_service_schemas import (
-    ProjectCreateRequest,
-    ProjectResponse,
-    ProjectServiceResponse,
-    UpdateProjectSchema,
     BankCreateSchema,
     BankEditSchema,
     InvoiceCreateRequest,
     InvoiceResponse,
-    InvoiceStatusUpdateRequest
+    InvoiceStatusUpdateRequest,
+    ProjectCreateRequest,
+    ProjectResponse,
+    ProjectServiceResponse,
+    UpdateProjectSchema,
 )
 from src.app.services.auth_service import get_current_user
 
@@ -43,14 +44,18 @@ balance_router = APIRouter(prefix="")
 
 
 def create_project_balance_entry(
-    db, current_user, project_id: UUID, adjustment: float,
-    description: str = None, balance_type: str = "actual"
+    db,
+    current_user,
+    project_id: UUID,
+    adjustment: float,
+    description: str = None,
+    balance_type: str = "actual",
 ):
     balance_entry = ProjectBalance(
         project_id=project_id,
         adjustment=adjustment,
         description=description,
-        balance_type=balance_type
+        balance_type=balance_type,
     )
     db.add(balance_entry)
     # log_entry = Log(
@@ -65,11 +70,7 @@ def create_project_balance_entry(
     db.refresh(balance_entry)
 
 
-@project_router.put(
-        "/update-balance",
-        tags=["Projects"],
-        deprecated=True
-    )
+@project_router.put("/update-balance", tags=["Projects"], deprecated=True)
 def update_project_balance(
     project_uuid: UUID,
     new_balance: float,
@@ -85,9 +86,7 @@ def update_project_balance(
         )
         if not project_balance:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project balance not found"
+                data=None, status_code=404, message="Project balance not found"
             ).model_dump()
 
         # Update project balance
@@ -110,27 +109,21 @@ def update_project_balance(
         return ProjectServiceResponse(
             data=total_balance,
             message="Project balance updated successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         db.rollback()
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching project details: {str(e)}"
+            message=f"An error occurred while fetching project details: {str(e)}",
         ).model_dump()
 
 
-@project_router.get(
-        "/balance",
-        tags=["Projects"],
-        deprecated=True
-    )
+@project_router.get("/balance", tags=["Projects"], deprecated=True)
 def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)):
     try:
-        project = (
-            db.query(Project).filter(Project.uuid == project_uuid).first()
-        )
+        project = db.query(Project).filter(Project.uuid == project_uuid).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
@@ -144,21 +137,17 @@ def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)):
         return ProjectServiceResponse(
             data=response,
             message="Project balance fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching project details: {str(e)}"
+            message=f"An error occurred while fetching project details: {str(e)}",
         ).model_dump()
 
 
-@project_router.put(
-        "/adjust-balance",
-        tags=["Projects"],
-        deprecated=True
-    )
+@project_router.put("/adjust-balance", tags=["Projects"], deprecated=True)
 def adjust_project_balance(
     project_uuid: UUID,
     adjustment: float,
@@ -167,14 +156,10 @@ def adjust_project_balance(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        project = (
-            db.query(Project).filter(Project.uuid == project_uuid).first()
-        )
+        project = db.query(Project).filter(Project.uuid == project_uuid).first()
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         if current_user.role not in [
@@ -182,28 +167,32 @@ def adjust_project_balance(
             UserRole.ADMIN.value,
         ]:
             return ProjectServiceResponse(
-                data=None,
-                status_code=403,
-                message="Unauthorized to adjust balance"
+                data=None, status_code=403, message="Unauthorized to adjust balance"
             ).model_dump()
 
-        create_project_balance_entry(db=db, project_id=project_uuid, adjustment=adjustment, description=description, current_user=current_user)
+        create_project_balance_entry(
+            db=db,
+            project_id=project_uuid,
+            adjustment=adjustment,
+            description=description,
+            current_user=current_user,
+        )
         return ProjectServiceResponse(
-            data=None,
-            message="Project balance adjusted successfully",
-            status_code=200
+            data=None, message="Project balance adjusted successfully", status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching project details: {str(e)}"
+            message=f"An error occurred while fetching project details: {str(e)}",
         ).model_dump()
 
 
 @project_router.post(
-    "/create", status_code=status.HTTP_201_CREATED, tags=["Projects"],
+    "/create",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Projects"],
     description="""
     Create a new project with optional PO document upload.
 
@@ -222,11 +211,16 @@ def adjust_project_balance(
     ```
 
     The PO document can be uploaded as a file in the 'po_document' field.
-    """
+    """,
 )
 def create_project(
-    request: str = Form(..., description="JSON string containing project details (name, description, location, po_balance, estimated_balance, actual_balance)"),
-    po_document: Optional[UploadFile] = File(None, description="PO document file to upload"),
+    request: str = Form(
+        ...,
+        description="JSON string containing project details (name, description, location, po_balance, estimated_balance, actual_balance)",
+    ),
+    po_document: Optional[UploadFile] = File(
+        None, description="PO document file to upload"
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -237,7 +231,11 @@ def create_project(
 
         logging.info(f"Create project request received: {project_request}")
         # Fix: current_user might be dict, access role accordingly
-        user_role = current_user.role if hasattr(current_user, 'role') else current_user.get('role')
+        user_role = (
+            current_user.role
+            if hasattr(current_user, "role")
+            else current_user.get("role")
+        )
         logging.info(f"Current user role: {user_role}")
         if user_role not in [
             UserRole.SUPER_ADMIN.value,
@@ -245,9 +243,7 @@ def create_project(
             UserRole.PROJECT_MANAGER.value,
         ]:
             return ProjectServiceResponse(
-                data=None,
-                status_code=403,
-                message=constants.CAN_NOT_CREATE_PROJECT
+                data=None, status_code=403, message=constants.CAN_NOT_CREATE_PROJECT
             ).model_dump()
 
         project_uuid = str(uuid4())
@@ -279,7 +275,7 @@ def create_project(
             po_balance=project_request.po_balance,
             estimated_balance=project_request.estimated_balance,
             actual_balance=project_request.actual_balance,
-            po_document_path=po_document_path
+            po_document_path=po_document_path,
         )
         db.add(new_project)
         db.commit()
@@ -294,7 +290,7 @@ def create_project(
                 adjustment=project_request.po_balance,
                 description="Initial PO balance",
                 current_user=current_user,
-                balance_type="po"
+                balance_type="po",
             )
 
         # Estimated Balance
@@ -305,7 +301,7 @@ def create_project(
                 adjustment=project_request.estimated_balance,
                 description="Initial estimated balance",
                 current_user=current_user,
-                balance_type="estimated"
+                balance_type="estimated",
             )
 
         # Actual Balance
@@ -316,7 +312,7 @@ def create_project(
                 adjustment=project_request.actual_balance,
                 description="Initial actual balance",
                 current_user=current_user,
-                balance_type="actual"
+                balance_type="actual",
             )
 
         # Create a log entry for project creation
@@ -341,10 +337,10 @@ def create_project(
                 "po_balance": new_project.po_balance,
                 "estimated_balance": new_project.estimated_balance,
                 "actual_balance": new_project.actual_balance,
-                "po_document_path": new_project.po_document_path
+                "po_document_path": new_project.po_document_path,
             },
             message="Project Created Successfully",
-            status_code=201
+            status_code=201,
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -352,7 +348,7 @@ def create_project(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while creating project: {str(e)}"
+            message=f"An error occurred while creating project: {str(e)}",
         ).model_dump()
 
 
@@ -400,19 +396,21 @@ def list_all_projects(
     """
     try:
         # 1. Base project list depending on role
-        if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, UserRole.ACCOUNTANT.value]:
-            projects = db.query(
-                Project
-            ).filter(
-                Project.is_deleted.is_(False)
-            ).order_by(Project.id.desc()).all()
+        if current_user.role in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            projects = (
+                db.query(Project)
+                .filter(Project.is_deleted.is_(False))
+                .order_by(Project.id.desc())
+                .all()
+            )
         else:
             projects = (
                 db.query(Project)
-                .join(
-                    ProjectUserMap,
-                    Project.uuid == ProjectUserMap.project_id
-                )
+                .join(ProjectUserMap, Project.uuid == ProjectUserMap.project_id)
                 .filter(
                     Project.is_deleted.is_(False),
                     ProjectUserMap.user_id == current_user.uuid,
@@ -435,7 +433,9 @@ def list_all_projects(
             po_balance = project.po_balance if project.po_balance else 0
 
             # Get estimated balance
-            estimated_balance = project.estimated_balance if project.estimated_balance else 0
+            estimated_balance = (
+                project.estimated_balance if project.estimated_balance else 0
+            )
 
             # Get actual balance
             actual_balance = project.actual_balance if project.actual_balance else 0
@@ -465,9 +465,9 @@ def list_all_projects(
                     .filter(
                         PaymentItem.item_id == item.uuid,
                         Payment.project_id == project.uuid,
-                        Payment.status == 'transferred',
+                        Payment.status == "transferred",
                         Payment.is_deleted.is_(False),
-                        PaymentItem.is_deleted.is_(False)
+                        PaymentItem.is_deleted.is_(False),
                     )
                     .all()
                 )
@@ -480,19 +480,22 @@ def list_all_projects(
                         db.query(func.sum(Payment.amount))
                         .filter(
                             Payment.uuid.in_(payment_ids),
-                            Payment.status == 'transferred',
-                            Payment.is_deleted.is_(False)
+                            Payment.status == "transferred",
+                            Payment.is_deleted.is_(False),
                         )
-                        .scalar() or 0.0
+                        .scalar()
+                        or 0.0
                     )
 
                 # Check if current expense exceeds estimation
                 if current_expense > estimation:
-                    exceeding_items.append({
-                        "item_name": item.name,
-                        "estimation": estimation,
-                        "current_expense": current_expense
-                    })
+                    exceeding_items.append(
+                        {
+                            "item_name": item.name,
+                            "estimation": estimation,
+                            "current_expense": current_expense,
+                        }
+                    )
 
             projects_response_data.append(
                 {
@@ -505,19 +508,23 @@ def list_all_projects(
                     "po_balance": po_balance,
                     "estimated_balance": estimated_balance,
                     "actual_balance": actual_balance,
-                    "po_document_path": constants.HOST_URL + "/" + project.po_document_path if project.po_document_path else None,
+                    "po_document_path": (
+                        constants.HOST_URL + "/" + project.po_document_path
+                        if project.po_document_path
+                        else None
+                    ),
                     "items_count": items_count,
                     "exceeding_items": {
                         "count": len(exceeding_items),
-                        "items": exceeding_items
-                    }
+                        "items": exceeding_items,
+                    },
                 }
             )
 
         return ProjectServiceResponse(
             data=projects_response_data,
             message="Projects fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -525,29 +532,21 @@ def list_all_projects(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while fetching project details."
+            message="An error occurred while fetching project details.",
         ).model_dump()
 
 
-@project_router.get(
-    "/project", status_code=status.HTTP_200_OK, tags=["Projects"]
-)
+@project_router.get("/project", status_code=status.HTTP_200_OK, tags=["Projects"])
 def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
     try:
         project = (
             db.query(Project)
-            .filter(
-                and_(
-                    Project.uuid == project_uuid, Project.is_deleted.is_(False)
-                )
-            )
+            .filter(and_(Project.uuid == project_uuid, Project.is_deleted.is_(False)))
             .first()
         )
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message=constants.PROJECT_NOT_FOUND
+                data=None, status_code=404, message=constants.PROJECT_NOT_FOUND
             ).model_dump()
 
         # Get total balance (for backward compatibility)
@@ -561,7 +560,9 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
         po_balance = project.po_balance if project.po_balance else 0
 
         # Get estimated balance
-        estimated_balance = project.estimated_balance if project.estimated_balance else 0
+        estimated_balance = (
+            project.estimated_balance if project.estimated_balance else 0
+        )
 
         # Get actual balance
         actual_balance = project.actual_balance if project.actual_balance else 0
@@ -576,21 +577,20 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             po_balance=po_balance,
             estimated_balance=estimated_balance,
             actual_balance=actual_balance,
-            po_document_path=project.po_document_path
+            po_document_path=project.po_document_path,
         ).model_dump()
         return ProjectServiceResponse(
             data=project_response_data,
             message="Project info fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         logging.error(f"Error in get_project_info API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching project details: {str(e)}"
+            message=f"An error occurred while fetching project details: {str(e)}",
         ).model_dump()
-
 
 
 @project_router.put("/{project_uuid}", tags=["Projects"], status_code=200)
@@ -621,21 +621,19 @@ def update_project(
         )
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         # Example: Only Admin, SuperAdmin, or PM can update a project
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
-            UserRole.PROJECT_MANAGER.value
+            UserRole.PROJECT_MANAGER.value,
         ]:
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="You are not authorized to update projects"
+                message="You are not authorized to update projects",
             ).model_dump()
 
         # Update fields if provided
@@ -662,7 +660,7 @@ def update_project(
             entity="Project",
             action="Update",
             entity_id=project_uuid,
-            performed_by=current_user.uuid
+            performed_by=current_user.uuid,
         )
         db.add(log_entry)
 
@@ -679,24 +677,26 @@ def update_project(
                 "end_date": project.end_date,
                 "po_balance": project.po_balance,
                 "estimated_balance": project.estimated_balance,
-                "actual_balance": project.actual_balance
+                "actual_balance": project.actual_balance,
             },
             message="Project updated successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         db.rollback()
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while updating project: {str(e)}"
+            message=f"An error occurred while updating project: {str(e)}",
         ).model_dump()
 
 
 def get_total_transferred_payments_sum(db):
-    total_sum = db.query(func.sum(Payment.amount))\
-                  .filter(Payment.status == 'transferred', Payment.is_deleted.is_(False))\
-                  .scalar()
+    total_sum = (
+        db.query(func.sum(Payment.amount))
+        .filter(Payment.status == "transferred", Payment.is_deleted.is_(False))
+        .scalar()
+    )
     if total_sum:
         return total_sum
     else:
@@ -707,24 +707,24 @@ def get_total_transferred_payments_sum(db):
 def add_bank(
     bank_data: BankCreateSchema,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
     Create a new bank/cash entry.
     Only Accountant or Super Admin can do this.
     """
     try:
-        if current_user.role not in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
+        if current_user.role not in [
+            UserRole.ACCOUNTANT.value,
+            UserRole.SUPER_ADMIN.value,
+        ]:
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Only Accountant or Super Admin can add bank balance"
+                message="Only Accountant or Super Admin can add bank balance",
             ).model_dump()
 
-        new_bank = BalanceDetail(
-            name=bank_data.name,
-            balance=bank_data.balance
-        )
+        new_bank = BalanceDetail(name=bank_data.name, balance=bank_data.balance)
         db.add(new_bank)
         db.commit()
         db.refresh(new_bank)
@@ -732,21 +732,17 @@ def add_bank(
         response_data = {
             "uuid": str(new_bank.uuid),
             "name": new_bank.name,
-            "balance": new_bank.balance
+            "balance": new_bank.balance,
         }
         return ProjectServiceResponse(
-            data=response_data,
-            status_code=201,
-            message="Bank created successfully"
+            data=response_data, status_code=201, message="Bank created successfully"
         ).model_dump()
 
     except Exception as e:
         logging.error(f"Error in add_bank: {e}")
         db.rollback()
         return ProjectServiceResponse(
-            data=None,
-            status_code=500,
-            message="An error occurred while creating bank"
+            data=None, status_code=500, message="An error occurred while creating bank"
         ).model_dump()
 
 
@@ -755,26 +751,31 @@ def edit_bank(
     bank_uuid: UUID,
     bank_data: BankEditSchema,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
     Edit an existing bank/cash entry.
     Only Accountant or Super Admin can do this.
     """
     try:
-        if current_user.role not in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
+        if current_user.role not in [
+            UserRole.ACCOUNTANT.value,
+            UserRole.SUPER_ADMIN.value,
+        ]:
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Only Accountant or Super Admin can update bank balance"
+                message="Only Accountant or Super Admin can update bank balance",
             ).model_dump()
 
-        bank_obj = db.query(BalanceDetail).filter(BalanceDetail.uuid == bank_uuid).first()
+        bank_obj = (
+            db.query(BalanceDetail).filter(BalanceDetail.uuid == bank_uuid).first()
+        )
         if not bank_obj:
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
-                message=f"No bank found with uuid={bank_uuid}"
+                message=f"No bank found with uuid={bank_uuid}",
             ).model_dump()
 
         bank_obj.name = bank_data.name
@@ -785,21 +786,17 @@ def edit_bank(
         response_data = {
             "uuid": str(bank_obj.uuid),
             "name": bank_obj.name,
-            "balance": bank_obj.balance
+            "balance": bank_obj.balance,
         }
         return ProjectServiceResponse(
-            data=response_data,
-            status_code=200,
-            message="Bank updated successfully"
+            data=response_data, status_code=200, message="Bank updated successfully"
         ).model_dump()
 
     except Exception as e:
         logging.error(f"Error in edit_bank: {e}")
         db.rollback()
         return ProjectServiceResponse(
-            data=None,
-            status_code=500,
-            message="An error occurred while updating bank"
+            data=None, status_code=500, message="An error occurred while updating bank"
         ).model_dump()
 
 
@@ -824,22 +821,18 @@ def get_bank_balance(
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
-                message="No bank balance found (check bank_uuid?)"
+                message="No bank balance found (check bank_uuid?)",
             ).model_dump()
 
         # Build a list of dict
         data_out = []
         for b in results:
-            data_out.append({
-                "uuid": str(b.uuid),
-                "name": b.name,
-                "balance": b.balance
-            })
+            data_out.append({"uuid": str(b.uuid), "name": b.name, "balance": b.balance})
 
         return ProjectServiceResponse(
             data=data_out,
             status_code=200,
-            message="Bank Balance(s) fetched successfully."
+            message="Bank Balance(s) fetched successfully.",
         ).model_dump()
 
     except Exception as e:
@@ -847,61 +840,56 @@ def get_bank_balance(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while getting bank balances"
+            message="An error occurred while getting bank balances",
         ).model_dump()
 
 
 @balance_router.delete(
-        "/bank/{bank_uuid}",
-        status_code=status.HTTP_200_OK,
-        tags=["Bank Balance"]
+    "/bank/{bank_uuid}", status_code=status.HTTP_200_OK, tags=["Bank Balance"]
 )
 def delete_bank(
     bank_uuid: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ) -> ProjectServiceResponse:
     try:
-        if current_user.role not in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
+        if current_user.role not in [
+            UserRole.ACCOUNTANT.value,
+            UserRole.SUPER_ADMIN.value,
+        ]:
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
-                message="Only Accountant or Super Admin can delete bank data"
+                message="Only Accountant or Super Admin can delete bank data",
             ).model_dump()
 
-        bank_data = db.query(
-            BalanceDetail
-        ).filter(
-            BalanceDetail.uuid == bank_uuid
-        ).first()
+        bank_data = (
+            db.query(BalanceDetail).filter(BalanceDetail.uuid == bank_uuid).first()
+        )
 
         if not bank_data:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Bank Not Found"
+                data=None, status_code=404, message="Bank Not Found"
             ).model_dump()
 
         db.delete(bank_data)
         db.commit()
 
         return ProjectServiceResponse(
-            data=None,
-            status_code=200,
-            message="Bank Deleted Successfully"
+            data=None, status_code=200, message="Bank Deleted Successfully"
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         logging.error(f"Error in delete_bank API: {str(e)}")
         return ProjectServiceResponse(
-            data=None,
-            status_code=500,
-            message="An error occurred while deleting bank"
+            data=None, status_code=500, message="An error occurred while deleting bank"
         ).model_dump()
 
 
-@project_router.delete("/{project_uuid}", status_code=status.HTTP_200_OK, tags=["Projects"])
+@project_router.delete(
+    "/{project_uuid}", status_code=status.HTTP_200_OK, tags=["Projects"]
+)
 def delete_project(
     project_uuid: UUID,
     db: Session = Depends(get_db),
@@ -909,25 +897,18 @@ def delete_project(
 ):
     try:
         project = (
-            db.query(
-                Project
-            ).filter(
-                Project.uuid == project_uuid,
-                Project.is_deleted.is_(False)
-            ).first()
+            db.query(Project)
+            .filter(Project.uuid == project_uuid, Project.is_deleted.is_(False))
+            .first()
         )
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
             return ProjectServiceResponse(
-                data=None,
-                status_code=403,
-                message="Unauthorized to delete project"
+                data=None, status_code=403, message="Unauthorized to delete project"
             ).model_dump()
 
         project.is_deleted = True
@@ -942,9 +923,7 @@ def delete_project(
         db.commit()
 
         return ProjectServiceResponse(
-            data=None,
-            message="Project deleted successfully",
-            status_code=200
+            data=None, message="Project deleted successfully", status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -952,5 +931,5 @@ def delete_project(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while deleting the project"
+            message="An error occurred while deleting the project",
         ).model_dump()

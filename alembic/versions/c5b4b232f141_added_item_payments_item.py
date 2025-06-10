@@ -5,15 +5,17 @@ Revises: 60c26db94462
 Create Date: 2025-02-27 21:30:02.341989
 
 """
-from typing import Sequence, Union
-from sqlalchemy.dialects.postgresql import UUID
-from alembic import op
-import sqlalchemy as sa
 
+from typing import Sequence, Union
+
+import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import UUID
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = 'c5b4b232f141'
-down_revision: Union[str, None] = '60c26db94462'
+revision: str = "c5b4b232f141"
+down_revision: Union[str, None] = "60c26db94462"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -32,8 +34,18 @@ def upgrade():
     op.create_table(
         "payment_items",
         sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
-        sa.Column("payment_id", UUID(as_uuid=True), sa.ForeignKey("payments.uuid", ondelete="CASCADE"), nullable=False),
-        sa.Column("item_id", UUID(as_uuid=True), sa.ForeignKey("items.uuid", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "payment_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("payments.uuid", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "item_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("items.uuid", ondelete="CASCADE"),
+            nullable=False,
+        ),
     )
 
 

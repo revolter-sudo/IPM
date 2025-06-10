@@ -5,22 +5,29 @@ Revises: 8d072359b0ae
 Create Date: 2025-02-27 12:06:11.331397
 
 """
-from typing import Sequence, Union
-from sqlalchemy.dialects.postgresql import UUID
-from alembic import op
-import sqlalchemy as sa
 
+from typing import Sequence, Union
+
+import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import UUID
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = '60c26db94462'
-down_revision: Union[str, None] = '8d072359b0ae'
+revision: str = "60c26db94462"
+down_revision: Union[str, None] = "8d072359b0ae"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():
     # Add parent_id column to support parent-child accounts
-    op.add_column("person", sa.Column("parent_id", UUID(as_uuid=True), sa.ForeignKey("person.uuid"), nullable=True))
+    op.add_column(
+        "person",
+        sa.Column(
+            "parent_id", UUID(as_uuid=True), sa.ForeignKey("person.uuid"), nullable=True
+        ),
+    )
 
 
 def downgrade():
