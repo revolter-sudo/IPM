@@ -745,6 +745,17 @@ def register_and_outside_user(
     data: OutsideUserLogin,
     db: Session = Depends(get_db)
 ):
+    phone = str(data.phone_number)
+    existing = db.query(UserData).filter(UserData.phone_number == phone).first()
+    if existing:
+        return AuthServiceResponse(
+            data=None,
+            message=(
+                "You’ve already submitted a request with this number; "
+                "our team is looking into it and will reach out shortly."
+            ),
+            status_code=200
+        )
     try:
         user_data = UserData(
             name=data.name,
