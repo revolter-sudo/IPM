@@ -202,6 +202,7 @@ class Project(Base):
     location = Column(Text, nullable=True)
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
+    # Keeping old fields for backward compatibility, but they'll be deprecated
     po_balance = Column(Float, nullable=False, default=0.0)
     estimated_balance = Column(Float, nullable=False, default=0.0)
     actual_balance = Column(Float, nullable=False, default=0.0)
@@ -232,8 +233,53 @@ class Project(Base):
         cascade="all, delete-orphan"
     )
 
+    # New relationship for multiple POs
+    project_pos = relationship(
+        "ProjectPO",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+
     def __repr__(self):
         return f"<Project(id={self.id}, uuid={self.uuid}, name={self.name})>"
+
+
+class ProjectPO(Base):
+    __tablename__ = "project_pos"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(
+        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
+    )
+    project_id = Column(
+        UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False
+    )
+    po_number = Column(String(100), nullable=True)  # Optional PO number
+    amount = Column(Float, nullable=False)
+    description = Column(Text, nullable=True)
+    file_path = Column(String(255), nullable=True)  # Path to PO document
+    created_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False
+    )
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        TIMESTAMP,
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False
+    )
+    is_deleted = Column(Boolean, default=False, nullable=False)
+
+    # Relationships
+    project = relationship("Project", back_populates="project_pos")
+    invoices = relationship(
+        "Invoice",
+        back_populates="project_po",
+        cascade="all, delete-orphan"
+    )
+
+    def __repr__(self):
+        return f"<ProjectPO(id={self.id}, project_id={self.project_id}, amount={self.amount})>"
 
 
 class Log(Base):
@@ -559,16 +605,32 @@ class Invoice(Base):
     __tablename__ = "invoices"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    uuid = Column(
+        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
+    )
+    project_id = Column(
+        UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False
+    )
+    # New field: Reference to specific PO
+    project_po_id = Column(
+        UUID(as_uuid=True), ForeignKey("project_pos.uuid"), nullable=True
+    )
     client_name = Column(String(255), nullable=False)
     invoice_item = Column(String(255), nullable=False)
     amount = Column(Float, nullable=False)
     description = Column(Text, nullable=True)
     due_date = Column(TIMESTAMP, nullable=False)
     file_path = Column(String(255), nullable=True)
+    # Updated status field to handle new payment statuses
     status = Column(String(20), nullable=False, default="uploaded")
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    # New fields for payment tracking
+    payment_status = Column(
+        String(20), nullable=False, default="not_paid"
+    )  # not_paid, partially_paid, fully_paid
+    total_paid_amount = Column(Float, nullable=False, default=0.0)
+    created_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False
+    )
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at = Column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False
@@ -577,9 +639,46 @@ class Invoice(Base):
 
     # Relationships
     project = relationship("Project", back_populates="project_invoices")
+    project_po = relationship("ProjectPO", back_populates="invoices")
+    invoice_payments = relationship(
+        "InvoicePayment",
+        back_populates="invoice",
+        cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<Invoice(id={self.id}, amount={self.amount}, status={self.status})>"
+
+
+class InvoicePayment(Base):
+    __tablename__ = "invoice_payments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(
+        UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4
+    )
+    invoice_id = Column(
+        UUID(as_uuid=True), ForeignKey("invoices.uuid"), nullable=False
+    )
+    amount = Column(Float, nullable=False)
+    payment_date = Column(Date, nullable=False)
+    description = Column(Text, nullable=True)
+    payment_method = Column(String(50), nullable=True)  # cash, bank, cheque
+    reference_number = Column(String(100), nullable=True)  # cheque/txn ref
+    created_by = Column(
+        UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False
+    )
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    updated_at = Column(
+        TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    is_deleted = Column(Boolean, default=False, nullable=False)
+
+    # Relationships
+    invoice = relationship("Invoice", back_populates="invoice_payments")
+
+    def __repr__(self):
+        return f"<InvoicePayment(id={self.id}, invoice_id={self.invoice_id}, amount={self.amount})>"
 
 
 class UserItemMap(Base):

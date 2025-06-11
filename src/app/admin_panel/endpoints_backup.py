@@ -3018,6 +3018,7 @@ def get_project_user_item_mappings(
         "count": len(mappings)
     }
 
+
 # Invoice Analytics API
 @admin_app.get(
     "/projects/{project_id}/invoice-analytics",
@@ -3095,28 +3096,24 @@ def get_project_invoice_analytics(
                 po_number = po.po_number
                 po_amount = po.amount
 
-            # Get all payments for this invoice to determine latest payment date
-            payments = db.query(InvoicePayment).filter(
+            # Get latest payment date for this invoice
+            latest_payment = db.query(InvoicePayment).filter(
                 InvoicePayment.invoice_id == invoice.uuid,
                 InvoicePayment.is_deleted.is_(False)
-            ).order_by(InvoicePayment.payment_date.desc()).all()
+            ).order_by(InvoicePayment.payment_date.desc()).first()
 
             # Determine is_late flag
             is_late = None
             if project.end_date:
-                if invoice.payment_status == "fully_paid" and payments:
-                    # Check if any payment was made after project end date
-                    latest_payment_date = max(payment.payment_date for payment in payments)
-                    is_late = latest_payment_date > project.end_date
-                elif invoice.payment_status == "partially_paid" and payments:
-                    # For partially paid, check if the latest payment was after end date
-                    latest_payment_date = max(payment.payment_date for payment in payments)
-                    is_late = latest_payment_date > project.end_date
-                elif invoice.payment_status == "not_paid":
-                    # Not paid and project end date has passed
-                    is_late = today > project.end_date
-                else:
-                    is_late = None
+                if invoice.payment_status == "fully_paid" and latest_payment:
+                    # Paid - check if payment was after project end date
+                    is_late = latest_payment.payment_date > project.end_date
+                elif invoice.payment_status in ["not_paid", "partially_paid"]:
+                    # Not fully paid - check if project end date has passed
+                    if today > project.end_date:
+                        is_late = True
+                    else:
+                        is_late = None  # Not yet late
 
             invoice_analytics.append(InvoiceAnalyticsItem(
                 invoice_uuid=invoice.uuid,

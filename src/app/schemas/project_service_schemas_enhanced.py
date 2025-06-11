@@ -47,9 +47,23 @@ class ProjectWithItemsResponse(ProjectResponse):
 
 
 class ProjectPORequest(BaseModel):
+    """
+    Enhanced PO request with explicit file binding support
+    """
     po_number: Optional[str] = None
     amount: float
     description: Optional[str] = None
+    file_index: Optional[int] = None  # Index of the file to bind to this PO (0-9)
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "po_number": "PO001",
+                "amount": 1000.0,
+                "description": "Purchase order for construction materials",
+                "file_index": 0
+            }
+        }
 
 
 class ProjectCreateRequest(BaseModel):
@@ -62,8 +76,36 @@ class ProjectCreateRequest(BaseModel):
     po_balance: float = 0.0
     estimated_balance: float = 0.0
     actual_balance: float = 0.0
-    # New field for multiple POs
+    # New field for multiple POs with file binding
     pos: Optional[List[ProjectPORequest]] = []
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "name": "Construction Project Alpha",
+                "description": "Main construction project",
+                "location": "Downtown Site",
+                "start_date": "2025-01-01",
+                "end_date": "2025-12-31",
+                "po_balance": 2000.0,
+                "estimated_balance": 2500.0,
+                "actual_balance": 1500.0,
+                "pos": [
+                    {
+                        "po_number": "PO001",
+                        "amount": 1000.0,
+                        "description": "Materials purchase order",
+                        "file_index": 0
+                    },
+                    {
+                        "po_number": "PO002",
+                        "amount": 1000.0,
+                        "description": "Labor purchase order",
+                        "file_index": 1
+                    }
+                ]
+            }
+        }
 
 
 class UpdateProjectSchema(BaseModel):
@@ -173,3 +215,39 @@ class ProjectServiceResponse(BaseModel):
             "message": self.message,
             "status_code": self.status_code
         }
+
+
+# Enhanced response schemas for better PO binding information
+class POBindingInfo(BaseModel):
+    """Information about PO file binding"""
+    file_index: Optional[int] = None
+    original_filename: Optional[str] = None
+    file_size_bytes: int = 0
+    successfully_bound: bool = False
+
+
+class EnhancedPOResponse(BaseModel):
+    """Enhanced PO response with binding information"""
+    uuid: UUID
+    po_number: Optional[str] = None
+    amount: float
+    description: Optional[str] = None
+    file_path: Optional[str] = None
+    has_document: bool = False
+    file_binding: POBindingInfo
+    created_at: Optional[str] = None
+
+
+class EnhancedProjectResponse(BaseModel):
+    """Enhanced project response with detailed PO binding information"""
+    uuid: UUID
+    name: str
+    description: Optional[str] = None
+    location: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    po_balance: float = 0.0
+    estimated_balance: float = 0.0
+    actual_balance: float = 0.0
+    po_summary: dict = {}
+    pos: List[EnhancedPOResponse] = []
