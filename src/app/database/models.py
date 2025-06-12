@@ -203,10 +203,10 @@ class Project(Base):
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
     # Keeping old fields for backward compatibility, but they'll be deprecated
-    po_balance = Column(Float, nullable=False, default=0.0)
+    # po_balance = Column(Float, nullable=False, default=0.0)
     estimated_balance = Column(Float, nullable=False, default=0.0)
     actual_balance = Column(Float, nullable=False, default=0.0)
-    po_document_path = Column(String(255), nullable=True)
+    # po_document_path = Column(String(255), nullable=True)
     is_deleted = Column(Boolean, nullable=False, default=False)
 
     project_user_map = relationship(

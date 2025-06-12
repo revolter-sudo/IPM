@@ -215,18 +215,14 @@ def adjust_project_balance(
         "location": "Project Location",
         "start_date": "2025-06-04",
         "end_date": "2026-06-04",
-        "po_balance": 1000.0,
         "estimated_balance": 1500.0,
         "actual_balance": 500.0
     }
     ```
-
-    The PO document can be uploaded as a file in the 'po_document' field.
     """
 )
 def create_project(
-    request: str = Form(..., description="JSON string containing project details (name, description, location, po_balance, estimated_balance, actual_balance)"),
-    po_document: Optional[UploadFile] = File(None, description="PO document file to upload"),
+    request: str = Form(..., description="JSON string containing project details (name, description, location, estimated_balance, actual_balance)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -253,20 +249,20 @@ def create_project(
         project_uuid = str(uuid4())
 
         # Handle PO document upload if provided
-        po_document_path = None
-        if po_document:
-            upload_dir = constants.UPLOAD_DIR
-            os.makedirs(upload_dir, exist_ok=True)
+        # po_document_path = None
+        # if po_document:
+        #     upload_dir = constants.UPLOAD_DIR
+        #     os.makedirs(upload_dir, exist_ok=True)
 
-            # Create a unique filename with UUID to avoid collisions
-            file_ext = os.path.splitext(po_document.filename)[1]
-            unique_filename = f"PO_{project_uuid}_{str(uuid4())}{file_ext}"
-            file_path = os.path.join(upload_dir, unique_filename)
+        #     # Create a unique filename with UUID to avoid collisions
+        #     file_ext = os.path.splitext(po_document.filename)[1]
+        #     unique_filename = f"PO_{project_uuid}_{str(uuid4())}{file_ext}"
+        #     file_path = os.path.join(upload_dir, unique_filename)
 
-            # Save the file
-            with open(file_path, "wb") as buffer:
-                buffer.write(po_document.file.read())
-            po_document_path = file_path
+        #     # Save the file
+        #     with open(file_path, "wb") as buffer:
+        #         buffer.write(po_document.file.read())
+        #     po_document_path = file_path
 
         # Create new project with all balance types
         new_project = Project(
@@ -276,10 +272,8 @@ def create_project(
             start_date=project_request.start_date,
             end_date=project_request.end_date,
             location=project_request.location,
-            po_balance=project_request.po_balance,
             estimated_balance=project_request.estimated_balance,
-            actual_balance=project_request.actual_balance,
-            po_document_path=po_document_path
+            actual_balance=project_request.actual_balance
         )
         db.add(new_project)
         db.commit()
@@ -287,15 +281,15 @@ def create_project(
 
         # Initialize project balances with the given amounts
         # PO Balance
-        if project_request.po_balance > 0:
-            create_project_balance_entry(
-                db=db,
-                project_id=new_project.uuid,
-                adjustment=project_request.po_balance,
-                description="Initial PO balance",
-                current_user=current_user,
-                balance_type="po"
-            )
+        # if project_request.po_balance > 0:
+        #     create_project_balance_entry(
+        #         db=db,
+        #         project_id=new_project.uuid,
+        #         adjustment=project_request.po_balance,
+        #         description="Initial PO balance",
+        #         current_user=current_user,
+        #         balance_type="po"
+        #     )
 
         # Estimated Balance
         if project_request.estimated_balance > 0:
@@ -338,10 +332,8 @@ def create_project(
                 "location": new_project.location,
                 "start_date": new_project.start_date,
                 "end_date": new_project.end_date,
-                "po_balance": new_project.po_balance,
                 "estimated_balance": new_project.estimated_balance,
                 "actual_balance": new_project.actual_balance,
-                "po_document_path": new_project.po_document_path
             },
             message="Project Created Successfully",
             status_code=201
@@ -377,11 +369,9 @@ def list_all_projects(
             "location": "<project-location>",
             "start_date": "project-start_date",
             "end_date": "project-end_date",
-            "balance": <current_balance_float>,  # For backward compatibility
-            "po_balance": <po_balance_float>,
+            # "balance": <current_balance_float>,  # For backward compatibility
             "estimated_balance": <estimated_balance_float>,
             "actual_balance": <actual_balance_float>,
-            "po_document_path": <po_document_path_string>,
             "items_count": <total_number_of_items_in_project>,
             "exceeding_items": {
                 "count": <number_of_items_exceeding_estimation>,
@@ -432,7 +422,7 @@ def list_all_projects(
             # ) or 0.0
 
             # Get PO balance
-            po_balance = project.po_balance if project.po_balance else 0
+            # po_balance = project.po_balance if project.po_balance else 0
 
             # Get estimated balance
             estimated_balance = project.estimated_balance if project.estimated_balance else 0
@@ -502,10 +492,8 @@ def list_all_projects(
                     "location": project.location,
                     "start_date": project.start_date,
                     "end_date": project.end_date,
-                    "po_balance": po_balance,
                     "estimated_balance": estimated_balance,
                     "actual_balance": actual_balance,
-                    "po_document_path": constants.HOST_URL + "/" + project.po_document_path if project.po_document_path else None,
                     "items_count": items_count,
                     "exceeding_items": {
                         "count": len(exceeding_items),
@@ -558,7 +546,7 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
         # ) or 0.0
 
         # Get PO balance
-        po_balance = project.po_balance if project.po_balance else 0
+        # po_balance = project.po_balance if project.po_balance else 0
 
         # Get estimated balance
         estimated_balance = project.estimated_balance if project.estimated_balance else 0
@@ -573,10 +561,8 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             location=project.location,
             start_date=project.start_date,
             end_date=project.end_date,
-            po_balance=po_balance,
             estimated_balance=estimated_balance,
             actual_balance=actual_balance,
-            po_document_path=project.po_document_path
         ).model_dump()
         return ProjectServiceResponse(
             data=project_response_data,
@@ -607,7 +593,6 @@ def update_project(
       - location
       - start_date
       - end_date
-      - po_balance
       - estimated_balance
       - actual_balance
 
@@ -649,8 +634,6 @@ def update_project(
             project.start_date = payload.start_date
         if payload.end_date is not None:
             project.end_date = payload.end_date
-        if payload.po_balance is not None:
-            project.po_balance = payload.po_balance
         if payload.estimated_balance is not None:
             project.estimated_balance = payload.estimated_balance
         if payload.actual_balance is not None:
@@ -677,7 +660,6 @@ def update_project(
                 "location": project.location,
                 "start_date": project.start_date,
                 "end_date": project.end_date,
-                "po_balance": project.po_balance,
                 "estimated_balance": project.estimated_balance,
                 "actual_balance": project.actual_balance
             },

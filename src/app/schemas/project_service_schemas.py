@@ -11,10 +11,8 @@ class ProjectResponse(BaseModel):
     location: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    po_balance: float = 0.0
     estimated_balance: float = 0.0
     actual_balance: float = 0.0
-    po_document_path: Optional[str] = None
 
     def to_dict(self):
         """
@@ -27,10 +25,8 @@ class ProjectResponse(BaseModel):
             "location": self.location,
             "start_date": self.start_date,
             "end_date": self.end_date,
-            "po_balance": self.po_balance,
             "estimated_balance": self.estimated_balance,
             "actual_balance": self.actual_balance,
-            "po_document_path": self.po_document_path,
         }
 
 
@@ -59,7 +55,6 @@ class ProjectCreateRequest(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     balance: float = 0.0  # For backward compatibility
-    po_balance: float = 0.0
     estimated_balance: float = 0.0
     actual_balance: float = 0.0
     # New field for multiple POs
@@ -72,7 +67,6 @@ class UpdateProjectSchema(BaseModel):
     location: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    po_balance: Optional[float] = None
     estimated_balance: Optional[float] = None
     actual_balance: Optional[float] = None
 
