@@ -20,7 +20,8 @@ from src.app.database.models import (
     Item,
     ProjectItemMap,
     Invoice,
-    PaymentItem
+    PaymentItem,
+    ProjectPO
 )
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
@@ -1110,4 +1111,56 @@ def get_project_pos(
             data=None,
             status_code=500,
             message=f"An error occurred while fetching project POs: {str(e)}"
+        ).model_dump()
+    
+
+@project_router.delete(
+    "/project/po/{po_id}",
+    tags=["Project POs"],
+    description="Delete a project PO",
+)
+
+def delete_project_po(
+    po_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a PO by its ID."""
+    # Fetch PO
+    po = db.query(ProjectPO).filter(ProjectPO.uuid == po_id).first()
+
+    if not po:
+        return ProjectServiceResponse(
+            data=None,
+            status_code=404,
+            message="PO not found"
+        ).model_dump()
+
+    # Authorization check
+    user_role = getattr(current_user, "role", None) or current_user.get("role")
+    if user_role not in [
+        UserRole.SUPER_ADMIN.value,
+        UserRole.ADMIN.value,
+        UserRole.PROJECT_MANAGER.value,
+    ]:
+        return ProjectServiceResponse(
+            data=None,
+            status_code=403,
+            message="You are not authorized to delete this PO"
+        ).model_dump()
+
+    try:
+        db.delete(po)
+        db.commit()
+        return ProjectServiceResponse(
+            data={"uuid": str(po_id)},
+            message="PO deleted successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        return ProjectServiceResponse(
+            data=None,
+            message=f"An error occurred while deleting PO: {str(e)}",
+            status_code=500
         ).model_dump()
