@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - Inqilab</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+        h1, h2 {
+            color: #2c3e50;
+        }
+        h1 {
+            border-bottom: 2px solid #ccc;
+            padding-bottom: 10px;
+        }
+        a {
+            color: #0066cc;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Privacy Policy</h1>
+    <p><strong>Last Updated:</strong> 13/06/2025</p>
+
+    <p><strong>App Name:</strong> Inqilab<br>
+    <strong>Company:</strong> DEZDOK PRIVATE LIMITED<br>
+    <strong>Contact Email:</strong> <a href="mailto:hello@dezdok.com">hello@dezdok.com</a></p>
+
+    <h2>1. Overview</h2>
+    <p>DEZDOK PRIVATE LIMITED built the Inqilab app as a free service for authorized users. This app is intended for internal use, and we are committed to protecting your privacy.</p>
+
+    <h2>2. Information Collection</h2>
+    <p>As part of the user registration process, Inqilab now collects the following personal information directly from users:</p>
+    <ul>
+        <li>Name</li>
+        <li>Email Address</li>
+        <li>Phone Number</li>
+    </ul>
+    <p>This information is required to create and manage user accounts and ensure proper access to app features.</p>
+
+    <h2>3. Use of Collected Information</h2>
+    <p>The personal information collected during registration is used for:</p>
+    <ul>
+        <li>User identification and account creation</li>
+        <li>Communication related to account or service use</li>
+        <li>Providing a personalized experience within the app</li>
+    </ul>
+    <p>We do not share this information with third parties, except as required to provide services or comply with legal obligations.</p>
+
+    <h2>4. Camera Permission</h2>
+    <p>Inqilab requests permission to access your device’s camera for the following purposes:</p>
+    <ul>
+        <li>Uploading images as payment proof when requesting a payment</li>
+        <li>Updating the user’s profile picture</li>
+    </ul>
+    <p>These images are directly uploaded to a secure backend server. The app does not store or process these images locally beyond the intended use.</p>
+
+    <h2>5. Data Storage</h2>
+    <p>All user data, including registration details and uploaded images, is securely stored on our backend server. We do not store any sensitive information locally on the device.</p>
+    <p>Access to user data is restricted and managed securely via our admin panel.</p>
+
+    <h2>6. Third-Party Services</h2>
+    <p>We use <strong>Firebase Cloud Messaging</strong> to send push notifications. Firebase may collect limited device-related data solely for delivering notifications.</p>
+    <p>For more information on how Firebase handles data, please review <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google’s Privacy Policy</a>.</p>
+
+    <h2>7. Children’s Privacy</h2>
+    <p>Inqilab is not intended for individuals under the age of 13. The app is accessible only to registered users, and we do not knowingly collect data from minors.</p>
+
+    <h2>8. Changes to This Privacy Policy</h2>
+    <p>We may update our Privacy Policy from time to time. Any changes will be reflected by the "Last Updated" date above. Users are encouraged to review this page periodically.</p>
+
+    <h2>9. Contact Us</h2>
+    <p>If you have any questions or concerns about this Privacy Policy, please contact us:</p>
+    <p>Email: <a href="mailto:hello@dezdok.com">hello@dezdok.com</a></p>
+
+</body>
+</html>

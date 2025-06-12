@@ -768,7 +768,7 @@ def register_and_outside_user(
         db.refresh(user_data)
         return AuthServiceResponse(
             data=None,
-            message="We have recieved your request, our team will reach out to you soon.",
+            message="We have received your request, our team will reach out to you soon.",
             status_code=201
         )
     except Exception as e:
