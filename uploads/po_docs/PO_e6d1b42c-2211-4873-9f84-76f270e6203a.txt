@@ -1,0 +1,39 @@
+project create 
+user assign 
+item assign
+user to item assign
+
+ {
+  "items_data": [
+    { "item_id": "231c1738-ef6b-4a3e-a22d-20bb7f70379c", "balance": 100 },
+    { "item_id": "9731836d-84ee-4dc5-a31b-ed3c034bc8fe", "balance": 250 },
+    { "item_id": "d024f246-2c36-4a05-add8-499abb3872cf", "balance": 320 },
+    { "item_id": "10d36b9a-7ab3-4187-ba5b-3d8b2fe67442", "balance": 180 },
+    { "item_id": "94a0d345-c7b5-499d-a3dd-b61fa91fcd79", "balance": 90 },
+    { "item_id": "39cc6b70-02f0-4106-a5bb-94a84540b00a", "balance": 600 },
+    { "item_id": "b2a2779a-df67-48eb-9066-d56767236fb2", "balance": 1500 },
+    { "item_id": "c35cda02-1397-4352-866e-80f91d128fee", "balance": 75 },
+    { "item_id": "08f1065c-3f8b-4ca5-b016-4980d153f667", "balance": 90 },
+    { "item_id": "608d3c65-5ff0-4a4f-9a4d-e7e0131a8e1b", "balance": 50.5 },
+    { "item_id": "3d423b5e-2f11-45d6-980b-1b2d8ef432d1", "balance": 20 },
+    { "item_id": "06933857-ffb8-42d1-9e5f-f551943e9cd0", "balance": 300 },
+    { "item_id": "99162fa5-49cd-4d8e-83e5-663233b0a7f6", "balance": 7000 }
+  ]
+}
+
+
+Item assign to user flow
+
+user 
+
+than all the assign items
+
+when user is assign to any project based on that project we have assign some item to that project and let's say user have assign some items with N number of balance 
+
+
+
+branch -> 
+create project -> Task 1 -> edit all the things 
+api project user item 
+
+

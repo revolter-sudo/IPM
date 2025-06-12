@@ -27,7 +27,8 @@ from src.app.schemas.project_service_schemas import (
     InvoicePaymentCreateRequest,
     InvoicePaymentResponse,
     InvoiceAnalyticsResponse,
-    InvoiceAnalyticsItem
+    InvoiceAnalyticsItem,
+    MultiInvoicePaymentRequest
 )
 from src.app.schemas.payment_service_schemas import PaymentStatus
 from typing import Optional, List
@@ -1596,6 +1597,138 @@ def upload_invoice(
             status_code=500,
             message=f"An error occurred while uploading invoice: {str(e)}"
         ).model_dump()
+    
+@admin_app.post(
+    "/po/{po_id}/invoices/batch",
+    tags=["Invoices"],
+    status_code=201,
+    description="""
+    Upload multiple invoices under a single PO with optional file attachments.
+
+    Each invoice JSON must contain:
+    ```json
+    {
+        "project_id": "123e4567-e89b-12d3-a456-426614174000",
+        "client_name": "ABC Company",
+        "invoice_item": "Construction Materials",
+        "amount": 500.0,
+        "description": "Invoice for materials",
+        "due_date": "2025-06-15"
+    }
+    ```
+
+    Form Fields:
+    - `invoices`: JSON stringified array of invoice objects.
+    - `invoice_files`: multiple files, in the same order as invoices.
+    """
+)
+def upload_multiple_invoices_for_po(
+    po_id: UUID,
+    invoices: str = Form(..., description="JSON string list of invoices"),
+    invoice_files: Optional[List[UploadFile]] = File(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        import json
+        from datetime import datetime
+        from uuid import uuid4
+
+        # Parse and validate invoice list
+        invoice_list = json.loads(invoices)
+        if not isinstance(invoice_list, list):
+            raise ValueError("invoices field must be a list of invoice objects")
+
+        # Check PO exists
+        po = db.query(ProjectPO).filter(
+            ProjectPO.uuid == po_id,
+            ProjectPO.is_deleted.is_(False)
+        ).first()
+
+        if not po:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Project PO not found"
+            ).model_dump()
+
+        created_invoices = []
+
+        for index, item in enumerate(invoice_list):
+            # Parse due date
+            try:
+                due_date = datetime.strptime(item["due_date"], "%Y-%m-%d")
+            except ValueError:
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message=f"Invalid due_date format at index {index}. Use YYYY-MM-DD"
+                ).model_dump()
+
+            # Save file if exists
+            file_path = None
+            if invoice_files and len(invoice_files) > index:
+                file = invoice_files[index]
+                file_ext = os.path.splitext(file.filename)[1]
+                unique_filename = f"Invoice_{str(uuid4())}{file_ext}"
+                upload_dir = "uploads/invoices"
+                os.makedirs(upload_dir, exist_ok=True)
+                file_path = os.path.join(upload_dir, unique_filename)
+                with open(file_path, "wb") as buffer:
+                    buffer.write(file.file.read())
+
+            new_invoice = Invoice(
+                project_id=item["project_id"],
+                project_po_id=po_id,
+                client_name=item.get("client_name"),
+                invoice_item=item.get("invoice_item"),
+                amount=item.get("amount"),
+                description=item.get("description"),
+                due_date=due_date,
+                file_path=file_path,
+                status="uploaded",
+                payment_status="not_paid",
+                total_paid_amount=0.0,
+                created_by=current_user.uuid
+            )
+            db.add(new_invoice)
+            db.flush()
+
+            # Add log
+            log_entry = Log(
+                uuid=str(uuid4()),
+                entity="Invoice",
+                action="Create",
+                entity_id=new_invoice.uuid,
+                performed_by=current_user.uuid,
+            )
+            db.add(log_entry)
+
+            created_invoices.append({
+                "uuid": str(new_invoice.uuid),
+                "amount": new_invoice.amount,
+                "invoice_item": new_invoice.invoice_item,
+                "due_date": due_date.strftime("%Y-%m-%d"),
+                "client_name": new_invoice.client_name,
+                "file_path": constants.HOST_URL + "/" + new_invoice.file_path if new_invoice.file_path else None
+            })
+
+        db.commit()
+
+        return ProjectServiceResponse(
+            data={"invoices": created_invoices},
+            message=f"{len(created_invoices)} invoices uploaded successfully",
+            status_code=201
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in upload_multiple_invoices_for_po API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while uploading invoices: {str(e)}"
+        ).model_dump()
 
 
 @admin_app.put(
@@ -1986,49 +2119,238 @@ def delete_invoice(
             status_code=500,
             message=f"An error occurred while deleting invoice: {str(e)}"
         ).model_dump()
+    
+@admin_app.get(
+    "/po/{po_id}/invoices",
+    tags=["Invoices"],
+    status_code=200,
+    description="Get all invoices created against a specific PO"
+)
+def get_invoices_by_po(
+    po_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        # Validate PO exists
+        po = db.query(ProjectPO).filter(
+            ProjectPO.uuid == po_id,
+            ProjectPO.is_deleted.is_(False)
+        ).first()
+
+        if not po:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="PO not found"
+            ).model_dump()
+
+        # Optional: permissions check
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+            UserRole.PROJECT_MANAGER.value
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Unauthorized to view invoices"
+            ).model_dump()
+
+        # Fetch all invoices linked to this PO
+        invoices = db.query(Invoice).filter(
+            Invoice.project_po_id == po_id,
+            Invoice.is_deleted.is_(False)
+        ).order_by(Invoice.created_at.desc()).all()
+
+        invoice_list = []
+        for inv in invoices:
+            invoice_list.append({
+                "uuid": str(inv.uuid),
+                "project_id": str(inv.project_id),
+                "client_name": inv.client_name,
+                "invoice_item": inv.invoice_item,
+                "amount": inv.amount,
+                "description": inv.description,
+                "due_date": inv.due_date.strftime("%Y-%m-%d"),
+                "payment_status": inv.payment_status,
+                "total_paid_amount": inv.total_paid_amount,
+                "file_url": constants.HOST_URL + "/" + inv.file_path if inv.file_path else None,
+                "created_at": inv.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            })
+
+        return ProjectServiceResponse(
+            data={
+                "po_id": str(po_id),
+                "total_invoices": len(invoice_list),
+                "invoices": invoice_list
+            },
+            message="Invoices fetched successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        logging.error(f"Error in get_invoices_by_po API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while fetching invoices: {str(e)}"
+        ).model_dump()
+
+
 
 
 # Invoice Payment APIs
+# @admin_app.post(
+#     "/invoices/{invoice_id}/payments",
+#     tags=["Invoice Payments"],
+#     status_code=201,
+#     description="""
+#     Create a payment record for an invoice.
+
+#     Request body should contain:
+#     ```json
+#     {
+#         "amount": 250.0,
+#         "payment_date": "2025-06-15",
+#         "description": "Partial payment",
+#         "payment_method": "bank",
+#         "reference_number": "TXN123456"
+#     }
+#     ```
+#     """
+# )
+# def create_invoice_payment(
+#     invoice_id: UUID,
+#     payment_request: InvoicePaymentCreateRequest = Body(
+#         ...,
+#         description="Payment information",
+#         example={
+#             "amount": 250.0,
+#             "payment_date": "2025-06-15",
+#             "description": "Partial payment",
+#             "payment_method": "bank",
+#             "reference_number": "TXN123456"
+#         }
+#     ),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """
+#     Create a payment record for an invoice.
+#     """
+#     try:
+#         # Verify user has permission
+#         if current_user.role not in [
+#             UserRole.SUPER_ADMIN.value,
+#             UserRole.ADMIN.value,
+#             UserRole.ACCOUNTANT.value,
+#         ]:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=403,
+#                 message="Not authorized to create invoice payments"
+#             ).model_dump()
+
+#         # Find the invoice
+#         invoice = db.query(Invoice).filter(
+#             Invoice.uuid == invoice_id,
+#             Invoice.is_deleted.is_(False)
+#         ).first()
+
+#         if not invoice:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=404,
+#                 message="Invoice not found"
+#             ).model_dump()
+
+#         # Parse payment date
+#         from datetime import datetime
+#         try:
+#             payment_date = datetime.strptime(payment_request.payment_date, "%Y-%m-%d").date()
+#         except ValueError:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=400,
+#                 message="Invalid payment_date format. Use YYYY-MM-DD"
+#             ).model_dump()
+
+#         # Create new payment record
+#         new_payment = InvoicePayment(
+#             invoice_id=invoice_id,
+#             amount=payment_request.amount,
+#             payment_date=payment_date,
+#             description=payment_request.description,
+#             payment_method=payment_request.payment_method,
+#             reference_number=payment_request.reference_number,
+#             created_by=current_user.uuid
+#         )
+#         db.add(new_payment)
+#         db.flush()
+
+#         # Update invoice payment status and total paid amount
+#         invoice.total_paid_amount += payment_request.amount
+
+#         # Determine payment status
+#         if invoice.total_paid_amount >= invoice.amount:
+#             invoice.payment_status = "fully_paid"
+#         elif invoice.total_paid_amount > 0:
+#             invoice.payment_status = "partially_paid"
+#         else:
+#             invoice.payment_status = "not_paid"
+
+#         # Create log entry
+#         log_entry = Log(
+#             uuid=str(uuid4()),
+#             entity="InvoicePayment",
+#             action="Create",
+#             entity_id=new_payment.uuid,
+#             performed_by=current_user.uuid,
+#         )
+#         db.add(log_entry)
+#         db.commit()
+#         db.refresh(new_payment)
+
+#         return ProjectServiceResponse(
+#             data={
+#                 "uuid": str(new_payment.uuid),
+#                 "invoice_id": str(new_payment.invoice_id),
+#                 "amount": new_payment.amount,
+#                 "payment_date": new_payment.payment_date.strftime("%Y-%m-%d"),
+#                 "description": new_payment.description,
+#                 "payment_method": new_payment.payment_method,
+#                 "reference_number": new_payment.reference_number,
+#                 "created_at": new_payment.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+#                 "invoice_payment_status": invoice.payment_status,
+#                 "invoice_total_paid": invoice.total_paid_amount
+#             },
+#             message="Invoice payment created successfully",
+#             status_code=201
+#         ).model_dump()
+#     except Exception as e:
+#         db.rollback()
+#         logging.error(f"Error in create_invoice_payment API: {str(e)}")
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=500,
+#             message=f"An error occurred while creating invoice payment: {str(e)}"
+#         ).model_dump()
+    
 @admin_app.post(
     "/invoices/{invoice_id}/payments",
     tags=["Invoice Payments"],
     status_code=201,
-    description="""
-    Create a payment record for an invoice.
-
-    Request body should contain:
-    ```json
-    {
-        "amount": 250.0,
-        "payment_date": "2025-06-15",
-        "description": "Partial payment",
-        "payment_method": "bank",
-        "reference_number": "TXN123456"
-    }
-    ```
-    """
+    description="Create multiple payments for an invoice"
 )
-def create_invoice_payment(
+def create_multiple_invoice_payments(
     invoice_id: UUID,
-    payment_request: InvoicePaymentCreateRequest = Body(
-        ...,
-        description="Payment information",
-        example={
-            "amount": 250.0,
-            "payment_date": "2025-06-15",
-            "description": "Partial payment",
-            "payment_method": "bank",
-            "reference_number": "TXN123456"
-        }
-    ),
+    payment_request: MultiInvoicePaymentRequest = Body(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Create a payment record for an invoice.
-    """
     try:
-        # Verify user has permission
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
@@ -2040,7 +2362,6 @@ def create_invoice_payment(
                 message="Not authorized to create invoice payments"
             ).model_dump()
 
-        # Find the invoice
         invoice = db.query(Invoice).filter(
             Invoice.uuid == invoice_id,
             Invoice.is_deleted.is_(False)
@@ -2053,34 +2374,45 @@ def create_invoice_payment(
                 message="Invoice not found"
             ).model_dump()
 
-        # Parse payment date
         from datetime import datetime
-        try:
-            payment_date = datetime.strptime(payment_request.payment_date, "%Y-%m-%d").date()
-        except ValueError:
-            return ProjectServiceResponse(
-                data=None,
-                status_code=400,
-                message="Invalid payment_date format. Use YYYY-MM-DD"
-            ).model_dump()
 
-        # Create new payment record
-        new_payment = InvoicePayment(
-            invoice_id=invoice_id,
-            amount=payment_request.amount,
-            payment_date=payment_date,
-            description=payment_request.description,
-            payment_method=payment_request.payment_method,
-            reference_number=payment_request.reference_number,
-            created_by=current_user.uuid
-        )
-        db.add(new_payment)
-        db.flush()
+        created_payments = []
 
-        # Update invoice payment status and total paid amount
-        invoice.total_paid_amount += payment_request.amount
+        for payment in payment_request.payments:
+            try:
+                payment_date = datetime.strptime(payment.payment_date, "%Y-%m-%d").date()
+            except ValueError:
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message=f"Invalid payment_date format: {payment.payment_date}"
+                ).model_dump()
 
-        # Determine payment status
+            new_payment = InvoicePayment(
+                invoice_id=invoice_id,
+                amount=payment.amount,
+                payment_date=payment_date,
+                description=payment.description,
+                payment_method=payment.payment_method,
+                reference_number=payment.reference_number,
+                created_by=current_user.uuid
+            )
+            db.add(new_payment)
+            db.flush()
+
+            # Append to response
+            created_payments.append({
+                "uuid": str(new_payment.uuid),
+                "amount": new_payment.amount,
+                "payment_date": new_payment.payment_date.strftime("%Y-%m-%d"),
+                "description": new_payment.description,
+                "payment_method": new_payment.payment_method,
+                "reference_number": new_payment.reference_number
+            })
+
+            invoice.total_paid_amount += new_payment.amount
+
+        # Update invoice status
         if invoice.total_paid_amount >= invoice.amount:
             invoice.payment_status = "fully_paid"
         elif invoice.total_paid_amount > 0:
@@ -2088,59 +2420,51 @@ def create_invoice_payment(
         else:
             invoice.payment_status = "not_paid"
 
-        # Create log entry
+        # Create log
         log_entry = Log(
             uuid=str(uuid4()),
             entity="InvoicePayment",
-            action="Create",
-            entity_id=new_payment.uuid,
+            action="BatchCreate",
+            entity_id=invoice_id,
             performed_by=current_user.uuid,
         )
         db.add(log_entry)
         db.commit()
-        db.refresh(new_payment)
 
         return ProjectServiceResponse(
             data={
-                "uuid": str(new_payment.uuid),
-                "invoice_id": str(new_payment.invoice_id),
-                "amount": new_payment.amount,
-                "payment_date": new_payment.payment_date.strftime("%Y-%m-%d"),
-                "description": new_payment.description,
-                "payment_method": new_payment.payment_method,
-                "reference_number": new_payment.reference_number,
-                "created_at": new_payment.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "invoice_id": str(invoice_id),
                 "invoice_payment_status": invoice.payment_status,
-                "invoice_total_paid": invoice.total_paid_amount
+                "invoice_total_paid": invoice.total_paid_amount,
+                "payments": created_payments
             },
-            message="Invoice payment created successfully",
+            message=f"{len(created_payments)} payments created successfully",
             status_code=201
         ).model_dump()
+
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in create_invoice_payment API: {str(e)}")
+        logging.error(f"Error creating multiple payments: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while creating invoice payment: {str(e)}"
+            message=f"An error occurred while creating payments: {str(e)}"
         ).model_dump()
 
 
 @admin_app.get(
     "/invoices/{invoice_id}/payments",
     tags=["Invoice Payments"],
-    description="List all payments for a specific invoice"
+    status_code=200,
+    description="Get all payments made for a specific invoice"
 )
-def list_invoice_payments(
+def get_invoice_payments(
     invoice_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    List all payments for a specific invoice.
-    """
     try:
-        # Find the invoice
+        # Validate invoice exists
         invoice = db.query(Invoice).filter(
             Invoice.uuid == invoice_id,
             Invoice.is_deleted.is_(False)
@@ -2151,6 +2475,18 @@ def list_invoice_payments(
                 data=None,
                 status_code=404,
                 message="Invoice not found"
+            ).model_dump()
+
+        # Optional: Role check
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Not authorized to view invoice payments"
             ).model_dump()
 
         # Get all payments for this invoice
@@ -2159,12 +2495,11 @@ def list_invoice_payments(
             InvoicePayment.is_deleted.is_(False)
         ).order_by(InvoicePayment.payment_date.desc()).all()
 
-        # Format response
-        payments_list = []
+        # Format output
+        payment_list = []
         for payment in payments:
-            payments_list.append({
+            payment_list.append({
                 "uuid": str(payment.uuid),
-                "invoice_id": str(payment.invoice_id),
                 "amount": payment.amount,
                 "payment_date": payment.payment_date.strftime("%Y-%m-%d"),
                 "description": payment.description,
@@ -2180,19 +2515,184 @@ def list_invoice_payments(
                 "payment_status": invoice.payment_status,
                 "total_paid_amount": invoice.total_paid_amount,
                 "remaining_amount": invoice.amount - invoice.total_paid_amount,
-                "payments": payments_list
+                "payments": payment_list
             },
             message="Invoice payments fetched successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
-        logging.error(f"Error in list_invoice_payments API: {str(e)}")
+        logging.error(f"Error in get_invoice_payments API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching invoice payments: {str(e)}"
+            message=f"An error occurred while fetching payments: {str(e)}"
         ).model_dump()
 
+# @admin_app.get(
+#     "/invoices/{invoice_id}/payments",
+#     tags=["Invoice Payments"],
+#     description="List all payments for a specific invoice"
+# )
+# def list_invoice_payments(
+#     invoice_id: UUID,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """
+#     List all payments for a specific invoice.
+#     """
+#     try:
+#         # Find the invoice
+#         invoice = db.query(Invoice).filter(
+#             Invoice.uuid == invoice_id,
+#             Invoice.is_deleted.is_(False)
+#         ).first()
+
+#         if not invoice:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=404,
+#                 message="Invoice not found"
+#             ).model_dump()
+
+#         # Get all payments for this invoice
+#         payments = db.query(InvoicePayment).filter(
+#             InvoicePayment.invoice_id == invoice_id,
+#             InvoicePayment.is_deleted.is_(False)
+#         ).order_by(InvoicePayment.payment_date.desc()).all()
+
+#         # Format response
+#         payments_list = []
+#         for payment in payments:
+#             payments_list.append({
+#                 "uuid": str(payment.uuid),
+#                 "invoice_id": str(payment.invoice_id),
+#                 "amount": payment.amount,
+#                 "payment_date": payment.payment_date.strftime("%Y-%m-%d"),
+#                 "description": payment.description,
+#                 "payment_method": payment.payment_method,
+#                 "reference_number": payment.reference_number,
+#                 "created_at": payment.created_at.strftime("%Y-%m-%d %H:%M:%S")
+#             })
+
+#         return ProjectServiceResponse(
+#             data={
+#                 "invoice_id": str(invoice_id),
+#                 "invoice_amount": invoice.amount,
+#                 "payment_status": invoice.payment_status,
+#                 "total_paid_amount": invoice.total_paid_amount,
+#                 "remaining_amount": invoice.amount - invoice.total_paid_amount,
+#                 "payments": payments_list
+#             },
+#             message="Invoice payments fetched successfully",
+#             status_code=200
+#         ).model_dump()
+#     except Exception as e:
+#         logging.error(f"Error in list_invoice_payments API: {str(e)}")
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=500,
+#             message=f"An error occurred while fetching invoice payments: {str(e)}"
+#         ).model_dump()
+    
+@admin_app.delete(
+    "/invoices/{invoice_id}/payments/{payment_id}",
+    tags=["Invoice Payments"],
+    description="Delete a specific payment for an invoice"
+)
+def delete_invoice_payment(
+    invoice_id: UUID,
+    payment_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Soft delete an invoice payment and update invoice totals and status.
+    """
+    try:
+        # Check role
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Not authorized to delete invoice payments"
+            ).model_dump()
+
+        # Get the invoice
+        invoice = db.query(Invoice).filter(
+            Invoice.uuid == invoice_id,
+            Invoice.is_deleted.is_(False)
+        ).first()
+
+        if not invoice:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Invoice not found"
+            ).model_dump()
+
+        # Get the payment record
+        payment = db.query(InvoicePayment).filter(
+            InvoicePayment.uuid == payment_id,
+            InvoicePayment.invoice_id == invoice_id,
+            InvoicePayment.is_deleted.is_(False)
+        ).first()
+
+        if not payment:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Invoice payment not found"
+            ).model_dump()
+
+        # Soft-delete payment
+        payment.is_deleted = True
+        invoice.total_paid_amount -= payment.amount
+
+        # Update invoice payment status
+        if invoice.total_paid_amount <= 0:
+            invoice.total_paid_amount = 0
+            invoice.payment_status = "not_paid"
+        elif invoice.total_paid_amount >= invoice.amount:
+            invoice.payment_status = "fully_paid"
+        else:
+            invoice.payment_status = "partially_paid"
+
+        # Create audit log
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="InvoicePayment",
+            action="Delete",
+            entity_id=payment.uuid,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
+        db.commit()
+
+        return ProjectServiceResponse(
+            data={
+                "invoice_id": str(invoice_id),
+                "payment_id": str(payment_id),
+                "new_invoice_status": invoice.payment_status,
+                "total_paid_amount": invoice.total_paid_amount
+            },
+            message="Invoice payment deleted successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in delete_invoice_payment API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while deleting invoice payment: {str(e)}"
+        ).model_dump()
 
 @admin_app.get(
     "/khatabook",

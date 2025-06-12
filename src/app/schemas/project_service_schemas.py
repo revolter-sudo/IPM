@@ -118,12 +118,15 @@ class InvoiceStatusUpdateRequest(BaseModel):
 
 
 class InvoicePaymentCreateRequest(BaseModel):
-    invoice_id: UUID
+    # invoice_id: UUID
     amount: float
     payment_date: str  # Format: "YYYY-MM-DD"
     description: Optional[str] = None
     payment_method: Optional[str] = None  # cash, bank, cheque, etc.
     reference_number: Optional[str] = None
+
+class MultiInvoicePaymentRequest(BaseModel):
+    payments: List[InvoicePaymentCreateRequest]
 
 
 class InvoicePaymentResponse(BaseModel):
