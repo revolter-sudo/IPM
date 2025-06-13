@@ -2959,6 +2959,7 @@ def get_all_item_analytics(
                 )
 
             items_analytics.append({
+                "uuid": item.uuid,
                 "item_name": item.name,
                 "project_name": project.name,
                 "estimation": estimation,
