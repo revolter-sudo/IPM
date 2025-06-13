@@ -91,12 +91,16 @@ class InvoiceCreateRequest(BaseModel):
     due_date: str  # Format: "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
 
 
+class InvoiceItemUpdate(BaseModel):
+    item_name: str
+    basic_value: float
+
 class InvoiceUpdateRequest(BaseModel):
     client_name: Optional[str] = None
-    invoice_item: Optional[str] = None
     amount: Optional[float] = None
     description: Optional[str] = None
-    due_date: Optional[str] = None  # Format: "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS"
+    due_date: Optional[str] = None  # "YYYY-MM-DD"
+    invoice_items: Optional[List[InvoiceItemUpdate]] = None
 
 
 class InvoiceResponse(BaseModel):

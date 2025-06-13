@@ -21,7 +21,8 @@ from src.app.database.models import (
     ProjectItemMap,
     Invoice,
     PaymentItem,
-    ProjectPO
+    ProjectPO,
+    ProjectPOItem
 )
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
@@ -37,6 +38,7 @@ from src.app.schemas.project_service_schemas import (
     InvoiceStatusUpdateRequest
 )
 from src.app.services.auth_service import get_current_user
+from datetime import datetime, timedelta
 
 project_router = APIRouter(prefix="/projects")
 
@@ -1059,20 +1061,160 @@ def delete_project(
 #             message=f"An error occurred while adding PO: {str(e)}"
 #         ).model_dump()
 
+# @project_router.post(
+#     "/{project_id}/pos",
+#     status_code=status.HTTP_201_CREATED,
+#     tags=["Project POs"],
+#     description="""
+#     Add a new PO to an existing project. The PO number is auto-generated.
+#     Request format:
+#     ```json
+#     {
+#         "amount": 1000.0,
+#         "description": "Additional PO for project"
+#     }
+#     ```
+#     """
+# )
+# def add_project_po(
+#     project_id: UUID,
+#     po_data: str = Form(..., description="JSON string containing PO details"),
+#     po_document: Optional[UploadFile] = File(None, description="PO document file"),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     try:
+#         import json
+#         from datetime import datetime
+
+#         # Parse and validate
+#         po_request_data = json.loads(po_data)
+#         amount = po_request_data.get("amount")
+#         description = po_request_data.get("description")
+
+#         if not amount or amount <= 0:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=400,
+#                 message="Amount must be greater than 0"
+#             ).model_dump()
+
+#         # Check project exists
+#         project = db.query(Project).filter(
+#             Project.uuid == project_id,
+#             Project.is_deleted.is_(False)
+#         ).first()
+#         if not project:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=404,
+#                 message="Project not found"
+#             ).model_dump()
+
+#         # Check role
+#         user_role = getattr(current_user, "role", None) or current_user.get("role")
+#         if user_role not in [
+#             UserRole.SUPER_ADMIN.value,
+#             UserRole.ADMIN.value,
+#             UserRole.PROJECT_MANAGER.value,
+#         ]:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=403,
+#                 message="Unauthorized to add POs to project"
+#             ).model_dump()
+
+#         # 📌 Auto-generate unique PO number
+#         year = datetime.utcnow().year
+#         existing_po_count = db.query(ProjectPO).filter(
+#             ProjectPO.project_id == project_id
+#         ).count()
+#         po_number = f"PO-{year}-{str(existing_po_count + 1).zfill(4)}"
+
+#         # 🧾 Optional: Save file (if needed)
+#         file_path = None
+#         if po_document:
+#             ext = os.path.splitext(po_document.filename)[1]
+#             filename = f"PO_{str(uuid4())}{ext}"
+#             upload_dir = "uploads/po_docs"
+#             os.makedirs(upload_dir, exist_ok=True)
+#             file_path = os.path.join(upload_dir, filename)
+#             with open(file_path, "wb") as buffer:
+#                 buffer.write(po_document.file.read())
+
+#         # Create PO
+#         new_po = ProjectPO(
+#             project_id=project_id,
+#             po_number=po_number,
+#             amount=amount,
+#             description=description,
+#             file_path=file_path,
+#             created_by=current_user.uuid
+#         )
+#         db.add(new_po)
+#         db.commit()
+#         db.refresh(new_po)
+
+#         return ProjectServiceResponse(
+#             data={
+#                 "uuid": str(new_po.uuid),
+#                 "project_id": str(project_id),
+#                 "po_number": new_po.po_number,
+#                 "amount": new_po.amount,
+#                 "description": new_po.description,
+#                 "created_at": new_po.created_at.strftime("%Y-%m-%d %H:%M:%S")
+#             },
+#             message="PO added to project successfully",
+#             status_code=201
+#         ).model_dump()
+
+#     except json.JSONDecodeError as json_error:
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=400,
+#             message=f"Invalid JSON in PO data: {str(json_error)}"
+#         ).model_dump()
+
+#     except Exception as e:
+#         db.rollback()
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=500,
+#             message=f"An error occurred while adding PO: {str(e)}"
+#         ).model_dump()
+
 @project_router.post(
     "/{project_id}/pos",
     status_code=status.HTTP_201_CREATED,
     tags=["Project POs"],
-    description="""
-    Add a new PO to an existing project. The PO number is auto-generated.
-    Request format:
-    ```json
+       description="""
+Add a new Purchase Order (PO) under a project.
+
+Send the PO data as a JSON string via the `po_data` form field and optionally upload a PO document file.
+
+ **Example `po_data` JSON Format**:
+```json
+{
+  "po_number": "PO-2025-0005",         
+  "client_name": "ABC Company",        
+  "amount": 500.0,                     
+  "description": "Invoice for materials", 
+  "po_date": "2025-06-15",             
+  "items": [
     {
-        "amount": 1000.0,
-        "description": "Additional PO for project"
+      "item_name": "Steel Rods",
+      "basic_value": 200
+    },
+    {
+      "item_name": "Cement Bags",
+      "basic_value": 300
     }
-    ```
-    """
+  ]
+}
+ File Upload :
+
+Use po_document field to attach a PDF/DOCX file.
+"""
 )
 def add_project_po(
     project_id: UUID,
@@ -1082,13 +1224,13 @@ def add_project_po(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        import json
-        from datetime import datetime
-
-        # Parse and validate
         po_request_data = json.loads(po_data)
         amount = po_request_data.get("amount")
         description = po_request_data.get("description")
+        client_name = po_request_data.get("client_name")
+        po_number = po_request_data.get("po_number")  # Can be None
+        po_date_str = po_request_data.get("po_date")  # Expecting date string
+        items = po_request_data.get("items", [])
 
         if not amount or amount <= 0:
             return ProjectServiceResponse(
@@ -1097,7 +1239,19 @@ def add_project_po(
                 message="Amount must be greater than 0"
             ).model_dump()
 
-        # Check project exists
+        # Convert date
+        po_date = None
+        if po_date_str:
+            try:
+                po_date = datetime.strptime(po_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message="Invalid date format. Use YYYY-MM-DD"
+                ).model_dump()
+
+        # Check project
         project = db.query(Project).filter(
             Project.uuid == project_id,
             Project.is_deleted.is_(False)
@@ -1109,7 +1263,7 @@ def add_project_po(
                 message="Project not found"
             ).model_dump()
 
-        # Check role
+        # Role check
         user_role = getattr(current_user, "role", None) or current_user.get("role")
         if user_role not in [
             UserRole.SUPER_ADMIN.value,
@@ -1122,14 +1276,15 @@ def add_project_po(
                 message="Unauthorized to add POs to project"
             ).model_dump()
 
-        # 📌 Auto-generate unique PO number
-        year = datetime.utcnow().year
-        existing_po_count = db.query(ProjectPO).filter(
-            ProjectPO.project_id == project_id
-        ).count()
-        po_number = f"PO-{year}-{str(existing_po_count + 1).zfill(4)}"
+        # Auto-generate PO number if not given
+        if not po_number:
+            year = datetime.utcnow().year
+            existing_po_count = db.query(ProjectPO).filter(
+                ProjectPO.project_id == project_id
+            ).count()
+            po_number = f"PO-{year}-{str(existing_po_count + 1).zfill(4)}"
 
-        # 🧾 Optional: Save file (if needed)
+        # Save file if provided
         file_path = None
         if po_document:
             ext = os.path.splitext(po_document.filename)[1]
@@ -1140,27 +1295,53 @@ def add_project_po(
             with open(file_path, "wb") as buffer:
                 buffer.write(po_document.file.read())
 
-        # Create PO
+        # Create main PO
         new_po = ProjectPO(
             project_id=project_id,
             po_number=po_number,
             amount=amount,
             description=description,
+            client_name=client_name,
+            po_date=po_date,
             file_path=file_path,
             created_by=current_user.uuid
         )
         db.add(new_po)
+        db.flush()  # Required to get new_po.uuid before adding items
+
+        # Save items
+        for item in items:
+            item_name = item.get("item_name")
+            basic_value = item.get("basic_value")
+            if not item_name or basic_value is None:
+                continue
+            new_item = ProjectPOItem(
+                project_po_id=new_po.uuid,
+                item_name=item_name,
+                basic_value=basic_value
+            )
+            db.add(new_item)
+
         db.commit()
         db.refresh(new_po)
 
         return ProjectServiceResponse(
             data={
                 "uuid": str(new_po.uuid),
-                "project_id": str(project_id),
+                "project_id": str(new_po.project_id),
+                "project_name": new_po.project.name if new_po.project else None,
                 "po_number": new_po.po_number,
+                "client_name": new_po.client_name,
                 "amount": new_po.amount,
                 "description": new_po.description,
-                "created_at": new_po.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                "po_date": new_po.po_date.strftime("%Y-%m-%d") if new_po.po_date else None,
+                "created_at": new_po.created_at.strftime("%Y-%m-%d %H:%M:%S") if new_po.created_at else None,
+                "items": [
+                    {
+                        "item_name": item.item_name,
+                        "basic_value": item.basic_value
+                    } for item in new_po.po_items  # ensure this relationship exists
+                ] if hasattr(new_po, "po_items") else []
             },
             message="PO added to project successfully",
             status_code=201
@@ -1182,7 +1363,6 @@ def add_project_po(
         ).model_dump()
 
 
-
 @project_router.get(
     "/{project_id}/pos",
     tags=["Project POs"],
@@ -1195,12 +1375,12 @@ def get_project_pos(
 ):
     """Get all POs for a specific project."""
     try:
-        # Check if project exists
+        # Validate project
         project = db.query(Project).filter(
             Project.uuid == project_id,
             Project.is_deleted.is_(False)
         ).first()
-        
+
         if not project:
             return ProjectServiceResponse(
                 data=None,
@@ -1208,23 +1388,30 @@ def get_project_pos(
                 message="Project not found"
             ).model_dump()
 
-        # Get all POs for this project
+        # Fetch all non-deleted POs
         pos = db.query(ProjectPO).filter(
             ProjectPO.project_id == project_id,
             ProjectPO.is_deleted.is_(False)
         ).order_by(ProjectPO.created_at).all()
 
-        # Format PO data
         pos_data = []
         total_amount = 0.0
-        
+
         for po in pos:
             po_data = {
                 "uuid": str(po.uuid),
                 "po_number": po.po_number,
+                "client_name": po.client_name,
                 "amount": po.amount,
                 "description": po.description,
-                "created_at": po.created_at.isoformat() if po.created_at else None,
+                "po_date": po.po_date.strftime("%Y-%m-%d") if po.po_date else None,
+                "created_at": po.created_at.strftime("%Y-%m-%d %H:%M:%S") if po.created_at else None,
+                "items": [
+                    {
+                        "item_name": item.item_name,
+                        "basic_value": item.basic_value
+                    } for item in getattr(po, "po_items", [])
+                ] if hasattr(po, "po_items") else [],
                 "created_by": str(po.created_by)
             }
             pos_data.append(po_data)
@@ -1232,7 +1419,7 @@ def get_project_pos(
 
         return ProjectServiceResponse(
             data={
-                "project_id": str(project_id),
+                "project_id": str(project.uuid),
                 "project_name": project.name,
                 "po_summary": {
                     "total_pos": len(pos),
@@ -1245,11 +1432,13 @@ def get_project_pos(
         ).model_dump()
 
     except Exception as e:
+        logging.error(f"Error in get_project_pos API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
             message=f"An error occurred while fetching project POs: {str(e)}"
         ).model_dump()
+
     
 
 @project_router.delete(

@@ -254,7 +254,9 @@ class ProjectPO(Base):
     project_id = Column(
         UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False
     )
-    po_number = Column(String(100), nullable=True)  # Optional PO number
+    po_number = Column(String(100), unique=True, nullable=True)  # Optional PO number
+    client_name = Column(String(255), nullable=True)
+    po_date = Column(String(50), nullable=True)
     amount = Column(Float, nullable=False)
     description = Column(Text, nullable=True)
     file_path = Column(String(255), nullable=True)  # Path to PO document
@@ -277,9 +279,24 @@ class ProjectPO(Base):
         back_populates="project_po",
         cascade="all, delete-orphan"
     )
+    po_items = relationship("ProjectPOItem", back_populates="project_po", cascade="all, delete-orphan")
+
 
     def __repr__(self):
         return f"<ProjectPO(id={self.id}, project_id={self.project_id}, amount={self.amount})>"
+    
+class ProjectPOItem(Base):
+    __tablename__ = "project_po_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
+    project_po_id = Column(UUID(as_uuid=True), ForeignKey("project_pos.uuid", ondelete="CASCADE"), nullable=False)
+    item_name = Column(String(255), nullable=False)
+    basic_value = Column(Float, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    project_po = relationship("ProjectPO", back_populates="po_items")
+
 
 
 class Log(Base):
@@ -616,7 +633,8 @@ class Invoice(Base):
         UUID(as_uuid=True), ForeignKey("project_pos.uuid"), nullable=True
     )
     client_name = Column(String(255), nullable=False)
-    invoice_item = Column(String(255), nullable=False)
+    invoice_number = Column(String(100), nullable=True)
+    invoice_date = Column(String(50), nullable=True)
     amount = Column(Float, nullable=False)
     description = Column(Text, nullable=True)
     due_date = Column(TIMESTAMP, nullable=False)
@@ -645,9 +663,28 @@ class Invoice(Base):
         back_populates="invoice",
         cascade="all, delete-orphan"
     )
+    invoice_items = relationship(
+        "InvoiceItem",
+        back_populates="invoice",
+        cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<Invoice(id={self.id}, amount={self.amount}, status={self.status})>"
+class InvoiceItem(Base):
+    __tablename__ = "invoice_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
+    invoice_id = Column(UUID(as_uuid=True), ForeignKey("invoices.uuid", ondelete="CASCADE"), nullable=False)
+    item_name = Column(String(255), nullable=False)
+    basic_value = Column(Float, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    invoice = relationship("Invoice", back_populates="invoice_items")
+
+    def __repr__(self):
+        return f"<InvoiceItem(invoice_id={self.invoice_id}, item_name={self.item_name}, basic_value={self.basic_value})>"
 
 
 class InvoicePayment(Base):
