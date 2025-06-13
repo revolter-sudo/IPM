@@ -672,6 +672,7 @@ class InvoicePayment(Base):
     updated_at = Column(
         TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False
     )
+    is_late = Column(Boolean, default=False, nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
 
     # Relationships

@@ -2351,6 +2351,7 @@ def create_multiple_invoice_payments(
     current_user: User = Depends(get_current_user),
 ):
     try:
+        # ✅ Role check
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
@@ -2362,11 +2363,11 @@ def create_multiple_invoice_payments(
                 message="Not authorized to create invoice payments"
             ).model_dump()
 
+        # ✅ Get Invoice
         invoice = db.query(Invoice).filter(
             Invoice.uuid == invoice_id,
             Invoice.is_deleted.is_(False)
         ).first()
-
         if not invoice:
             return ProjectServiceResponse(
                 data=None,
@@ -2374,11 +2375,16 @@ def create_multiple_invoice_payments(
                 message="Invoice not found"
             ).model_dump()
 
-        from datetime import datetime
+        # ✅ Get related project (for checking `end_date`)
+        project = db.query(Project).filter(
+            Project.uuid == invoice.project_id,
+            Project.is_deleted.is_(False)
+        ).first()
 
         created_payments = []
 
         for payment in payment_request.payments:
+            # ✅ Parse payment date
             try:
                 payment_date = datetime.strptime(payment.payment_date, "%Y-%m-%d").date()
             except ValueError:
@@ -2388,6 +2394,12 @@ def create_multiple_invoice_payments(
                     message=f"Invalid payment_date format: {payment.payment_date}"
                 ).model_dump()
 
+            # ✅ is_late logic
+            is_late = False
+            if project and project.end_date and payment_date > project.end_date:
+                is_late = True
+
+            # ✅ Create InvoicePayment
             new_payment = InvoicePayment(
                 invoice_id=invoice_id,
                 amount=payment.amount,
@@ -2395,24 +2407,26 @@ def create_multiple_invoice_payments(
                 description=payment.description,
                 payment_method=payment.payment_method,
                 reference_number=payment.reference_number,
+                is_late=is_late,
                 created_by=current_user.uuid
             )
             db.add(new_payment)
             db.flush()
 
-            # Append to response
             created_payments.append({
                 "uuid": str(new_payment.uuid),
                 "amount": new_payment.amount,
                 "payment_date": new_payment.payment_date.strftime("%Y-%m-%d"),
                 "description": new_payment.description,
                 "payment_method": new_payment.payment_method,
-                "reference_number": new_payment.reference_number
+                "reference_number": new_payment.reference_number,
+                "is_late": new_payment.is_late
             })
 
+            # ✅ Update invoice totals
             invoice.total_paid_amount += new_payment.amount
 
-        # Update invoice status
+        # ✅ Update invoice payment status
         if invoice.total_paid_amount >= invoice.amount:
             invoice.payment_status = "fully_paid"
         elif invoice.total_paid_amount > 0:
@@ -2420,7 +2434,7 @@ def create_multiple_invoice_payments(
         else:
             invoice.payment_status = "not_paid"
 
-        # Create log
+        # ✅ Create Log
         log_entry = Log(
             uuid=str(uuid4()),
             entity="InvoicePayment",
@@ -2450,7 +2464,6 @@ def create_multiple_invoice_payments(
             status_code=500,
             message=f"An error occurred while creating payments: {str(e)}"
         ).model_dump()
-
 
 @admin_app.get(
     "/invoices/{invoice_id}/payments",
