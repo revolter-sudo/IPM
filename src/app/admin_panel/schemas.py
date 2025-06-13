@@ -110,3 +110,10 @@ class LogResponse(BaseModel):
     performer_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+class UserProjectItemResponse(BaseModel):
+    item_id: UUID
+    name: Optional[str]
+    category: Optional[str]
+    list_tag: Optional[str]
+    has_additional_info: Optional[bool]

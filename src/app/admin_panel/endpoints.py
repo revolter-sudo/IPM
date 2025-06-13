@@ -19,6 +19,9 @@ from src.app.admin_panel.services import (
     sync_project_item_mappings,
     sync_project_user_item_mappings
 )
+from src.app.admin_panel.schemas import (
+    UserProjectItemResponse
+    )
 from src.app.schemas.project_service_schemas import (
     ProjectServiceResponse,
     InvoiceCreateRequest,
@@ -1212,7 +1215,7 @@ def get_user_projects(
             # ) or 0.0
 
             # Get PO balance
-            po_balance = project.po_balance if project.po_balance else 0
+            # po_balance = project.po_balance if project.po_balance else 0
 
             # Get estimated balance
             estimated_balance = project.estimated_balance if project.estimated_balance else 0
@@ -1227,10 +1230,8 @@ def get_user_projects(
                 "location": project.location,
                 "start_date": project.start_date,
                 "end_date": project.end_date,
-                "po_balance": po_balance,
                 "estimated_balance": estimated_balance,
-                "actual_balance": actual_balance,
-                "po_document_path": project.po_document_path
+                "actual_balance": actual_balance
             })
         return ProjectServiceResponse(
             data=project_response,
@@ -1256,6 +1257,7 @@ def get_user_details(
     current_user: User = Depends(get_current_user),
 ):
     try:
+        # Role check
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
@@ -1267,6 +1269,7 @@ def get_user_details(
                 message="Unauthorized to view user details"
             ).model_dump()
 
+        # Get user
         user = db.query(User).filter(User.uuid == user_id).first()
         if not user:
             return ProjectServiceResponse(
@@ -1275,59 +1278,46 @@ def get_user_details(
                 message="User not found"
             ).model_dump()
 
-        # Get all projects mapped to this user
-        project_mappings = (
-            db.query(Project, ProjectUserItemMap)
-            .join(ProjectUserItemMap, Project.uuid == ProjectUserMap.project_id)
-            .filter(ProjectUserMap.user_id == user_id)
+        # Get account info (Person)
+        person = db.query(Person).filter(Person.user_id == user.uuid).first()
+        account_info = {
+            "name": person.name if person else None,
+            "account_number": person.account_number if person else None,
+            "ifsc_code": person.ifsc_code if person else None,
+            "phone_number": person.phone_number if person else None,
+            "upi_number": person.upi_number if person else None,
+            "parent_id": str(person.parent_id) if person and person.parent_id else None
+        }
+
+        # Get project + item mappings for this user
+        user_item_mappings = (
+            db.query(Project, Item, ProjectUserItemMap)
+            .join(ProjectUserItemMap, Project.uuid == ProjectUserItemMap.project_id)
+            .join(Item, Item.uuid == ProjectUserItemMap.item_id)
+            .filter(ProjectUserItemMap.user_id == user_id)
             .all()
         )
 
-        projects_list = []
-        for project, mapping in project_mappings:
-            # Get items with their balances for each project
-            project_items = (
-                db.query(Item, ProjectItemMap)
-                .join(ProjectItemMap, Item.uuid == ProjectItemMap.item_id)
-                .filter(ProjectItemMap.project_id == project.uuid)
-                .all()
-            )
+        # Organize mappings by project
+        project_dict = {}
+        for project, item, mapping in user_item_mappings:
+            if project.uuid not in project_dict:
+                project_dict[project.uuid] = {
+                    "uuid": str(project.uuid),
+                    "name": project.name,
+                    "description": project.description,
+                    "location": project.location,
+                    "estimated_balance": project.estimated_balance or 0,
+                    "actual_balance": project.actual_balance or 0,
+                    "items": []
+                }
 
-            items_list = [{
+            project_dict[project.uuid]["items"].append({
                 "uuid": str(item.uuid),
                 "name": item.name,
                 "category": item.category,
                 "list_tag": item.list_tag,
-                "has_additional_info": item.has_additional_info,
-                "item_balance": item_mapping.item_balance
-            } for item, item_mapping in project_items]
-
-            # Get total balance (for backward compatibility)
-            # total_balance = (
-            #     db.query(func.sum(ProjectBalance.adjustment))
-            #     .filter(ProjectBalance.project_id == project.uuid)
-            #     .scalar()
-            # ) or 0.0
-
-            # Get PO balance
-            po_balance = project.po_balance if project.po_balance else 0
-
-            # Get estimated balance
-            estimated_balance = project.estimated_balance if project.estimated_balance else 0
-
-            # Get actual balance
-            actual_balance = project.actual_balance if project.actual_balance else 0
-
-            projects_list.append({
-                "uuid": str(project.uuid),
-                "name": project.name,
-                "description": project.description,
-                "location": project.location,
-                "po_balance": po_balance,
-                "estimated_balance": estimated_balance,
-                "actual_balance": actual_balance,
-                "po_document_path": project.po_document_path,
-                "items": items_list
+                "has_additional_info": item.has_additional_info
             })
 
         user_details = {
@@ -1335,7 +1325,8 @@ def get_user_details(
             "name": user.name,
             "phone": user.phone,
             "role": user.role,
-            "projects": projects_list
+            "account_info": account_info,
+            "projects": list(project_dict.values())
         }
 
         return ProjectServiceResponse(
@@ -1352,6 +1343,7 @@ def get_user_details(
             status_code=500,
             message="An error occurred while fetching user details"
         ).model_dump()
+
 
 
 @admin_app.get(
