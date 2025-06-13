@@ -3077,6 +3077,7 @@ def get_project_item_analytics(
                 )
 
             items_analytics.append({
+                "uuid": item.uuid,
                 "item_name": item.name,
                 "estimation": estimation,
                 "current_expense": current_expense
