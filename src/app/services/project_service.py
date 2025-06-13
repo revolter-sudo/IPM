@@ -462,6 +462,20 @@ def list_all_projects(
                     )
                     .all()
                 )
+                # Fetch all POs for this project
+                pos = []
+                for po in project.project_pos:
+                    creator = db.query(User.name).filter(User.uuid == po.created_by).scalar()
+                    pos.append({
+                        "uuid": str(po.uuid),
+                        "po_number": po.po_number,
+                        "amount": po.amount,
+                        "description": po.description,
+                        "file_path": po.file_path,
+                        "created_by": creator or "Unknown",
+                        "created_at": po.created_at
+                    })
+
 
                 # Get the payment amounts
                 payment_ids = [pi.payment_id for pi in payment_items]
@@ -499,7 +513,8 @@ def list_all_projects(
                     "exceeding_items": {
                         "count": len(exceeding_items),
                         "items": exceeding_items
-                    }
+                    },
+                    "pos":pos
                 }
             )
 
