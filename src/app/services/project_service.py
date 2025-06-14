@@ -351,7 +351,195 @@ def create_project(
         ).model_dump()
 
 
-@project_router.get("", status_code=status.HTTP_200_OK, tags=["Projects"])
+# @project_router.get("", status_code=status.HTTP_200_OK, tags=["Projects"])
+# def list_all_projects(
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """
+#     Fetch all projects visible to the current user.
+
+#     • Super-Admin / Admin → every non-deleted project
+#     • Everyone else      → only projects they're mapped to (ProjectUserMap)
+
+#     Response schema
+#     ----------------
+#     [
+#         {
+#             "uuid": <project-uuid>,
+#             "name": "<project-name>",
+#             "description": "<project-description>",
+#             "location": "<project-location>",
+#             "start_date": "project-start_date",
+#             "end_date": "project-end_date",
+#             # "balance": <current_balance_float>,  # For backward compatibility
+#             "estimated_balance": <estimated_balance_float>,
+#             "actual_balance": <actual_balance_float>,
+#             "items_count": <total_number_of_items_in_project>,
+#             "exceeding_items": {
+#                 "count": <number_of_items_exceeding_estimation>,
+#                 "items": [
+#                     {
+#                         "item_name": "<item-name>",
+#                         "estimation": <estimation_amount>,
+#                         "current_expense": <current_expense_amount>
+#                     },
+#                     ...
+#                 ]
+#             }
+#         },
+#         ...
+#     ]
+#     """
+#     try:
+#         # 1. Base project list depending on role
+#         if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, UserRole.ACCOUNTANT.value]:
+#             projects = db.query(
+#                 Project
+#             ).filter(
+#                 Project.is_deleted.is_(False)
+#             ).order_by(Project.id.desc()).all()
+#         else:
+#             projects = (
+#                 db.query(Project)
+#                 .join(
+#                     ProjectUserMap,
+#                     Project.uuid == ProjectUserMap.project_id
+#                 )
+#                 .filter(
+#                     Project.is_deleted.is_(False),
+#                     ProjectUserMap.user_id == current_user.uuid,
+#                 )
+#                 .order_by(Project.id.desc())
+#                 .all()
+#             )
+
+#         # 2. Build response with all balance types
+#         projects_response_data = []
+#         for project in projects:
+#             # Get total balance (for backward compatibility)
+#             # total_balance = (
+#             #     db.query(func.sum(ProjectBalance.adjustment))
+#             #     .filter(ProjectBalance.project_id == project.uuid)
+#             #     .scalar()
+#             # ) or 0.0
+
+#             # Get PO balance
+#             # po_balance = project.po_balance if project.po_balance else 0
+
+#             # Get estimated balance
+#             estimated_balance = project.estimated_balance if project.estimated_balance else 0
+
+#             # Get actual balance
+#             actual_balance = project.actual_balance if project.actual_balance else 0
+
+#             # Get all items mapped to this project with their balances
+#             project_items = (
+#                 db.query(ProjectItemMap, Item)
+#                 .join(Item, ProjectItemMap.item_id == Item.uuid)
+#                 .filter(ProjectItemMap.project_id == project.uuid)
+#                 .all()
+#             )
+
+#             # Count total items
+#             items_count = len(project_items)
+
+#             # Find items where current expense exceeds estimation
+#             exceeding_items = []
+#             for project_item, item in project_items:
+#                 # Get estimation (balance added when assigned)
+#                 estimation = project_item.item_balance or 0.0
+
+#                 # Get current expense (sum of transferred payments for this item)
+#                 # First, get all payment items for this item in this project
+#                 payment_items = (
+#                     db.query(PaymentItem)
+#                     .join(Payment, PaymentItem.payment_id == Payment.uuid)
+#                     .filter(
+#                         PaymentItem.item_id == item.uuid,
+#                         Payment.project_id == project.uuid,
+#                         Payment.status == 'transferred',
+#                         Payment.is_deleted.is_(False),
+#                         PaymentItem.is_deleted.is_(False)
+#                     )
+#                     .all()
+#                 )
+#                 # Fetch all POs for this project
+#                 pos = []
+#                 for po in project.project_pos:
+#                     creator = db.query(User.name).filter(User.uuid == po.created_by).scalar()
+#                     pos.append({
+#                         "uuid": str(po.uuid),
+#                         "po_number": po.po_number,
+#                         "amount": po.amount,
+#                         "description": po.description,
+#                         "file_path": po.file_path,
+#                         "created_by": creator or "Unknown",
+#                         "created_at": po.created_at
+#                     })
+
+
+#                 # Get the payment amounts
+#                 payment_ids = [pi.payment_id for pi in payment_items]
+#                 current_expense = 0.0
+#                 if payment_ids:
+#                     current_expense = (
+#                         db.query(func.sum(Payment.amount))
+#                         .filter(
+#                             Payment.uuid.in_(payment_ids),
+#                             Payment.status == 'transferred',
+#                             Payment.is_deleted.is_(False)
+#                         )
+#                         .scalar() or 0.0
+#                     )
+
+#                 # Check if current expense exceeds estimation
+#                 if current_expense > estimation:
+#                     exceeding_items.append({
+#                         "item_name": item.name,
+#                         "estimation": estimation,
+#                         "current_expense": current_expense
+#                     })
+
+#             projects_response_data.append(
+#                 {
+#                     "uuid": project.uuid,
+#                     "name": project.name,
+#                     "description": project.description,
+#                     "location": project.location,
+#                     "start_date": project.start_date,
+#                     "end_date": project.end_date,
+#                     "estimated_balance": estimated_balance,
+#                     "actual_balance": actual_balance,
+#                     "items_count": items_count,
+#                     "exceeding_items": {
+#                         "count": len(exceeding_items),
+#                         "items": exceeding_items
+#                     },
+#                     "pos":pos
+#                 }
+#             )
+
+#         return ProjectServiceResponse(
+#             data=projects_response_data,
+#             message="Projects fetched successfully.",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         logging.error(f"Error in list_all_projects API: {str(e)}")
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=500,
+#             message="An error occurred while fetching project details."
+#         ).model_dump()
+
+@project_router.get(
+    "",
+    status_code=status.HTTP_200_OK,
+    tags=["Projects"],
+    description="Fetch all projects visible to the current user along with PO and item expense details."
+)
 def list_all_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -359,53 +547,22 @@ def list_all_projects(
     """
     Fetch all projects visible to the current user.
 
-    • Super-Admin / Admin → every non-deleted project
-    • Everyone else      → only projects they're mapped to (ProjectUserMap)
+    • Super-Admin / Admin / Accountant → every non-deleted project
+    • Everyone else → only projects they're mapped to (ProjectUserMap)
 
-    Response schema
-    ----------------
-    [
-        {
-            "uuid": <project-uuid>,
-            "name": "<project-name>",
-            "description": "<project-description>",
-            "location": "<project-location>",
-            "start_date": "project-start_date",
-            "end_date": "project-end_date",
-            # "balance": <current_balance_float>,  # For backward compatibility
-            "estimated_balance": <estimated_balance_float>,
-            "actual_balance": <actual_balance_float>,
-            "items_count": <total_number_of_items_in_project>,
-            "exceeding_items": {
-                "count": <number_of_items_exceeding_estimation>,
-                "items": [
-                    {
-                        "item_name": "<item-name>",
-                        "estimation": <estimation_amount>,
-                        "current_expense": <current_expense_amount>
-                    },
-                    ...
-                ]
-            }
-        },
-        ...
-    ]
+    Returns full details with:
+    - Estimated & actual balances
+    - Items count & overbudget info
+    - List of all POs with metadata
     """
     try:
-        # 1. Base project list depending on role
+        # 1. Base query depending on role
         if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, UserRole.ACCOUNTANT.value]:
-            projects = db.query(
-                Project
-            ).filter(
-                Project.is_deleted.is_(False)
-            ).order_by(Project.id.desc()).all()
+            projects = db.query(Project).filter(Project.is_deleted.is_(False)).order_by(Project.id.desc()).all()
         else:
             projects = (
                 db.query(Project)
-                .join(
-                    ProjectUserMap,
-                    Project.uuid == ProjectUserMap.project_id
-                )
+                .join(ProjectUserMap, Project.uuid == ProjectUserMap.project_id)
                 .filter(
                     Project.is_deleted.is_(False),
                     ProjectUserMap.user_id == current_user.uuid,
@@ -414,26 +571,13 @@ def list_all_projects(
                 .all()
             )
 
-        # 2. Build response with all balance types
+        # 2. Build structured project list
         projects_response_data = []
         for project in projects:
-            # Get total balance (for backward compatibility)
-            # total_balance = (
-            #     db.query(func.sum(ProjectBalance.adjustment))
-            #     .filter(ProjectBalance.project_id == project.uuid)
-            #     .scalar()
-            # ) or 0.0
+            estimated_balance = project.estimated_balance or 0.0
+            actual_balance = project.actual_balance or 0.0
 
-            # Get PO balance
-            # po_balance = project.po_balance if project.po_balance else 0
-
-            # Get estimated balance
-            estimated_balance = project.estimated_balance if project.estimated_balance else 0
-
-            # Get actual balance
-            actual_balance = project.actual_balance if project.actual_balance else 0
-
-            # Get all items mapped to this project with their balances
+            # --- Items & overbudget logic ---
             project_items = (
                 db.query(ProjectItemMap, Item)
                 .join(Item, ProjectItemMap.item_id == Item.uuid)
@@ -441,17 +585,11 @@ def list_all_projects(
                 .all()
             )
 
-            # Count total items
             items_count = len(project_items)
-
-            # Find items where current expense exceeds estimation
             exceeding_items = []
-            for project_item, item in project_items:
-                # Get estimation (balance added when assigned)
-                estimation = project_item.item_balance or 0.0
 
-                # Get current expense (sum of transferred payments for this item)
-                # First, get all payment items for this item in this project
+            for project_item, item in project_items:
+                estimation = project_item.item_balance or 0.0
                 payment_items = (
                     db.query(PaymentItem)
                     .join(Payment, PaymentItem.payment_id == Payment.uuid)
@@ -464,36 +602,18 @@ def list_all_projects(
                     )
                     .all()
                 )
-                # Fetch all POs for this project
-                pos = []
-                for po in project.project_pos:
-                    creator = db.query(User.name).filter(User.uuid == po.created_by).scalar()
-                    pos.append({
-                        "uuid": str(po.uuid),
-                        "po_number": po.po_number,
-                        "amount": po.amount,
-                        "description": po.description,
-                        "file_path": po.file_path,
-                        "created_by": creator or "Unknown",
-                        "created_at": po.created_at
-                    })
 
-
-                # Get the payment amounts
                 payment_ids = [pi.payment_id for pi in payment_items]
-                current_expense = 0.0
-                if payment_ids:
-                    current_expense = (
-                        db.query(func.sum(Payment.amount))
-                        .filter(
-                            Payment.uuid.in_(payment_ids),
-                            Payment.status == 'transferred',
-                            Payment.is_deleted.is_(False)
-                        )
-                        .scalar() or 0.0
+                current_expense = (
+                    db.query(func.sum(Payment.amount))
+                    .filter(
+                        Payment.uuid.in_(payment_ids),
+                        Payment.status == 'transferred',
+                        Payment.is_deleted.is_(False)
                     )
+                    .scalar() or 0.0
+                )
 
-                # Check if current expense exceeds estimation
                 if current_expense > estimation:
                     exceeding_items.append({
                         "item_name": item.name,
@@ -501,24 +621,39 @@ def list_all_projects(
                         "current_expense": current_expense
                     })
 
-            projects_response_data.append(
-                {
-                    "uuid": project.uuid,
-                    "name": project.name,
-                    "description": project.description,
-                    "location": project.location,
-                    "start_date": project.start_date,
-                    "end_date": project.end_date,
-                    "estimated_balance": estimated_balance,
-                    "actual_balance": actual_balance,
-                    "items_count": items_count,
-                    "exceeding_items": {
-                        "count": len(exceeding_items),
-                        "items": exceeding_items
-                    },
-                    "pos":pos
-                }
-            )
+            # --- Fetch all POs for project ---
+            pos_list = []
+            for po in project.project_pos:
+                creator_name = db.query(User.name).filter(User.uuid == po.created_by).scalar()
+                pos_list.append({
+                    "uuid": str(po.uuid),
+                    "po_number": po.po_number,
+                    "client_name": po.client_name,
+                    "amount": po.amount,
+                    "description": po.description,
+                    "po_date": po.po_date.strftime("%Y-%m-%d") if po.po_date else None,
+                    "file_path": constants.HOST_URL + "/" + po.file_path if po.file_path else None,
+                    "created_by": creator_name or "Unknown",
+                    "created_at": po.created_at.strftime("%Y-%m-%d %H:%M:%S") if po.created_at else None
+                })
+
+            # --- Final project object ---
+            projects_response_data.append({
+                "uuid": str(project.uuid),
+                "name": project.name,
+                "description": project.description,
+                "location": project.location,
+                "start_date": project.start_date,
+                "end_date": project.end_date,
+                "estimated_balance": estimated_balance,
+                "actual_balance": actual_balance,
+                "items_count": items_count,
+                "exceeding_items": {
+                    "count": len(exceeding_items),
+                    "items": exceeding_items
+                },
+                "pos": pos_list
+            })
 
         return ProjectServiceResponse(
             data=projects_response_data,
