@@ -554,9 +554,9 @@ def list_all_projects(
     - Estimated & actual balances
     - Items count & overbudget info
     - List of all POs with metadata
+    - Total PO amount per project
     """
     try:
-        # 1. Base query depending on role
         if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, UserRole.ACCOUNTANT.value]:
             projects = db.query(Project).filter(Project.is_deleted.is_(False)).order_by(Project.id.desc()).all()
         else:
@@ -571,13 +571,13 @@ def list_all_projects(
                 .all()
             )
 
-        # 2. Build structured project list
         projects_response_data = []
+
         for project in projects:
             estimated_balance = project.estimated_balance or 0.0
             actual_balance = project.actual_balance or 0.0
 
-            # --- Items & overbudget logic ---
+            # Item logic
             project_items = (
                 db.query(ProjectItemMap, Item)
                 .join(Item, ProjectItemMap.item_id == Item.uuid)
@@ -602,7 +602,6 @@ def list_all_projects(
                     )
                     .all()
                 )
-
                 payment_ids = [pi.payment_id for pi in payment_items]
                 current_expense = (
                     db.query(func.sum(Payment.amount))
@@ -613,7 +612,6 @@ def list_all_projects(
                     )
                     .scalar() or 0.0
                 )
-
                 if current_expense > estimation:
                     exceeding_items.append({
                         "item_name": item.name,
@@ -621,9 +619,12 @@ def list_all_projects(
                         "current_expense": current_expense
                     })
 
-            # --- Fetch all POs for project ---
+            # PO list and total value
             pos_list = []
+            total_po_amount = 0.0
             for po in project.project_pos:
+                if po.is_deleted:
+                    continue
                 creator_name = db.query(User.name).filter(User.uuid == po.created_by).scalar()
                 pos_list.append({
                     "uuid": str(po.uuid),
@@ -636,8 +637,8 @@ def list_all_projects(
                     "created_by": creator_name or "Unknown",
                     "created_at": po.created_at.strftime("%Y-%m-%d %H:%M:%S") if po.created_at else None
                 })
+                total_po_amount += po.amount or 0.0
 
-            # --- Final project object ---
             projects_response_data.append({
                 "uuid": str(project.uuid),
                 "name": project.name,
@@ -652,6 +653,7 @@ def list_all_projects(
                     "count": len(exceeding_items),
                     "items": exceeding_items
                 },
+                "total_po_amount": total_po_amount,  # ✅ New field
                 "pos": pos_list
             })
 
@@ -668,6 +670,7 @@ def list_all_projects(
             status_code=500,
             message="An error occurred while fetching project details."
         ).model_dump()
+
 
 
 @project_router.get(
