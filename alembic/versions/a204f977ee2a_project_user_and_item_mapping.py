@@ -1,7 +1,7 @@
 """project user and item mapping
 
 Revision ID: a204f977ee2a
-Revises: 124e3c693cc9
+Revises: 67f307bc5ddb
 Create Date: 2025-04-19 13:58:55.553006
 
 """
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'a204f977ee2a'
-down_revision: Union[str, None] = '124e3c693cc9'
+down_revision: Union[str, None] = '67f307bc5ddb'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
