@@ -4078,6 +4078,15 @@ def get_dashboard_project_stats(
             InvoicePayment.payment_date >= last_31_days
         ).scalar()
 
+        # Growth %
+        growth_percent = None
+        if total_revenue and recent_revenue:
+            past_revenue = total_revenue - recent_revenue
+            if past_revenue > 0:
+                growth_percent = round((recent_revenue / past_revenue) * 100, 2)
+            else:
+                growth_percent = 100.0  # If no past revenue but current exists
+
         # ───── Active Users ─────
         active_users = db.query(User).filter(User.is_active.is_(True)).count()
         # new_users = db.query(User).filter(
@@ -4097,7 +4106,8 @@ def get_dashboard_project_stats(
                 },
                 "revenue": {
                     "total": total_revenue,
-                    "last_31_days": recent_revenue
+                    "last_31_days": recent_revenue,
+                    "growth_percent": growth_percent
                 },
                 "active_users": {
                     "total": active_users,
