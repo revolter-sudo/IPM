@@ -3831,12 +3831,13 @@ def sync_project_user_item_map(
 #     }
 
 @admin_app.get(
-    "/project-item-view/{project_id}",
+    "/project-item-view/{project_id}/{user_id}",
     tags=["Mappings"],
     description="Get items visible to current user under a specific project."
 )
 def view_project_items_for_user(
     project_id: UUID,
+    user_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -3863,7 +3864,7 @@ def view_project_items_for_user(
             .join(Item, ProjectUserItemMap.item_id == Item.uuid)
             .filter(
                 ProjectUserItemMap.project_id == project_id,
-                ProjectUserItemMap.user_id == current_user.uuid
+                ProjectUserItemMap.user_id == user_id
             )
             .all()
         )
@@ -3871,7 +3872,7 @@ def view_project_items_for_user(
     return {
         "status_code": 200,
         "project_id": str(project_id),
-        "user_id": str(current_user.uuid),
+        "user_id": str(user_id),
         "items": [
             {
                 "uuid": m.uuid,
