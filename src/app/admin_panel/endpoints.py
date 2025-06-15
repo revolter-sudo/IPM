@@ -3868,8 +3868,7 @@ def view_project_items_for_user(
             )
             .all()
         )
-
-    return {
+    response = {
         "status_code": 200,
         "project_id": str(project_id),
         "user_id": str(user_id),
@@ -3886,6 +3885,11 @@ def view_project_items_for_user(
         ],
         "count": len(project_items)
     }
+    return AdminPanelResponse(
+        data=response,
+        message="Project User Items Fetched Successfully.",
+        status_code=200
+    ).model_dump()
 
 
 # Invoice Analytics API
