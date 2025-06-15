@@ -99,6 +99,8 @@ class InvoiceUpdateRequest(BaseModel):
     client_name: Optional[str] = None
     amount: Optional[float] = None
     description: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[str] = None
     due_date: Optional[str] = None  # "YYYY-MM-DD"
     invoice_items: Optional[List[InvoiceItemUpdate]] = None
 
@@ -174,3 +176,15 @@ class ProjectServiceResponse(BaseModel):
             "message": self.message,
             "status_code": self.status_code
         }
+
+class POItemInput(BaseModel):
+    item_name: str
+    basic_value: float
+
+class ProjectPOUpdateSchema(BaseModel):
+    po_number: Optional[str]
+    client_name: Optional[str]
+    amount: Optional[float]
+    description: Optional[str]
+    po_date: Optional[str]  # "YYYY-MM-DD"
+    items: List[POItemInput] = []

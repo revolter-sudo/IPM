@@ -35,7 +35,8 @@ from src.app.schemas.project_service_schemas import (
     BankEditSchema,
     InvoiceCreateRequest,
     InvoiceResponse,
-    InvoiceStatusUpdateRequest
+    InvoiceStatusUpdateRequest,
+    ProjectPOUpdateSchema
 )
 from src.app.services.auth_service import get_current_user
 from datetime import datetime, timedelta
@@ -1325,7 +1326,7 @@ def delete_project(
     "/{project_id}/pos",
     status_code=status.HTTP_201_CREATED,
     tags=["Project POs"],
-       description="""
+    description="""
 Add a new Purchase Order (PO) under a project.
 
 Send the PO data as a JSON string via the `po_data` form field and optionally upload a PO document file.
@@ -1479,7 +1480,8 @@ def add_project_po(
                         "item_name": item.item_name,
                         "basic_value": item.basic_value
                     } for item in new_po.po_items  # ensure this relationship exists
-                ] if hasattr(new_po, "po_items") else []
+                ] if hasattr(new_po, "po_items") else [],
+                "file_path": new_po.file_path
             },
             message="PO added to project successfully",
             status_code=201
@@ -1550,6 +1552,7 @@ def get_project_pos(
                         "basic_value": item.basic_value
                     } for item in getattr(po, "po_items", [])
                 ] if hasattr(po, "po_items") else [],
+                "file_path": constants.HOST_URL + "/" + po.file_path if po.file_path else None,
                 "created_by": str(po.created_by)
             }
             pos_data.append(po_data)
@@ -1577,7 +1580,86 @@ def get_project_pos(
             message=f"An error occurred while fetching project POs: {str(e)}"
         ).model_dump()
 
-    
+@project_router.put(
+    "/{project_id}/pos/{po_id}",
+    tags=["Project POs"],
+    description="Update an existing Purchase Order (PO) under a project. File update is not allowed."
+)
+def update_project_po(
+    po_id: UUID,
+    po_data: ProjectPOUpdateSchema,  # <- We'll define this schema below
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        po = db.query(ProjectPO).filter(
+            ProjectPO.uuid == po_id,
+            ProjectPO.is_deleted.is_(False)
+        ).first()
+
+        if not po:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="PO not found under this project"
+            ).model_dump()
+
+        # Update fields
+        po.po_number = po_data.po_number or po.po_number
+        po.amount = po_data.amount or po.amount
+        po.client_name = po_data.client_name or po.client_name
+        po.description = po_data.description or po.description
+
+        if po_data.po_date:
+            try:
+                po.po_date = datetime.strptime(po_data.po_date, "%Y-%m-%d").date()
+            except ValueError:
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message="Invalid date format. Use YYYY-MM-DD"
+                ).model_dump()
+
+        #  Update PO items
+        db.query(ProjectPOItem).filter(ProjectPOItem.project_po_id == po_id).delete()
+        for item in po_data.items:
+            db.add(ProjectPOItem(
+                project_po_id=po_id,
+                item_name=item.item_name,
+                basic_value=item.basic_value
+            ))
+
+        db.commit()
+        db.refresh(po)
+
+        return ProjectServiceResponse(
+            data={
+                "uuid": str(po.uuid),
+                "po_number": po.po_number,
+                "client_name": po.client_name,
+                "amount": po.amount,
+                "description": po.description,
+                "po_date": po.po_date.strftime("%Y-%m-%d") if po.po_date else None,
+                "items": [
+                    {
+                        "item_name": item.item_name,
+                        "basic_value": item.basic_value
+                    } for item in po.po_items
+                ] if hasattr(po, "po_items") else []
+            },
+            message="PO updated successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in update_project_po API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while updating PO: {str(e)}"
+        ).model_dump()
+   
 
 @project_router.delete(
     "/project/po/{po_id}",
