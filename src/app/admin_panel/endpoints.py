@@ -2719,7 +2719,8 @@ def create_multiple_invoice_payments(
 
             # ✅ Update invoice totals
             invoice.total_paid_amount += new_payment.amount
-            db.refresh()
+            db.commit()
+            db.refresh(invoice)
 
         # ✅ Update invoice payment status
         if invoice.total_paid_amount >= invoice.amount:
