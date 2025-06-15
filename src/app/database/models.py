@@ -767,3 +767,15 @@ class ProjectUserItemMap(Base):
     project = relationship("Project")
     user = relationship("User")
     item = relationship("Item")
+
+
+class UserData(Base):
+    __tablename__ = "user_data"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    name = Column(String(20), nullable=False)
+    email = Column(String(20), nullable=False)
+    phone_number = Column(String(20), nullable=False)
+    password = Column(String(20), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)

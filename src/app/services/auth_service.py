@@ -22,7 +22,7 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session
 from uuid import uuid4
 from src.app.database.database import get_db
-from src.app.database.models import User, Log, Person, UserTokenMap
+from src.app.database.models import User, Log, Person, UserTokenMap , UserData
 from src.app.schemas.auth_service_schamas import (
     UserCreate,
     UserLogin,
@@ -31,7 +31,8 @@ from src.app.schemas.auth_service_schamas import (
     AuthServiceResponse,
     ForgotPasswordRequest,
     UserLogout,
-    UserEdit
+    UserEdit,
+    OutsideUserLogin
 )
 from src.app.notification.notification_service import (
     subscribe_news,
@@ -923,5 +924,89 @@ def get_persons(
         return AuthServiceResponse(
             data=None,
             status_code=500,
-            message=f"Error fetching persons: {str(e)}"
+            message=f"Error fetching persons: {str(e)}")
+    
+
+@auth_router.post(
+    '/register_and_save_user',
+    tags=['non-user']
+)
+def register_and_outside_user(
+    data: OutsideUserLogin,
+    db: Session = Depends(get_db)
+):
+    phone = str(data.phone_number)
+    existing = db.query(UserData).filter(UserData.phone_number == phone).first()
+    if existing:
+        return AuthServiceResponse(
+            data=None,
+            message=(
+                "You’ve already submitted a request with this number, "
+                "our team is looking into it and will reach out shortly."
+            ),
+            status_code=200
+        )
+    try:
+        user_data = UserData(
+            name=data.name,
+            email=data.email,
+            phone_number=str(data.phone_number),
+            password=data.password
+        )
+        db.add(user_data)
+        db.commit()
+        db.refresh(user_data)
+        return AuthServiceResponse(
+            data=None,
+            message="We have received your request, our team will reach out to you soon.",
+            status_code=201
+        )
+    except Exception as e:
+        db.rollback()
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred: {str(e)}"
+        ).model_dump()
+
+
+@auth_router.get(
+    '/outside_users',
+    status_code=status.HTTP_200_OK,
+    tags=['non-user']
+)
+def list_outside_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_required)
+):
+    """
+    List all outside users who have registered through the register_and_outside_user endpoint.
+    Only accessible by SuperAdmin users.
+    """
+    try:
+        outside_users = db.query(UserData).all()
+
+        outside_users_data = []
+        for user in outside_users:
+            outside_users_data.append({
+                "uuid": str(user.uuid),
+                "name": user.name,
+                "email": user.email,
+                "phone_number": user.phone_number,
+                "password": user.password,
+                "created_at": user.created_at.isoformat() if user.created_at else None
+            })
+
+        return AuthServiceResponse(
+            data=outside_users_data,
+            message="Outside users fetched successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        logging.error(f"Error in list_outside_users API: {str(e)}")
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error fetching outside users: {str(e)}"
         ).model_dump()
