@@ -13,6 +13,7 @@ from src.app.database.models import (
     Log,
     Project,
     ProjectBalance,
+    ProjectUserItemMap,
     User,
     BalanceDetail,
     Payment,
@@ -1729,3 +1730,68 @@ def delete_project_po(
             message=f"An error occurred while deleting PO: {str(e)}",
             status_code=500
         ).model_dump()
+    
+
+ 
+@project_router.get(
+    "/project-item-view/{project_id}/{user_id}",
+    tags=["Projects"],
+    description="Get items visible to current user under a specific project."
+)
+def view_project_items_for_user(
+    project_id: UUID,
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Authorized roles who can see all items
+    privileged_roles = [
+        UserRole.SUPER_ADMIN.value,
+        UserRole.ADMIN.value,
+        UserRole.PROJECT_MANAGER.value,
+        UserRole.ACCOUNTANT.value,
+    ]
+
+    if current_user.role in privileged_roles:
+        # Show all items assigned to the project
+        project_items = (
+            db.query(ProjectItemMap)
+            .join(Item, ProjectItemMap.item_id == Item.uuid)
+            .filter(
+                ProjectItemMap.project_id == project_id,
+                Item.list_tag != 'khatabook'
+            )
+            .all()
+        )
+    else:
+        # Show only items mapped to this user
+        project_items = (
+            db.query(ProjectUserItemMap)
+            .join(Item, ProjectUserItemMap.item_id == Item.uuid)
+            .join(ProjectItemMap, ProjectItemMap.project_id == project_id)
+            .filter(
+                ProjectUserItemMap.project_id == project_id,
+                ProjectUserItemMap.user_id == user_id,
+                Item.list_tag != 'khatabook'
+            )
+            .all()
+        )
+    response = [
+            {
+                "uuid": m.uuid,
+                "item_id": m.item_id,
+                "item_name": m.item.name if m.item else None,
+                "item_category": m.item.category if m.item else None,
+                "item_list_tag": m.item.list_tag if m.item else None,
+                "item_has_additional_info": m.item.has_additional_info if m.item else None,
+                "item_balance": m.item_balance,
+                "remaining_balance": None
+
+            }
+            for m in project_items
+        ]
+    return ProjectServiceResponse(
+        data=response,
+        message="Project User Items Fetched Successfully.",
+        status_code=200
+    ).model_dump()
