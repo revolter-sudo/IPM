@@ -2214,6 +2214,8 @@ def get_invoice(
         "client_name": "Updated Company",
         "amount": 600.0,
         "description": "Updated",
+        "invoice_number": "INV-2023-01-01",
+        "invoice_date": "2025-06-15",
         "due_date": "2025-07-15",
         "invoice_items": [
             { "item_name": "Updated Cement", "basic_value": 300 }
@@ -2264,6 +2266,12 @@ def update_invoice(
         if update_request.description is not None:
             invoice.description = update_request.description
 
+        if update_request.invoice_number is not None:
+            invoice.invoice_number = update_request.invoice_number
+
+        if update_request.invoice_date is not None:
+            invoice.invoice_date = update_request.invoice_date
+
         if update_request.due_date is not None:
             try:
                 invoice.due_date = datetime.strptime(update_request.due_date, "%Y-%m-%d")
@@ -2305,6 +2313,8 @@ def update_invoice(
                 "client_name": invoice.client_name,
                 "amount": invoice.amount,
                 "description": invoice.description,
+                "invoice_number": invoice.invoice_number,
+                "invoice_date": invoice.invoice_date,
                 "due_date": invoice.due_date.strftime("%Y-%m-%d") if invoice.due_date else None,
                 "invoice_items": [
                     {

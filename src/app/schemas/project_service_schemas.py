@@ -99,6 +99,8 @@ class InvoiceUpdateRequest(BaseModel):
     client_name: Optional[str] = None
     amount: Optional[float] = None
     description: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[str] = None
     due_date: Optional[str] = None  # "YYYY-MM-DD"
     invoice_items: Optional[List[InvoiceItemUpdate]] = None
 
