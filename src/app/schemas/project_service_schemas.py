@@ -174,3 +174,15 @@ class ProjectServiceResponse(BaseModel):
             "message": self.message,
             "status_code": self.status_code
         }
+
+class POItemInput(BaseModel):
+    item_name: str
+    basic_value: float
+
+class ProjectPOUpdateSchema(BaseModel):
+    po_number: Optional[str]
+    client_name: Optional[str]
+    amount: Optional[float]
+    description: Optional[str]
+    po_date: Optional[str]  # "YYYY-MM-DD"
+    items: List[POItemInput] = []
