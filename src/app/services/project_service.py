@@ -1757,7 +1757,10 @@ def view_project_items_for_user(
         project_items = (
             db.query(ProjectItemMap)
             .join(Item, ProjectItemMap.item_id == Item.uuid)
-            .filter(ProjectItemMap.project_id == project_id)
+            .filter(
+                ProjectItemMap.project_id == project_id,
+                Item.list_tag != 'khatabook'
+            )
             .all()
         )
     else:
@@ -1768,7 +1771,8 @@ def view_project_items_for_user(
             .join(ProjectItemMap, ProjectItemMap.project_id == project_id)
             .filter(
                 ProjectUserItemMap.project_id == project_id,
-                ProjectUserItemMap.user_id == user_id
+                ProjectUserItemMap.user_id == user_id,
+                Item.list_tag != 'khatabook'
             )
             .all()
         )
