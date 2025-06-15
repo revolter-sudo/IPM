@@ -2466,6 +2466,8 @@ def get_invoices_by_po(
                 ],
                 "amount": inv.amount,
                 "description": inv.description,
+                "invoice_number": inv.invoice_number,
+                "invoice_date": inv.invoice_date,
                 "due_date": inv.due_date.strftime("%Y-%m-%d") if inv.due_date else None,
                 "payment_status": inv.payment_status,
                 "total_paid_amount": inv.total_paid_amount,
