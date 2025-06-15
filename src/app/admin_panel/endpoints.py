@@ -2721,11 +2721,13 @@ def create_multiple_invoice_payments(
 
             # ✅ Update invoice totals
             invoice.total_paid_amount += new_payment.amount
+            db.commit()
+            db.refresh(invoice)
 
         # ✅ Update invoice payment status
         if invoice.total_paid_amount >= invoice.amount:
             invoice.payment_status = "fully_paid"
-        elif invoice.total_paid_amount > 0:
+        elif invoice.total_paid_amount > 0 or invoice.total_paid_amount < invoice.amount:
             invoice.payment_status = "partially_paid"
         else:
             invoice.payment_status = "not_paid"
@@ -3116,7 +3118,6 @@ def get_all_khatabook_entries_admin(
                             "name": khatabook_item.item.name,
                             "category": khatabook_item.item.category,
                         })
-
             # Process project info
             project_info = None
             if entry.project:
