@@ -1539,6 +1539,19 @@ def get_project_pos(
         total_amount = 0.0
 
         for po in pos:
+
+            # Get invoices for this PO
+            invoices = db.query(Invoice).filter(
+                Invoice.project_po_id == po.uuid,
+                Invoice.is_deleted.is_(False)
+            ).all()
+
+            # total_invoice_amount = sum(inv.amount for inv in invoices)
+            # total_paid_amount = sum(inv.total_paid_amount for inv in invoices if inv.payment_status in ["partially_paid", "fully_paid"])
+            # pending_amount = total_invoice_amount - total_paid_amount
+            # not_generated_amount = po.amount - total_invoice_amount
+
+
             po_data = {
                 "uuid": str(po.uuid),
                 "po_number": po.po_number,
@@ -1547,13 +1560,18 @@ def get_project_pos(
                 "description": po.description,
                 "po_date": po.po_date.strftime("%Y-%m-%d") if po.po_date else None,
                 "created_at": po.created_at.strftime("%Y-%m-%d %H:%M:%S") if po.created_at else None,
+                "file_path": constants.HOST_URL + "/" + po.file_path if po.file_path else None,
                 "items": [
                     {
                         "item_name": item.item_name,
                         "basic_value": item.basic_value
                     } for item in getattr(po, "po_items", [])
                 ] if hasattr(po, "po_items") else [],
-                "file_path": constants.HOST_URL + "/" + po.file_path if po.file_path else None,
+                # "metrics": {
+                #     "total_po_paid": total_paid_amount,
+                #     "total_created_invoice_pending": pending_amount,
+                #     "invoice_not_generated_amount": not_generated_amount
+                # },
                 "created_by": str(po.created_by)
             }
             pos_data.append(po_data)

@@ -2452,8 +2452,17 @@ def get_invoices_by_po(
             Invoice.is_deleted.is_(False)
         ).order_by(Invoice.created_at.desc()).all()
 
+
+        total_invoice_amount = 0.0
+        total_po_paid = 0.0
         invoice_list = []
+
+        
         for inv in invoices:
+            total_invoice_amount += inv.amount or 0.0
+            if inv.payment_status in ["partially_paid", "fully_paid"]:
+                total_po_paid += inv.total_paid_amount or 0.0
+
             invoice_list.append({
                 "uuid": str(inv.uuid),
                 "project_id": str(inv.project_id),
@@ -2480,6 +2489,9 @@ def get_invoices_by_po(
             data={
                 "po_id": str(po_id),
                 "total_invoices": len(invoice_list),
+                "total_po_paid": total_po_paid,
+                "total_created_invoice_pending": total_invoice_amount - total_po_paid,
+                "invoice_not_generated_amount": po.amount - total_invoice_amount,
                 "invoices": invoice_list
             },
             message="Invoices fetched successfully",
