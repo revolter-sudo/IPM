@@ -3768,52 +3768,109 @@ def sync_project_user_item_map(
         )
 
 
+# @admin_app.get(
+#     "/project-user-item-map/{project_id}/{user_id}",
+#     tags=["Mappings"],
+#     description="Get all items mapped to a user under a specific project"
+# )
+# def get_project_user_item_mappings(
+#     project_id: UUID,
+#     user_id: UUID,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     # 🔐 Role check
+#     if current_user.role not in [
+#         UserRole.SUPER_ADMIN.value,
+#         UserRole.ADMIN.value,
+#         UserRole.PROJECT_MANAGER.value
+#     ]:
+#         raise HTTPException(status_code=403, detail="Unauthorized")
+
+#     # ✅ Check if user is assigned to the project
+#     user_assigned = db.query(ProjectUserMap).filter_by(
+#         project_id=project_id,
+#         user_id=user_id
+#     ).first()
+
+#     if not user_assigned:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="User is not assigned to the selected project."
+#         )
+
+#     # ✅ Fetch item mappings safely
+#     mappings = (
+#         db.query(ProjectUserItemMap)
+#         .join(Item, ProjectUserItemMap.item_id == Item.uuid)
+#         .filter(
+#             ProjectUserItemMap.project_id == project_id,
+#             ProjectUserItemMap.user_id == user_id
+#         )
+#         .all()
+#     )
+
+#     return {
+#         "status_code": 200,
+#         "project_id": str(project_id),
+#         "user_id": str(user_id),
+#         "items": [
+#             {
+#                 "uuid": m.uuid,
+#                 "item_id": m.item_id,
+#                 "item_name": m.item.name if m.item else None,
+#                 "item_category": m.item.category if m.item else None,
+#                 "item_list_tag": m.item.list_tag if m.item else None,
+#                 "item_has_additional_info": (
+#                     m.item.has_additional_info if m.item else None
+#                 )
+#             } for m in mappings
+#         ],
+#         "count": len(mappings)
+#     }
+
 @admin_app.get(
-    "/project-user-item-map/{project_id}/{user_id}",
+    "/project-item-view/{project_id}",
     tags=["Mappings"],
-    description="Get all items mapped to a user under a specific project"
+    description="Get items visible to current user under a specific project."
 )
-def get_project_user_item_mappings(
+def view_project_items_for_user(
     project_id: UUID,
-    user_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # 🔐 Role check
-    if current_user.role not in [
+    # Authorized roles who can see all items
+    privileged_roles = [
         UserRole.SUPER_ADMIN.value,
         UserRole.ADMIN.value,
-        UserRole.PROJECT_MANAGER.value
-    ]:
-        raise HTTPException(status_code=403, detail="Unauthorized")
+        UserRole.PROJECT_MANAGER.value,
+        UserRole.ACCOUNTANT.value,
+    ]
 
-    # ✅ Check if user is assigned to the project
-    user_assigned = db.query(ProjectUserMap).filter_by(
-        project_id=project_id,
-        user_id=user_id
-    ).first()
-
-    if not user_assigned:
-        raise HTTPException(
-            status_code=400,
-            detail="User is not assigned to the selected project."
+    if current_user.role in privileged_roles:
+        # Show all items assigned to the project
+        project_items = (
+            db.query(ProjectItemMap)
+            .join(Item, ProjectItemMap.item_id == Item.uuid)
+            .filter(ProjectItemMap.project_id == project_id)
+            .all()
         )
-
-    # ✅ Fetch item mappings safely
-    mappings = (
-        db.query(ProjectUserItemMap)
-        .join(Item, ProjectUserItemMap.item_id == Item.uuid)
-        .filter(
-            ProjectUserItemMap.project_id == project_id,
-            ProjectUserItemMap.user_id == user_id
+    else:
+        # Show only items mapped to this user
+        project_items = (
+            db.query(ProjectUserItemMap)
+            .join(Item, ProjectUserItemMap.item_id == Item.uuid)
+            .filter(
+                ProjectUserItemMap.project_id == project_id,
+                ProjectUserItemMap.user_id == current_user.uuid
+            )
+            .all()
         )
-        .all()
-    )
 
     return {
         "status_code": 200,
         "project_id": str(project_id),
-        "user_id": str(user_id),
+        "user_id": str(current_user.uuid),
         "items": [
             {
                 "uuid": m.uuid,
@@ -3821,13 +3878,13 @@ def get_project_user_item_mappings(
                 "item_name": m.item.name if m.item else None,
                 "item_category": m.item.category if m.item else None,
                 "item_list_tag": m.item.list_tag if m.item else None,
-                "item_has_additional_info": (
-                    m.item.has_additional_info if m.item else None
-                )
-            } for m in mappings
+                "item_has_additional_info": m.item.has_additional_info if m.item else None
+            }
+            for m in project_items
         ],
-        "count": len(mappings)
+        "count": len(project_items)
     }
+
 
 # Invoice Analytics API
 @admin_app.get(
