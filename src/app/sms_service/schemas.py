@@ -10,9 +10,11 @@ class ForgotPasswordOTPVerify(BaseModel):
     otp: str
     new_password: str
 
+
 class ForgotPasswordOTPVerifyOnly(BaseModel):
     phone: str
     otp: str
+
 
 class ForgotPasswordResetOnly(BaseModel):
     uuid: str
