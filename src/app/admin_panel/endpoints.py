@@ -4037,3 +4037,81 @@ def get_project_invoice_analytics(
             status_code=500,
             message=f"An error occurred while fetching invoice analytics: {str(e)}"
         ).model_dump()
+
+
+@admin_app.get(
+        "/project-stats", 
+        tags=["Dashboard"], 
+        description="Dashboard stats: projects, items, revenue, active users"
+    )
+def get_dashboard_project_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        from datetime import datetime, timedelta
+
+        # Authorization
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+
+        today = datetime.utcnow()
+        last_31_days = today - timedelta(days=31)
+
+        # ───── Total Projects ─────
+        total_projects = db.query(Project).filter(Project.is_deleted.is_(False)).count()
+        # recent_projects = db.query(Project).filter(
+        #     Project.is_deleted.is_(False),
+        #     Project.created_at >= last_31_days
+        # ).count()
+
+        # ───── Total Items ─────
+        total_items = db.query(Item).count()
+        # recent_items = db.query(Item).filter(Item.created_at >= last_31_days).count()
+
+        # ───── Total Revenue ─────
+        total_revenue = db.query(func.coalesce(func.sum(InvoicePayment.amount), 0)).scalar()
+        recent_revenue = db.query(func.coalesce(func.sum(InvoicePayment.amount), 0)).filter(
+            InvoicePayment.payment_date >= last_31_days
+        ).scalar()
+
+        # ───── Active Users ─────
+        active_users = db.query(User).filter(User.is_active.is_(True)).count()
+        # new_users = db.query(User).filter(
+        #     User.is_active.is_(True),
+        #     User.created_at >= last_31_days
+        # ).count()
+
+        return ProjectServiceResponse(
+            data={
+                "projects": {
+                    "total": total_projects,
+                    "last_31_days": None
+                },
+                "items": {
+                    "total": total_items,
+                    "last_31_days": None
+                },
+                "revenue": {
+                    "total": total_revenue,
+                    "last_31_days": recent_revenue
+                },
+                "active_users": {
+                    "total": active_users,
+                    "last_31_days": None
+                }
+            },
+            message="Dashboard stats fetched successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        logging.error(f"Error in get_dashboard_project_stats API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            message="An error occurred while fetching dashboard stats",
+            status_code=500
+        ).model_dump()
