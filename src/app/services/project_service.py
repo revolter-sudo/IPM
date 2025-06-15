@@ -21,7 +21,8 @@ from src.app.database.models import (
     ProjectItemMap,
     Invoice,
     PaymentItem,
-    ProjectPO
+    ProjectPO,
+    ProjectPOItem
 )
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
@@ -37,6 +38,7 @@ from src.app.schemas.project_service_schemas import (
     InvoiceStatusUpdateRequest
 )
 from src.app.services.auth_service import get_current_user
+from datetime import datetime, timedelta
 
 project_router = APIRouter(prefix="/projects")
 
@@ -349,7 +351,195 @@ def create_project(
         ).model_dump()
 
 
-@project_router.get("", status_code=status.HTTP_200_OK, tags=["Projects"])
+# @project_router.get("", status_code=status.HTTP_200_OK, tags=["Projects"])
+# def list_all_projects(
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """
+#     Fetch all projects visible to the current user.
+
+#     • Super-Admin / Admin → every non-deleted project
+#     • Everyone else      → only projects they're mapped to (ProjectUserMap)
+
+#     Response schema
+#     ----------------
+#     [
+#         {
+#             "uuid": <project-uuid>,
+#             "name": "<project-name>",
+#             "description": "<project-description>",
+#             "location": "<project-location>",
+#             "start_date": "project-start_date",
+#             "end_date": "project-end_date",
+#             # "balance": <current_balance_float>,  # For backward compatibility
+#             "estimated_balance": <estimated_balance_float>,
+#             "actual_balance": <actual_balance_float>,
+#             "items_count": <total_number_of_items_in_project>,
+#             "exceeding_items": {
+#                 "count": <number_of_items_exceeding_estimation>,
+#                 "items": [
+#                     {
+#                         "item_name": "<item-name>",
+#                         "estimation": <estimation_amount>,
+#                         "current_expense": <current_expense_amount>
+#                     },
+#                     ...
+#                 ]
+#             }
+#         },
+#         ...
+#     ]
+#     """
+#     try:
+#         # 1. Base project list depending on role
+#         if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, UserRole.ACCOUNTANT.value]:
+#             projects = db.query(
+#                 Project
+#             ).filter(
+#                 Project.is_deleted.is_(False)
+#             ).order_by(Project.id.desc()).all()
+#         else:
+#             projects = (
+#                 db.query(Project)
+#                 .join(
+#                     ProjectUserMap,
+#                     Project.uuid == ProjectUserMap.project_id
+#                 )
+#                 .filter(
+#                     Project.is_deleted.is_(False),
+#                     ProjectUserMap.user_id == current_user.uuid,
+#                 )
+#                 .order_by(Project.id.desc())
+#                 .all()
+#             )
+
+#         # 2. Build response with all balance types
+#         projects_response_data = []
+#         for project in projects:
+#             # Get total balance (for backward compatibility)
+#             # total_balance = (
+#             #     db.query(func.sum(ProjectBalance.adjustment))
+#             #     .filter(ProjectBalance.project_id == project.uuid)
+#             #     .scalar()
+#             # ) or 0.0
+
+#             # Get PO balance
+#             # po_balance = project.po_balance if project.po_balance else 0
+
+#             # Get estimated balance
+#             estimated_balance = project.estimated_balance if project.estimated_balance else 0
+
+#             # Get actual balance
+#             actual_balance = project.actual_balance if project.actual_balance else 0
+
+#             # Get all items mapped to this project with their balances
+#             project_items = (
+#                 db.query(ProjectItemMap, Item)
+#                 .join(Item, ProjectItemMap.item_id == Item.uuid)
+#                 .filter(ProjectItemMap.project_id == project.uuid)
+#                 .all()
+#             )
+
+#             # Count total items
+#             items_count = len(project_items)
+
+#             # Find items where current expense exceeds estimation
+#             exceeding_items = []
+#             for project_item, item in project_items:
+#                 # Get estimation (balance added when assigned)
+#                 estimation = project_item.item_balance or 0.0
+
+#                 # Get current expense (sum of transferred payments for this item)
+#                 # First, get all payment items for this item in this project
+#                 payment_items = (
+#                     db.query(PaymentItem)
+#                     .join(Payment, PaymentItem.payment_id == Payment.uuid)
+#                     .filter(
+#                         PaymentItem.item_id == item.uuid,
+#                         Payment.project_id == project.uuid,
+#                         Payment.status == 'transferred',
+#                         Payment.is_deleted.is_(False),
+#                         PaymentItem.is_deleted.is_(False)
+#                     )
+#                     .all()
+#                 )
+#                 # Fetch all POs for this project
+#                 pos = []
+#                 for po in project.project_pos:
+#                     creator = db.query(User.name).filter(User.uuid == po.created_by).scalar()
+#                     pos.append({
+#                         "uuid": str(po.uuid),
+#                         "po_number": po.po_number,
+#                         "amount": po.amount,
+#                         "description": po.description,
+#                         "file_path": po.file_path,
+#                         "created_by": creator or "Unknown",
+#                         "created_at": po.created_at
+#                     })
+
+
+#                 # Get the payment amounts
+#                 payment_ids = [pi.payment_id for pi in payment_items]
+#                 current_expense = 0.0
+#                 if payment_ids:
+#                     current_expense = (
+#                         db.query(func.sum(Payment.amount))
+#                         .filter(
+#                             Payment.uuid.in_(payment_ids),
+#                             Payment.status == 'transferred',
+#                             Payment.is_deleted.is_(False)
+#                         )
+#                         .scalar() or 0.0
+#                     )
+
+#                 # Check if current expense exceeds estimation
+#                 if current_expense > estimation:
+#                     exceeding_items.append({
+#                         "item_name": item.name,
+#                         "estimation": estimation,
+#                         "current_expense": current_expense
+#                     })
+
+#             projects_response_data.append(
+#                 {
+#                     "uuid": project.uuid,
+#                     "name": project.name,
+#                     "description": project.description,
+#                     "location": project.location,
+#                     "start_date": project.start_date,
+#                     "end_date": project.end_date,
+#                     "estimated_balance": estimated_balance,
+#                     "actual_balance": actual_balance,
+#                     "items_count": items_count,
+#                     "exceeding_items": {
+#                         "count": len(exceeding_items),
+#                         "items": exceeding_items
+#                     },
+#                     "pos":pos
+#                 }
+#             )
+
+#         return ProjectServiceResponse(
+#             data=projects_response_data,
+#             message="Projects fetched successfully.",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         logging.error(f"Error in list_all_projects API: {str(e)}")
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=500,
+#             message="An error occurred while fetching project details."
+#         ).model_dump()
+
+@project_router.get(
+    "",
+    status_code=status.HTTP_200_OK,
+    tags=["Projects"],
+    description="Fetch all projects visible to the current user along with PO and item expense details."
+)
 def list_all_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -357,53 +547,22 @@ def list_all_projects(
     """
     Fetch all projects visible to the current user.
 
-    • Super-Admin / Admin → every non-deleted project
-    • Everyone else      → only projects they're mapped to (ProjectUserMap)
+    • Super-Admin / Admin / Accountant → every non-deleted project
+    • Everyone else → only projects they're mapped to (ProjectUserMap)
 
-    Response schema
-    ----------------
-    [
-        {
-            "uuid": <project-uuid>,
-            "name": "<project-name>",
-            "description": "<project-description>",
-            "location": "<project-location>",
-            "start_date": "project-start_date",
-            "end_date": "project-end_date",
-            # "balance": <current_balance_float>,  # For backward compatibility
-            "estimated_balance": <estimated_balance_float>,
-            "actual_balance": <actual_balance_float>,
-            "items_count": <total_number_of_items_in_project>,
-            "exceeding_items": {
-                "count": <number_of_items_exceeding_estimation>,
-                "items": [
-                    {
-                        "item_name": "<item-name>",
-                        "estimation": <estimation_amount>,
-                        "current_expense": <current_expense_amount>
-                    },
-                    ...
-                ]
-            }
-        },
-        ...
-    ]
+    Returns full details with:
+    - Estimated & actual balances
+    - Items count & overbudget info
+    - List of all POs with metadata
+    - Total PO amount per project
     """
     try:
-        # 1. Base project list depending on role
         if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, UserRole.ACCOUNTANT.value]:
-            projects = db.query(
-                Project
-            ).filter(
-                Project.is_deleted.is_(False)
-            ).order_by(Project.id.desc()).all()
+            projects = db.query(Project).filter(Project.is_deleted.is_(False)).order_by(Project.id.desc()).all()
         else:
             projects = (
                 db.query(Project)
-                .join(
-                    ProjectUserMap,
-                    Project.uuid == ProjectUserMap.project_id
-                )
+                .join(ProjectUserMap, Project.uuid == ProjectUserMap.project_id)
                 .filter(
                     Project.is_deleted.is_(False),
                     ProjectUserMap.user_id == current_user.uuid,
@@ -412,26 +571,13 @@ def list_all_projects(
                 .all()
             )
 
-        # 2. Build response with all balance types
         projects_response_data = []
+
         for project in projects:
-            # Get total balance (for backward compatibility)
-            # total_balance = (
-            #     db.query(func.sum(ProjectBalance.adjustment))
-            #     .filter(ProjectBalance.project_id == project.uuid)
-            #     .scalar()
-            # ) or 0.0
+            estimated_balance = project.estimated_balance or 0.0
+            actual_balance = project.actual_balance or 0.0
 
-            # Get PO balance
-            # po_balance = project.po_balance if project.po_balance else 0
-
-            # Get estimated balance
-            estimated_balance = project.estimated_balance if project.estimated_balance else 0
-
-            # Get actual balance
-            actual_balance = project.actual_balance if project.actual_balance else 0
-
-            # Get all items mapped to this project with their balances
+            # Item logic
             project_items = (
                 db.query(ProjectItemMap, Item)
                 .join(Item, ProjectItemMap.item_id == Item.uuid)
@@ -439,17 +585,11 @@ def list_all_projects(
                 .all()
             )
 
-            # Count total items
             items_count = len(project_items)
-
-            # Find items where current expense exceeds estimation
             exceeding_items = []
-            for project_item, item in project_items:
-                # Get estimation (balance added when assigned)
-                estimation = project_item.item_balance or 0.0
 
-                # Get current expense (sum of transferred payments for this item)
-                # First, get all payment items for this item in this project
+            for project_item, item in project_items:
+                estimation = project_item.item_balance or 0.0
                 payment_items = (
                     db.query(PaymentItem)
                     .join(Payment, PaymentItem.payment_id == Payment.uuid)
@@ -462,36 +602,16 @@ def list_all_projects(
                     )
                     .all()
                 )
-                # Fetch all POs for this project
-                pos = []
-                for po in project.project_pos:
-                    creator = db.query(User.name).filter(User.uuid == po.created_by).scalar()
-                    pos.append({
-                        "uuid": str(po.uuid),
-                        "po_number": po.po_number,
-                        "amount": po.amount,
-                        "description": po.description,
-                        "file_path": po.file_path,
-                        "created_by": creator or "Unknown",
-                        "created_at": po.created_at
-                    })
-
-
-                # Get the payment amounts
                 payment_ids = [pi.payment_id for pi in payment_items]
-                current_expense = 0.0
-                if payment_ids:
-                    current_expense = (
-                        db.query(func.sum(Payment.amount))
-                        .filter(
-                            Payment.uuid.in_(payment_ids),
-                            Payment.status == 'transferred',
-                            Payment.is_deleted.is_(False)
-                        )
-                        .scalar() or 0.0
+                current_expense = (
+                    db.query(func.sum(Payment.amount))
+                    .filter(
+                        Payment.uuid.in_(payment_ids),
+                        Payment.status == 'transferred',
+                        Payment.is_deleted.is_(False)
                     )
-
-                # Check if current expense exceeds estimation
+                    .scalar() or 0.0
+                )
                 if current_expense > estimation:
                     exceeding_items.append({
                         "item_name": item.name,
@@ -499,24 +619,43 @@ def list_all_projects(
                         "current_expense": current_expense
                     })
 
-            projects_response_data.append(
-                {
-                    "uuid": project.uuid,
-                    "name": project.name,
-                    "description": project.description,
-                    "location": project.location,
-                    "start_date": project.start_date,
-                    "end_date": project.end_date,
-                    "estimated_balance": estimated_balance,
-                    "actual_balance": actual_balance,
-                    "items_count": items_count,
-                    "exceeding_items": {
-                        "count": len(exceeding_items),
-                        "items": exceeding_items
-                    },
-                    "pos":pos
-                }
-            )
+            # PO list and total value
+            pos_list = []
+            total_po_amount = 0.0
+            for po in project.project_pos:
+                if po.is_deleted:
+                    continue
+                creator_name = db.query(User.name).filter(User.uuid == po.created_by).scalar()
+                pos_list.append({
+                    "uuid": str(po.uuid),
+                    "po_number": po.po_number,
+                    "client_name": po.client_name,
+                    "amount": po.amount,
+                    "description": po.description,
+                    "po_date": po.po_date.strftime("%Y-%m-%d") if po.po_date else None,
+                    "file_path": constants.HOST_URL + "/" + po.file_path if po.file_path else None,
+                    "created_by": creator_name or "Unknown",
+                    "created_at": po.created_at.strftime("%Y-%m-%d %H:%M:%S") if po.created_at else None
+                })
+                total_po_amount += po.amount or 0.0
+
+            projects_response_data.append({
+                "uuid": str(project.uuid),
+                "name": project.name,
+                "description": project.description,
+                "location": project.location,
+                "start_date": project.start_date,
+                "end_date": project.end_date,
+                "estimated_balance": estimated_balance,
+                "actual_balance": actual_balance,
+                "items_count": items_count,
+                "exceeding_items": {
+                    "count": len(exceeding_items),
+                    "items": exceeding_items
+                },
+                "total_po_amount": total_po_amount,  # ✅ New field
+                "pos": pos_list
+            })
 
         return ProjectServiceResponse(
             data=projects_response_data,
@@ -531,6 +670,7 @@ def list_all_projects(
             status_code=500,
             message="An error occurred while fetching project details."
         ).model_dump()
+
 
 
 @project_router.get(
@@ -1059,20 +1199,160 @@ def delete_project(
 #             message=f"An error occurred while adding PO: {str(e)}"
 #         ).model_dump()
 
+# @project_router.post(
+#     "/{project_id}/pos",
+#     status_code=status.HTTP_201_CREATED,
+#     tags=["Project POs"],
+#     description="""
+#     Add a new PO to an existing project. The PO number is auto-generated.
+#     Request format:
+#     ```json
+#     {
+#         "amount": 1000.0,
+#         "description": "Additional PO for project"
+#     }
+#     ```
+#     """
+# )
+# def add_project_po(
+#     project_id: UUID,
+#     po_data: str = Form(..., description="JSON string containing PO details"),
+#     po_document: Optional[UploadFile] = File(None, description="PO document file"),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     try:
+#         import json
+#         from datetime import datetime
+
+#         # Parse and validate
+#         po_request_data = json.loads(po_data)
+#         amount = po_request_data.get("amount")
+#         description = po_request_data.get("description")
+
+#         if not amount or amount <= 0:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=400,
+#                 message="Amount must be greater than 0"
+#             ).model_dump()
+
+#         # Check project exists
+#         project = db.query(Project).filter(
+#             Project.uuid == project_id,
+#             Project.is_deleted.is_(False)
+#         ).first()
+#         if not project:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=404,
+#                 message="Project not found"
+#             ).model_dump()
+
+#         # Check role
+#         user_role = getattr(current_user, "role", None) or current_user.get("role")
+#         if user_role not in [
+#             UserRole.SUPER_ADMIN.value,
+#             UserRole.ADMIN.value,
+#             UserRole.PROJECT_MANAGER.value,
+#         ]:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=403,
+#                 message="Unauthorized to add POs to project"
+#             ).model_dump()
+
+#         # 📌 Auto-generate unique PO number
+#         year = datetime.utcnow().year
+#         existing_po_count = db.query(ProjectPO).filter(
+#             ProjectPO.project_id == project_id
+#         ).count()
+#         po_number = f"PO-{year}-{str(existing_po_count + 1).zfill(4)}"
+
+#         # 🧾 Optional: Save file (if needed)
+#         file_path = None
+#         if po_document:
+#             ext = os.path.splitext(po_document.filename)[1]
+#             filename = f"PO_{str(uuid4())}{ext}"
+#             upload_dir = "uploads/po_docs"
+#             os.makedirs(upload_dir, exist_ok=True)
+#             file_path = os.path.join(upload_dir, filename)
+#             with open(file_path, "wb") as buffer:
+#                 buffer.write(po_document.file.read())
+
+#         # Create PO
+#         new_po = ProjectPO(
+#             project_id=project_id,
+#             po_number=po_number,
+#             amount=amount,
+#             description=description,
+#             file_path=file_path,
+#             created_by=current_user.uuid
+#         )
+#         db.add(new_po)
+#         db.commit()
+#         db.refresh(new_po)
+
+#         return ProjectServiceResponse(
+#             data={
+#                 "uuid": str(new_po.uuid),
+#                 "project_id": str(project_id),
+#                 "po_number": new_po.po_number,
+#                 "amount": new_po.amount,
+#                 "description": new_po.description,
+#                 "created_at": new_po.created_at.strftime("%Y-%m-%d %H:%M:%S")
+#             },
+#             message="PO added to project successfully",
+#             status_code=201
+#         ).model_dump()
+
+#     except json.JSONDecodeError as json_error:
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=400,
+#             message=f"Invalid JSON in PO data: {str(json_error)}"
+#         ).model_dump()
+
+#     except Exception as e:
+#         db.rollback()
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=500,
+#             message=f"An error occurred while adding PO: {str(e)}"
+#         ).model_dump()
+
 @project_router.post(
     "/{project_id}/pos",
     status_code=status.HTTP_201_CREATED,
     tags=["Project POs"],
-    description="""
-    Add a new PO to an existing project. The PO number is auto-generated.
-    Request format:
-    ```json
+       description="""
+Add a new Purchase Order (PO) under a project.
+
+Send the PO data as a JSON string via the `po_data` form field and optionally upload a PO document file.
+
+ **Example `po_data` JSON Format**:
+```json
+{
+  "po_number": "PO-2025-0005",         
+  "client_name": "ABC Company",        
+  "amount": 500.0,                     
+  "description": "Invoice for materials", 
+  "po_date": "2025-06-15",             
+  "items": [
     {
-        "amount": 1000.0,
-        "description": "Additional PO for project"
+      "item_name": "Steel Rods",
+      "basic_value": 200
+    },
+    {
+      "item_name": "Cement Bags",
+      "basic_value": 300
     }
-    ```
-    """
+  ]
+}
+ File Upload :
+
+Use po_document field to attach a PDF/DOCX file.
+"""
 )
 def add_project_po(
     project_id: UUID,
@@ -1082,13 +1362,13 @@ def add_project_po(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        import json
-        from datetime import datetime
-
-        # Parse and validate
         po_request_data = json.loads(po_data)
         amount = po_request_data.get("amount")
         description = po_request_data.get("description")
+        client_name = po_request_data.get("client_name")
+        po_number = po_request_data.get("po_number")  # Can be None
+        po_date_str = po_request_data.get("po_date")  # Expecting date string
+        items = po_request_data.get("items", [])
 
         if not amount or amount <= 0:
             return ProjectServiceResponse(
@@ -1097,7 +1377,19 @@ def add_project_po(
                 message="Amount must be greater than 0"
             ).model_dump()
 
-        # Check project exists
+        # Convert date
+        po_date = None
+        if po_date_str:
+            try:
+                po_date = datetime.strptime(po_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message="Invalid date format. Use YYYY-MM-DD"
+                ).model_dump()
+
+        # Check project
         project = db.query(Project).filter(
             Project.uuid == project_id,
             Project.is_deleted.is_(False)
@@ -1109,7 +1401,7 @@ def add_project_po(
                 message="Project not found"
             ).model_dump()
 
-        # Check role
+        # Role check
         user_role = getattr(current_user, "role", None) or current_user.get("role")
         if user_role not in [
             UserRole.SUPER_ADMIN.value,
@@ -1122,14 +1414,15 @@ def add_project_po(
                 message="Unauthorized to add POs to project"
             ).model_dump()
 
-        # 📌 Auto-generate unique PO number
-        year = datetime.utcnow().year
-        existing_po_count = db.query(ProjectPO).filter(
-            ProjectPO.project_id == project_id
-        ).count()
-        po_number = f"PO-{year}-{str(existing_po_count + 1).zfill(4)}"
+        # Auto-generate PO number if not given
+        if not po_number:
+            year = datetime.utcnow().year
+            existing_po_count = db.query(ProjectPO).filter(
+                ProjectPO.project_id == project_id
+            ).count()
+            po_number = f"PO-{year}-{str(existing_po_count + 1).zfill(4)}"
 
-        # 🧾 Optional: Save file (if needed)
+        # Save file if provided
         file_path = None
         if po_document:
             ext = os.path.splitext(po_document.filename)[1]
@@ -1140,27 +1433,53 @@ def add_project_po(
             with open(file_path, "wb") as buffer:
                 buffer.write(po_document.file.read())
 
-        # Create PO
+        # Create main PO
         new_po = ProjectPO(
             project_id=project_id,
             po_number=po_number,
             amount=amount,
             description=description,
+            client_name=client_name,
+            po_date=po_date,
             file_path=file_path,
             created_by=current_user.uuid
         )
         db.add(new_po)
+        db.flush()  # Required to get new_po.uuid before adding items
+
+        # Save items
+        for item in items:
+            item_name = item.get("item_name")
+            basic_value = item.get("basic_value")
+            if not item_name or basic_value is None:
+                continue
+            new_item = ProjectPOItem(
+                project_po_id=new_po.uuid,
+                item_name=item_name,
+                basic_value=basic_value
+            )
+            db.add(new_item)
+
         db.commit()
         db.refresh(new_po)
 
         return ProjectServiceResponse(
             data={
                 "uuid": str(new_po.uuid),
-                "project_id": str(project_id),
+                "project_id": str(new_po.project_id),
+                "project_name": new_po.project.name if new_po.project else None,
                 "po_number": new_po.po_number,
+                "client_name": new_po.client_name,
                 "amount": new_po.amount,
                 "description": new_po.description,
-                "created_at": new_po.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                "po_date": new_po.po_date.strftime("%Y-%m-%d") if new_po.po_date else None,
+                "created_at": new_po.created_at.strftime("%Y-%m-%d %H:%M:%S") if new_po.created_at else None,
+                "items": [
+                    {
+                        "item_name": item.item_name,
+                        "basic_value": item.basic_value
+                    } for item in new_po.po_items  # ensure this relationship exists
+                ] if hasattr(new_po, "po_items") else []
             },
             message="PO added to project successfully",
             status_code=201
@@ -1182,7 +1501,6 @@ def add_project_po(
         ).model_dump()
 
 
-
 @project_router.get(
     "/{project_id}/pos",
     tags=["Project POs"],
@@ -1195,12 +1513,12 @@ def get_project_pos(
 ):
     """Get all POs for a specific project."""
     try:
-        # Check if project exists
+        # Validate project
         project = db.query(Project).filter(
             Project.uuid == project_id,
             Project.is_deleted.is_(False)
         ).first()
-        
+
         if not project:
             return ProjectServiceResponse(
                 data=None,
@@ -1208,23 +1526,30 @@ def get_project_pos(
                 message="Project not found"
             ).model_dump()
 
-        # Get all POs for this project
+        # Fetch all non-deleted POs
         pos = db.query(ProjectPO).filter(
             ProjectPO.project_id == project_id,
             ProjectPO.is_deleted.is_(False)
         ).order_by(ProjectPO.created_at).all()
 
-        # Format PO data
         pos_data = []
         total_amount = 0.0
-        
+
         for po in pos:
             po_data = {
                 "uuid": str(po.uuid),
                 "po_number": po.po_number,
+                "client_name": po.client_name,
                 "amount": po.amount,
                 "description": po.description,
-                "created_at": po.created_at.isoformat() if po.created_at else None,
+                "po_date": po.po_date.strftime("%Y-%m-%d") if po.po_date else None,
+                "created_at": po.created_at.strftime("%Y-%m-%d %H:%M:%S") if po.created_at else None,
+                "items": [
+                    {
+                        "item_name": item.item_name,
+                        "basic_value": item.basic_value
+                    } for item in getattr(po, "po_items", [])
+                ] if hasattr(po, "po_items") else [],
                 "created_by": str(po.created_by)
             }
             pos_data.append(po_data)
@@ -1232,7 +1557,7 @@ def get_project_pos(
 
         return ProjectServiceResponse(
             data={
-                "project_id": str(project_id),
+                "project_id": str(project.uuid),
                 "project_name": project.name,
                 "po_summary": {
                     "total_pos": len(pos),
@@ -1245,11 +1570,13 @@ def get_project_pos(
         ).model_dump()
 
     except Exception as e:
+        logging.error(f"Error in get_project_pos API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
             message=f"An error occurred while fetching project POs: {str(e)}"
         ).model_dump()
+
     
 
 @project_router.delete(

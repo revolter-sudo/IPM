@@ -1,4 +1,5 @@
 import os
+import json
 from fastapi import FastAPI, Body
 from fastapi_sqlalchemy import DBSessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,7 +68,8 @@ from src.app.database.models import (
     UserItemMap,
     ProjectUserMap,
     ProjectPO,
-    InvoicePayment
+    InvoicePayment,
+    InvoiceItem
 )
 from sqlalchemy.orm import Session, joinedload
 from src.app.schemas import constants
@@ -1439,50 +1441,219 @@ def get_user_project_items_old(
 
 
 # Invoice APIs
+# @admin_app.post(
+#     "/invoices",
+#     tags=["Invoices"],
+#     status_code=201,
+#     description="""
+#     Upload a new invoice with optional file attachment.
+
+#     Request body should be sent as a form with 'request' field containing a JSON string with the following structure:
+#     ```json
+#     {
+#         "project_id": "123e4567-e89b-12d3-a456-426614174000",
+#         "project_po_id": "456e7890-e89b-12d3-a456-426614174001",
+#         "client_name": "ABC Company",
+#         "invoice_item": "Construction Materials",
+#         "amount": 500.0,
+#         "description": "Invoice for materials",
+#         "due_date": "2025-06-15"
+#     }
+#     ```
+
+#     The invoice file can be uploaded as a file in the 'invoice_file' field.
+#     """
+# )
+# def upload_invoice(
+#     request: str = Form(..., description="JSON string containing invoice details (project_id, amount, description)"),
+#     invoice_file: Optional[UploadFile] = File(None, description="Invoice file to upload"),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """
+#     Upload a new invoice with optional file attachment.
+#     """
+#     try:
+#         # Parse the request data from form
+#         import json
+#         request_data = json.loads(request)
+#         invoice_request = InvoiceCreateRequest(**request_data)
+
+#         # Verify project exists
+#         project = db.query(Project).filter(
+#             Project.uuid == invoice_request.project_id,
+#             Project.is_deleted.is_(False)
+#         ).first()
+
+#         if not project:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=404,
+#                 message="Project not found"
+#             ).model_dump()
+
+#         # Verify PO exists if provided
+#         project_po = None
+#         if invoice_request.project_po_id:
+#             project_po = db.query(ProjectPO).filter(
+#                 ProjectPO.uuid == invoice_request.project_po_id,
+#                 ProjectPO.project_id == invoice_request.project_id,
+#                 ProjectPO.is_deleted.is_(False)
+#             ).first()
+
+#             if not project_po:
+#                 return ProjectServiceResponse(
+#                     data=None,
+#                     status_code=404,
+#                     message="Project PO not found"
+#                 ).model_dump()
+
+#         # Handle invoice file upload if provided
+#         file_path = None
+#         if invoice_file:
+#             upload_dir = "uploads/invoices"
+#             os.makedirs(upload_dir, exist_ok=True)
+
+#             # Create a unique filename to avoid collisions
+#             file_ext = os.path.splitext(invoice_file.filename)[1]
+#             unique_filename = f"Invoice_{str(uuid4())}{file_ext}"
+#             file_path = os.path.join(upload_dir, unique_filename)
+
+#             # Save the file
+#             with open(file_path, "wb") as buffer:
+#                 buffer.write(invoice_file.file.read())
+
+#         # Parse due_date string to datetime
+#         from datetime import datetime
+#         try:
+#             due_date = datetime.strptime(invoice_request.due_date, "%Y-%m-%d")
+#         except ValueError:
+#             try:
+#                 due_date = datetime.strptime(invoice_request.due_date, "%Y-%m-%d %H:%M:%S")
+#             except ValueError:
+#                 return ProjectServiceResponse(
+#                     data=None,
+#                     status_code=400,
+#                     message="Invalid due_date format. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
+#                 ).model_dump()
+
+#         # Create new invoice
+#         new_invoice = Invoice(
+#             project_id=invoice_request.project_id,
+#             project_po_id=invoice_request.project_po_id,
+#             client_name=invoice_request.client_name,
+#             invoice_item=invoice_request.invoice_item,
+#             amount=invoice_request.amount,
+#             description=invoice_request.description,
+#             due_date=due_date,
+#             file_path=file_path,
+#             status="uploaded",
+#             payment_status="not_paid",
+#             total_paid_amount=0.0,
+#             created_by=current_user.uuid
+#         )
+#         db.add(new_invoice)
+#         db.flush()
+
+#         # Create log entry
+#         log_entry = Log(
+#             uuid=str(uuid4()),
+#             entity="Invoice",
+#             action="Create",
+#             entity_id=new_invoice.uuid,
+#             performed_by=current_user.uuid,
+#         )
+#         db.add(log_entry)
+#         db.commit()
+#         db.refresh(new_invoice)
+
+#         return ProjectServiceResponse(
+#             data={
+#                 "uuid": str(new_invoice.uuid),
+#                 "project_id": str(new_invoice.project_id),
+#                 "client_name": new_invoice.client_name,
+#                 "invoice_item": new_invoice.invoice_item,
+#                 "amount": new_invoice.amount,
+#                 "description": new_invoice.description,
+#                 "due_date": new_invoice.due_date.strftime("%Y-%m-%d"),
+#                 "file_path": constants.HOST_URL + "/" + new_invoice.file_path if new_invoice.file_path else None,
+#                 "status": new_invoice.status,
+#                 "created_at": new_invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
+#             },
+#             message="Invoice uploaded successfully",
+#             status_code=201
+#         ).model_dump()
+#     except Exception as e:
+#         db.rollback()
+#         logging.error(f"Error in upload_invoice API: {str(e)}")
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=500,
+#             message=f"An error occurred while uploading invoice: {str(e)}"
+#         ).model_dump()
+
 @admin_app.post(
-    "/invoices",
+    "/project/{project_id}/po/{po_id}/invoice",
     tags=["Invoices"],
     status_code=201,
     description="""
-    Upload a new invoice with optional file attachment.
+    Upload a single invoice under a specific project and PO with optional file attachment.
 
-    Request body should be sent as a form with 'request' field containing a JSON string with the following structure:
+    📌 **Instructions:**
+    - `project_id` and `po_id` must be passed in the **URL path**.
+    - `invoice` should be a **JSON string**.
+    - You may attach a single file using `invoice_file`.
+
+    **Example JSON string for `invoice` field:**
     ```json
     {
-        "project_id": "123e4567-e89b-12d3-a456-426614174000",
-        "project_po_id": "456e7890-e89b-12d3-a456-426614174001",
-        "client_name": "ABC Company",
-        "invoice_item": "Construction Materials",
-        "amount": 500.0,
-        "description": "Invoice for materials",
-        "due_date": "2025-06-15"
+    "client_name": "ABC Constructions Pvt Ltd",
+    "invoice_number": "INV-2025-0034",
+    "invoice_date": "2025-06-14",
+    "invoice_items": [
+        {
+        "item_name": "Steel Bars",
+        "basic_value": 300
+        },
+        {
+        "item_name": "Sand",
+        "basic_value": 150
+        }
+    ],
+    "amount": 450.0,
+    "description": "Material delivery for basement",
+    "due_date": "2025-06-25"
     }
-    ```
-
-    The invoice file can be uploaded as a file in the 'invoice_file' field.
+    '''
     """
 )
-def upload_invoice(
-    request: str = Form(..., description="JSON string containing invoice details (project_id, amount, description)"),
-    invoice_file: Optional[UploadFile] = File(None, description="Invoice file to upload"),
+def upload_single_invoice_for_po(
+    project_id: UUID,
+    po_id: UUID,
+    invoice: str = Form(..., description="JSON string of invoice object"),
+    invoice_file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Upload a new invoice with optional file attachment.
-    """
     try:
-        # Parse the request data from form
         import json
-        request_data = json.loads(request)
-        invoice_request = InvoiceCreateRequest(**request_data)
+        from datetime import datetime
 
-        # Verify project exists
+        # Parse the JSON
+        try:
+            item = json.loads(invoice)
+        except json.JSONDecodeError:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=400,
+                message="Invalid JSON in 'invoice' field"
+            ).model_dump()
+
+        # Validate project
         project = db.query(Project).filter(
-            Project.uuid == invoice_request.project_id,
+            Project.uuid == project_id,
             Project.is_deleted.is_(False)
         ).first()
-
         if not project:
             return ProjectServiceResponse(
                 data=None,
@@ -1490,59 +1661,61 @@ def upload_invoice(
                 message="Project not found"
             ).model_dump()
 
-        # Verify PO exists if provided
-        project_po = None
-        if invoice_request.project_po_id:
-            project_po = db.query(ProjectPO).filter(
-                ProjectPO.uuid == invoice_request.project_po_id,
-                ProjectPO.project_id == invoice_request.project_id,
-                ProjectPO.is_deleted.is_(False)
-            ).first()
+        # Validate PO
+        po = db.query(ProjectPO).filter(
+            ProjectPO.uuid == po_id,
+            ProjectPO.project_id == project_id,
+            ProjectPO.is_deleted.is_(False)
+        ).first()
+        if not po:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="PO not found under this project"
+            ).model_dump()
 
-            if not project_po:
-                return ProjectServiceResponse(
-                    data=None,
-                    status_code=404,
-                    message="Project PO not found"
-                ).model_dump()
-
-        # Handle invoice file upload if provided
-        file_path = None
-        if invoice_file:
-            upload_dir = "uploads/invoices"
-            os.makedirs(upload_dir, exist_ok=True)
-
-            # Create a unique filename to avoid collisions
-            file_ext = os.path.splitext(invoice_file.filename)[1]
-            unique_filename = f"Invoice_{str(uuid4())}{file_ext}"
-            file_path = os.path.join(upload_dir, unique_filename)
-
-            # Save the file
-            with open(file_path, "wb") as buffer:
-                buffer.write(invoice_file.file.read())
-
-        # Parse due_date string to datetime
-        from datetime import datetime
+        # Parse due_date
         try:
-            due_date = datetime.strptime(invoice_request.due_date, "%Y-%m-%d")
-        except ValueError:
+            due_date = datetime.strptime(item["due_date"], "%Y-%m-%d")
+        except (KeyError, ValueError):
+            return ProjectServiceResponse(
+                data=None,
+                status_code=400,
+                message="Invalid or missing due_date. Use YYYY-MM-DD"
+            ).model_dump()
+
+        # Parse invoice_date
+        invoice_date = None
+        if item.get("invoice_date"):
             try:
-                due_date = datetime.strptime(invoice_request.due_date, "%Y-%m-%d %H:%M:%S")
+                invoice_date = datetime.strptime(item["invoice_date"], "%Y-%m-%d").date()
             except ValueError:
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
-                    message="Invalid due_date format. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
+                    message="Invalid invoice_date. Use YYYY-MM-DD"
                 ).model_dump()
 
-        # Create new invoice
+        # Save file if present
+        file_path = None
+        if invoice_file:
+            ext = os.path.splitext(invoice_file.filename)[1]
+            filename = f"Invoice_{str(uuid4())}{ext}"
+            upload_dir = "uploads/invoices"
+            os.makedirs(upload_dir, exist_ok=True)
+            file_path = os.path.join(upload_dir, filename)
+            with open(file_path, "wb") as buffer:
+                buffer.write(invoice_file.file.read())
+
+        # Create Invoice
         new_invoice = Invoice(
-            project_id=invoice_request.project_id,
-            project_po_id=invoice_request.project_po_id,
-            client_name=invoice_request.client_name,
-            invoice_item=invoice_request.invoice_item,
-            amount=invoice_request.amount,
-            description=invoice_request.description,
+            project_id=project.uuid,
+            project_po_id=po_id,
+            client_name=item.get("client_name"),
+            invoice_number=item.get("invoice_number"),
+            invoice_date=invoice_date,
+            amount=item.get("amount"),
+            description=item.get("description"),
             due_date=due_date,
             file_path=file_path,
             status="uploaded",
@@ -1553,68 +1726,118 @@ def upload_invoice(
         db.add(new_invoice)
         db.flush()
 
-        # Create log entry
-        log_entry = Log(
+        # Add invoice items
+        for sub_item in item.get("invoice_items", []):
+            name = sub_item.get("item_name")
+            value = sub_item.get("basic_value")
+            if name and value is not None:
+                db.add(InvoiceItem(
+                    invoice_id=new_invoice.uuid,
+                    item_name=name,
+                    basic_value=value
+                ))
+
+        # Log entry
+        db.add(Log(
             uuid=str(uuid4()),
             entity="Invoice",
             action="Create",
             entity_id=new_invoice.uuid,
             performed_by=current_user.uuid,
-        )
-        db.add(log_entry)
+        ))
+
         db.commit()
-        db.refresh(new_invoice)
 
         return ProjectServiceResponse(
             data={
                 "uuid": str(new_invoice.uuid),
-                "project_id": str(new_invoice.project_id),
                 "client_name": new_invoice.client_name,
-                "invoice_item": new_invoice.invoice_item,
+                "invoice_number": new_invoice.invoice_number,
                 "amount": new_invoice.amount,
-                "description": new_invoice.description,
                 "due_date": new_invoice.due_date.strftime("%Y-%m-%d"),
-                "file_path": constants.HOST_URL + "/" + new_invoice.file_path if new_invoice.file_path else None,
-                "status": new_invoice.status,
-                "created_at": new_invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                "file_path": constants.HOST_URL + "/" + file_path if file_path else None,
             },
             message="Invoice uploaded successfully",
             status_code=201
         ).model_dump()
+
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in upload_invoice API: {str(e)}")
+        logging.error(f"Error in upload_single_invoice_for_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while uploading invoice: {str(e)}"
+            message=f"An error occurred while uploading the invoice: {str(e)}"
         ).model_dump()
-    
+
 @admin_app.post(
-    "/po/{po_id}/invoices/batch",
+    "/project/{project_id}/po/{po_id}/invoices/batch",
     tags=["Invoices"],
     status_code=201,
     description="""
-    Upload multiple invoices under a single PO with optional file attachments.
+ **Upload Multiple Invoices Under a Specific PO**
 
-    Each invoice JSON must contain:
-    ```json
-    {
-        "project_id": "123e4567-e89b-12d3-a456-426614174000",
-        "client_name": "ABC Company",
-        "invoice_item": "Construction Materials",
-        "amount": 500.0,
-        "description": "Invoice for materials",
-        "due_date": "2025-06-15"
-    }
-    ```
+This endpoint allows you to upload multiple invoices for a given project and purchase order (PO), optionally including files.
 
-    Form Fields:
-    - `invoices`: JSON stringified array of invoice objects.
-    - `invoice_files`: multiple files, in the same order as invoices.
-    """
+🛠 **Usage Instructions:**
+- `project_id` and `po_id` must be passed in the **URL path**.
+- `invoices` should be a **JSON stringified list** of invoice objects.
+- You can optionally attach multiple files using `invoice_files` (they must match order of invoices).
+
+ **Example `invoices` JSON string:**
+```json
+  [
+  {
+    "client_name": "ABC Constructions Pvt Ltd",
+    "invoice_number": "INV-2025-1001",
+    "invoice_date": "2025-06-14",
+    "invoice_items": [
+      {
+        "item_name": "Cement",
+        "basic_value": 300
+      },
+      {
+        "item_name": "Steel Rods",
+        "basic_value": 200
+      }
+    ],
+    "amount": 500.0,
+    "description": "Materials for Phase 1",
+    "due_date": "2025-06-25"
+  },
+  {
+    "client_name": "XYZ Infra Co.",
+    "invoice_number": "INV-2025-1002",
+    "invoice_date": "2025-06-16",
+    "invoice_items": [
+      {
+        "item_name": "Bricks",
+        "basic_value": 120
+      },
+      {
+        "item_name": "Gravel",
+        "basic_value": 180
+      }
+    ],
+    "amount": 300.0,
+    "description": "Foundation work supplies",
+    "due_date": "2025-06-27"
+  }
+]
+    Attachments:
+
+invoice_files: Optional array of file uploads. Files are matched index-wise with invoices.
+
+📌 Notes:
+
+Do not include project_id or po_id in the invoice objects — they are inferred from the path.
+
+Dates must follow format: YYYY-MM-DD.
+
+"""
 )
 def upload_multiple_invoices_for_po(
+    project_id: UUID,
     po_id: UUID,
     invoices: str = Form(..., description="JSON string list of invoices"),
     invoice_files: Optional[List[UploadFile]] = File(None),
@@ -1622,58 +1845,92 @@ def upload_multiple_invoices_for_po(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        import json
-        from datetime import datetime
-        from uuid import uuid4
+        # Parse and validate input
+        try:
+            invoice_list = json.loads(invoices)
+        except json.JSONDecodeError:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=400,
+                message="Invalid JSON in 'invoices' field"
+            ).model_dump()
 
-        # Parse and validate invoice list
-        invoice_list = json.loads(invoices)
         if not isinstance(invoice_list, list):
-            raise ValueError("invoices field must be a list of invoice objects")
+            return ProjectServiceResponse(
+                data=None,
+                status_code=400,
+                message="Invoices must be a list of invoice objects"
+            ).model_dump()
 
-        # Check PO exists
+        # Validate project
+        project = db.query(Project).filter(
+            Project.uuid == project_id,
+            Project.is_deleted.is_(False)
+        ).first()
+        if not project:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Project not found"
+            ).model_dump()
+
+        # Validate PO
         po = db.query(ProjectPO).filter(
             ProjectPO.uuid == po_id,
-            ProjectPO.is_deleted.is_(False)
+            ProjectPO.is_deleted.is_(False),
+            ProjectPO.project_id == project_id
         ).first()
-
         if not po:
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
-                message="Project PO not found"
+                message="PO not found under this project"
             ).model_dump()
 
         created_invoices = []
 
         for index, item in enumerate(invoice_list):
-            # Parse due date
+            # Validate and parse due_date
             try:
                 due_date = datetime.strptime(item["due_date"], "%Y-%m-%d")
-            except ValueError:
+            except (KeyError, ValueError):
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
-                    message=f"Invalid due_date format at index {index}. Use YYYY-MM-DD"
+                    message=f"Invalid or missing due_date at index {index}. Use YYYY-MM-DD"
                 ).model_dump()
 
-            # Save file if exists
+            # Parse invoice_date
+            invoice_date = None
+            if item.get("invoice_date"):
+                try:
+                    invoice_date = datetime.strptime(item["invoice_date"], "%Y-%m-%d").date()
+                except ValueError:
+                    return ProjectServiceResponse(
+                        data=None,
+                        status_code=400,
+                        message=f"Invalid invoice_date at index {index}. Use YYYY-MM-DD"
+                    ).model_dump()
+
+            # Optional file
             file_path = None
             if invoice_files and len(invoice_files) > index:
                 file = invoice_files[index]
-                file_ext = os.path.splitext(file.filename)[1]
-                unique_filename = f"Invoice_{str(uuid4())}{file_ext}"
+                ext = os.path.splitext(file.filename)[1]
+                filename = f"Invoice_{str(uuid4())}{ext}"
                 upload_dir = "uploads/invoices"
                 os.makedirs(upload_dir, exist_ok=True)
-                file_path = os.path.join(upload_dir, unique_filename)
+                file_path = os.path.join(upload_dir, filename)
                 with open(file_path, "wb") as buffer:
                     buffer.write(file.file.read())
 
+            # Save Invoice
             new_invoice = Invoice(
-                project_id=item["project_id"],
+                project_id=project.uuid,
                 project_po_id=po_id,
                 client_name=item.get("client_name"),
-                invoice_item=item.get("invoice_item"),
+                invoice_number=item.get("invoice_number"),
+                invoice_date=invoice_date,
                 amount=item.get("amount"),
                 description=item.get("description"),
                 due_date=due_date,
@@ -1686,23 +1943,34 @@ def upload_multiple_invoices_for_po(
             db.add(new_invoice)
             db.flush()
 
-            # Add log
-            log_entry = Log(
+            # Save Invoice Items
+            for sub_item in item.get("invoice_items", []):
+                name = sub_item.get("item_name")
+                value = sub_item.get("basic_value")
+                if name and value is not None:
+                    db.add(InvoiceItem(
+                        invoice_id=new_invoice.uuid,
+                        item_name=name,
+                        basic_value=value
+                    ))
+
+            # Log entry
+            db.add(Log(
                 uuid=str(uuid4()),
                 entity="Invoice",
                 action="Create",
                 entity_id=new_invoice.uuid,
                 performed_by=current_user.uuid,
-            )
-            db.add(log_entry)
+            ))
 
             created_invoices.append({
                 "uuid": str(new_invoice.uuid),
                 "amount": new_invoice.amount,
-                "invoice_item": new_invoice.invoice_item,
-                "due_date": due_date.strftime("%Y-%m-%d"),
                 "client_name": new_invoice.client_name,
-                "file_path": constants.HOST_URL + "/" + new_invoice.file_path if new_invoice.file_path else None
+                "invoice_number": new_invoice.invoice_number,
+                "invoice_date": new_invoice.invoice_date.isoformat() if new_invoice.invoice_date else None,
+                "due_date": due_date.strftime("%Y-%m-%d"),
+                "file_path": constants.HOST_URL + "/" + file_path if file_path else None
             })
 
         db.commit()
@@ -1721,6 +1989,8 @@ def upload_multiple_invoices_for_po(
             status_code=500,
             message=f"An error occurred while uploading invoices: {str(e)}"
         ).model_dump()
+
+
 
 
 @admin_app.put(
@@ -1835,17 +2105,21 @@ def list_invoices(
 
         invoices = query.all()
 
-        # Format response
         invoice_list = []
         for invoice in invoices:
             invoice_list.append({
                 "uuid": str(invoice.uuid),
                 "project_id": str(invoice.project_id),
                 "client_name": invoice.client_name,
-                "invoice_item": invoice.invoice_item,
+                "invoice_items": [
+                    {
+                        "item_name": item.item_name,
+                        "basic_value": item.basic_value
+                    } for item in invoice.invoice_items
+                ],
                 "amount": invoice.amount,
                 "description": invoice.description,
-                "due_date": invoice.due_date.strftime("%Y-%m-%d"),
+                "due_date": invoice.due_date.strftime("%Y-%m-%d") if invoice.due_date else None,
                 "file_path": constants.HOST_URL + "/" + invoice.file_path if invoice.file_path else None,
                 "status": invoice.status,
                 "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
@@ -1856,6 +2130,7 @@ def list_invoices(
             message="Invoices fetched successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         logging.error(f"Error in list_invoices API: {str(e)}")
         return ProjectServiceResponse(
@@ -1863,6 +2138,7 @@ def list_invoices(
             status_code=500,
             message=f"An error occurred while fetching invoices: {str(e)}"
         ).model_dump()
+
 
 
 @admin_app.get(
@@ -1899,18 +2175,24 @@ def get_invoice(
                 "project_id": str(invoice.project_id),
                 "project_name": project.name if project else None,
                 "client_name": invoice.client_name,
-                "invoice_item": invoice.invoice_item,
+                "invoice_items": [
+                    {
+                        "item_name": item.item_name,
+                        "basic_value": item.basic_value
+                    } for item in invoice.invoice_items
+                ],
                 "amount": invoice.amount,
                 "description": invoice.description,
-                "due_date": invoice.due_date.strftime("%Y-%m-%d"),
+                "due_date": invoice.due_date.strftime("%Y-%m-%d") if invoice.due_date else None,
                 "file_path": constants.HOST_URL + "/" + invoice.file_path if invoice.file_path else None,
                 "status": invoice.status,
-                "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S") if invoice.created_at else None,
                 "created_by": str(invoice.created_by)
             },
             message="Invoice fetched successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         logging.error(f"Error in get_invoice API: {str(e)}")
         return ProjectServiceResponse(
@@ -1926,34 +2208,28 @@ def get_invoice(
     description="""
     Update invoice information.
 
-    Request body should contain the fields to update:
+    Request body should contain fields to update:
     ```json
     {
-        "client_name": "Updated Company Name",
-        "invoice_item": "Updated Item",
+        "client_name": "Updated Company",
         "amount": 600.0,
-        "description": "Updated description",
-        "due_date": "2025-07-15"
+        "description": "Updated",
+        "due_date": "2025-07-15",
+        "invoice_items": [
+            { "item_name": "Updated Cement", "basic_value": 300 }
+        ]
     }
     ```
-
-    All fields are optional - only provided fields will be updated.
     """
 )
 def update_invoice(
     invoice_id: UUID,
-    update_request: InvoiceUpdateRequest = Body(
-        ...,
-        description="Invoice update information"
-    ),
+    update_request: InvoiceUpdateRequest = Body(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Update invoice information.
-    """
     try:
-        # Verify user has permission
+        # ✅ Role Check
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
@@ -1965,7 +2241,7 @@ def update_invoice(
                 message="Not authorized to update invoice"
             ).model_dump()
 
-        # Find the invoice
+        # ✅ Fetch invoice
         invoice = db.query(Invoice).filter(
             Invoice.uuid == invoice_id,
             Invoice.is_deleted.is_(False)
@@ -1978,12 +2254,9 @@ def update_invoice(
                 message="Invoice not found"
             ).model_dump()
 
-        # Update fields if provided
+        # ✅ Update fields
         if update_request.client_name is not None:
             invoice.client_name = update_request.client_name
-
-        if update_request.invoice_item is not None:
-            invoice.invoice_item = update_request.invoice_item
 
         if update_request.amount is not None:
             invoice.amount = update_request.amount
@@ -1992,30 +2265,36 @@ def update_invoice(
             invoice.description = update_request.description
 
         if update_request.due_date is not None:
-            # Parse due_date string to datetime
-            from datetime import datetime
             try:
-                due_date = datetime.strptime(update_request.due_date, "%Y-%m-%d")
+                invoice.due_date = datetime.strptime(update_request.due_date, "%Y-%m-%d")
             except ValueError:
-                try:
-                    due_date = datetime.strptime(update_request.due_date, "%Y-%m-%d %H:%M:%S")
-                except ValueError:
-                    return ProjectServiceResponse(
-                        data=None,
-                        status_code=400,
-                        message="Invalid due_date format. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
-                    ).model_dump()
-            invoice.due_date = due_date
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message="Invalid due_date format. Use YYYY-MM-DD"
+                ).model_dump()
 
-        # Create log entry
-        log_entry = Log(
+        # ✅ Replace invoice_items if provided
+        if update_request.invoice_items is not None:
+            # Delete old items
+            db.query(InvoiceItem).filter(InvoiceItem.invoice_id == invoice.uuid).delete()
+            # Add new ones
+            for item in update_request.invoice_items:
+                db.add(InvoiceItem(
+                    invoice_id=invoice.uuid,
+                    item_name=item.item_name,
+                    basic_value=item.basic_value
+                ))
+
+        # ✅ Add log
+        db.add(Log(
             uuid=str(uuid4()),
             entity="Invoice",
             action="Update",
             entity_id=invoice_id,
             performed_by=current_user.uuid,
-        )
-        db.add(log_entry)
+        ))
+
         db.commit()
         db.refresh(invoice)
 
@@ -2024,10 +2303,15 @@ def update_invoice(
                 "uuid": str(invoice.uuid),
                 "project_id": str(invoice.project_id),
                 "client_name": invoice.client_name,
-                "invoice_item": invoice.invoice_item,
                 "amount": invoice.amount,
                 "description": invoice.description,
-                "due_date": invoice.due_date.strftime("%Y-%m-%d"),
+                "due_date": invoice.due_date.strftime("%Y-%m-%d") if invoice.due_date else None,
+                "invoice_items": [
+                    {
+                        "item_name": i.item_name,
+                        "basic_value": i.basic_value
+                    } for i in invoice.invoice_items
+                ],
                 "file_path": constants.HOST_URL + "/" + invoice.file_path if invoice.file_path else None,
                 "status": invoice.status,
                 "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
@@ -2035,6 +2319,7 @@ def update_invoice(
             message="Invoice updated successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         db.rollback()
         logging.error(f"Error in update_invoice API: {str(e)}")
@@ -2043,6 +2328,7 @@ def update_invoice(
             status_code=500,
             message=f"An error occurred while updating invoice: {str(e)}"
         ).model_dump()
+
 
 
 @admin_app.delete(
@@ -2162,15 +2448,21 @@ def get_invoices_by_po(
                 "uuid": str(inv.uuid),
                 "project_id": str(inv.project_id),
                 "client_name": inv.client_name,
-                "invoice_item": inv.invoice_item,
+                "invoice_items": [
+                    {
+                        "item_name": item.item_name,
+                        "basic_value": item.basic_value
+                    } for item in inv.invoice_items
+                ],
                 "amount": inv.amount,
                 "description": inv.description,
-                "due_date": inv.due_date.strftime("%Y-%m-%d"),
+                "due_date": inv.due_date.strftime("%Y-%m-%d") if inv.due_date else None,
                 "payment_status": inv.payment_status,
                 "total_paid_amount": inv.total_paid_amount,
                 "file_url": constants.HOST_URL + "/" + inv.file_path if inv.file_path else None,
-                "created_at": inv.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                "created_at": inv.created_at.strftime("%Y-%m-%d %H:%M:%S") if inv.created_at else None
             })
+
 
         return ProjectServiceResponse(
             data={
