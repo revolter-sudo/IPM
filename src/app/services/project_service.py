@@ -1325,7 +1325,7 @@ def delete_project(
     "/{project_id}/pos",
     status_code=status.HTTP_201_CREATED,
     tags=["Project POs"],
-       description="""
+    description="""
 Add a new Purchase Order (PO) under a project.
 
 Send the PO data as a JSON string via the `po_data` form field and optionally upload a PO document file.
@@ -1479,7 +1479,8 @@ def add_project_po(
                         "item_name": item.item_name,
                         "basic_value": item.basic_value
                     } for item in new_po.po_items  # ensure this relationship exists
-                ] if hasattr(new_po, "po_items") else []
+                ] if hasattr(new_po, "po_items") else [],
+                "file_path": new_po.file_path
             },
             message="PO added to project successfully",
             status_code=201
@@ -1550,6 +1551,7 @@ def get_project_pos(
                         "basic_value": item.basic_value
                     } for item in getattr(po, "po_items", [])
                 ] if hasattr(po, "po_items") else [],
+                "file_path": constants.HOST_URL + "/" + po.file_path if po.file_path else None,
                 "created_by": str(po.created_by)
             }
             pos_data.append(po_data)
