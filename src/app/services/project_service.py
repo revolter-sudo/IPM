@@ -1733,7 +1733,7 @@ def delete_project_po(
     
 
 
-@admin_app.get(
+@project_router.get(
     "/project-item-view/{project_id}/{user_id}",
     tags=["Projects"],
     description="Get items visible to current user under a specific project."
