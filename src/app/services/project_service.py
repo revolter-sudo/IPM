@@ -1732,7 +1732,7 @@ def delete_project_po(
         ).model_dump()
     
 
-
+ 
 @project_router.get(
     "/project-item-view/{project_id}/{user_id}",
     tags=["Projects"],
@@ -1776,11 +1776,7 @@ def view_project_items_for_user(
             )
             .all()
         )
-    response = {
-        "status_code": 200,
-        "project_id": str(project_id),
-        "user_id": str(user_id),
-        "items": [
+    response = [
             {
                 "uuid": m.uuid,
                 "item_id": m.item_id,
@@ -1793,9 +1789,7 @@ def view_project_items_for_user(
 
             }
             for m in project_items
-        ],
-        "count": len(project_items)
-    }
+        ]
     return ProjectServiceResponse(
         data=response,
         message="Project User Items Fetched Successfully.",
