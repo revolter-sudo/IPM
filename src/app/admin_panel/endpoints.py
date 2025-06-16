@@ -3851,8 +3851,11 @@ def view_project_items_for_user(
     project_id: UUID,
     user_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
+    user = db.query(User).filter(User.uuid == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
     # Authorized roles who can see all items
     privileged_roles = [
         UserRole.SUPER_ADMIN.value,
@@ -3861,7 +3864,7 @@ def view_project_items_for_user(
         UserRole.ACCOUNTANT.value,
     ]
 
-    if current_user.role in privileged_roles:
+    if user.role in privileged_roles:
         # Show all items assigned to the project
         project_items = (
             db.query(ProjectItemMap)
