@@ -1291,36 +1291,40 @@ def get_user_details(
             "parent_id": str(person.parent_id) if person and person.parent_id else None
         }
 
-        # Get project + item mappings for this user
-        user_item_mappings = (
-            db.query(Project, Item, ProjectUserItemMap)
-            .join(ProjectUserItemMap, Project.uuid == ProjectUserItemMap.project_id)
-            .join(Item, Item.uuid == ProjectUserItemMap.item_id)
-            .filter(ProjectUserItemMap.user_id == user_id)
-            .all()
-        )
+        # Get all projects assigned to the user
+        project_mappings = db.query(ProjectUserMap).filter(ProjectUserMap.user_id == user_id).all()
+        project_ids = [mapping.project_id for mapping in project_mappings]
+        projects = db.query(Project).filter(Project.uuid.in_(project_ids)).all()
 
-        # Organize mappings by project
+        # For each project, get items mapped to the user (if any)
         project_dict = {}
-        for project, item, mapping in user_item_mappings:
-            if project.uuid not in project_dict:
-                project_dict[project.uuid] = {
-                    "uuid": str(project.uuid),
-                    "name": project.name,
-                    "description": project.description,
-                    "location": project.location,
-                    "estimated_balance": project.estimated_balance or 0,
-                    "actual_balance": project.actual_balance or 0,
-                    "items": []
+        for project in projects:
+            # Get items for this user in this project
+            item_mappings = (
+                db.query(Item)
+                .join(ProjectUserItemMap, Item.uuid == ProjectUserItemMap.item_id)
+                .filter(ProjectUserItemMap.user_id == user_id, ProjectUserItemMap.project_id == project.uuid)
+                .all()
+            )
+            items_list = [
+                {
+                    "uuid": str(item.uuid),
+                    "name": item.name,
+                    "category": item.category,
+                    "list_tag": item.list_tag,
+                    "has_additional_info": item.has_additional_info
                 }
-
-            project_dict[project.uuid]["items"].append({
-                "uuid": str(item.uuid),
-                "name": item.name,
-                "category": item.category,
-                "list_tag": item.list_tag,
-                "has_additional_info": item.has_additional_info
-            })
+                for item in item_mappings
+            ]
+            project_dict[project.uuid] = {
+                "uuid": str(project.uuid),
+                "name": project.name,
+                "description": project.description,
+                "location": project.location,
+                "estimated_balance": project.estimated_balance or 0,
+                "actual_balance": project.actual_balance or 0,
+                "items": items_list
+            }
 
         user_details = {
             "uuid": str(user.uuid),
