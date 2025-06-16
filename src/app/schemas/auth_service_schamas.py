@@ -72,7 +72,6 @@ class UserResponse(BaseModel):
     phone: int
     role: str
     photo_path: Any
-    created_at: date
 
     def to_dict(self):
         """
