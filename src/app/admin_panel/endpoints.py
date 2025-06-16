@@ -1249,6 +1249,108 @@ def get_user_projects(
             message="An error occurred while fetching user projects"
         ).model_dump()
 
+# @admin_app.get(
+#     "/user/{user_id}/details",
+#     tags=["admin_panel"]
+# )
+# def get_user_details(
+#     user_id: UUID,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     try:
+#         # Role check
+#         if current_user.role not in [
+#             UserRole.SUPER_ADMIN.value,
+#             UserRole.ADMIN.value,
+#             UserRole.PROJECT_MANAGER.value,
+#         ]:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=403,
+#                 message="Unauthorized to view user details"
+#             ).model_dump()
+
+#         # Get user
+#         user = db.query(User).filter(User.uuid == user_id).first()
+#         if not user:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=404,
+#                 message="User not found"
+#             ).model_dump()
+
+#         # Get account info (Person)
+#         person = db.query(Person).filter(Person.user_id == user.uuid).first()
+#         account_info = {
+#             "name": person.name if person else None,
+#             "account_number": person.account_number if person else None,
+#             "ifsc_code": person.ifsc_code if person else None,
+#             "phone_number": person.phone_number if person else None,
+#             "upi_number": person.upi_number if person else None,
+#             "parent_id": str(person.parent_id) if person and person.parent_id else None
+#         }
+
+#         # Get all projects assigned to the user
+#         project_mappings = db.query(ProjectUserMap).filter(ProjectUserMap.user_id == user_id).all()
+#         project_ids = [mapping.project_id for mapping in project_mappings]
+#         projects = db.query(Project).filter(Project.uuid.in_(project_ids)).all()
+
+#         # For each project, get items mapped to the user (if any)
+#         project_dict = {}
+#         for project in projects:
+#             # Get items for this user in this project
+#             item_mappings = (
+#                 db.query(Item)
+#                 .join(ProjectUserItemMap, Item.uuid == ProjectUserItemMap.item_id)
+#                 .filter(ProjectUserItemMap.user_id == user_id, ProjectUserItemMap.project_id == project.uuid)
+#                 .all()
+#             )
+#             items_list = [
+#                 {
+#                     "uuid": str(item.uuid),
+#                     "name": item.name,
+#                     "category": item.category,
+#                     "list_tag": item.list_tag,
+#                     "has_additional_info": item.has_additional_info
+#                 }
+#                 for item in item_mappings
+#             ]
+#             project_dict[project.uuid] = {
+#                 "uuid": str(project.uuid),
+#                 "name": project.name,
+#                 "description": project.description,
+#                 "location": project.location,
+#                 "estimated_balance": project.estimated_balance or 0,
+#                 "actual_balance": project.actual_balance or 0,
+#                 "items": items_list
+#             }
+
+#         user_details = {
+#             "uuid": str(user.uuid),
+#             "name": user.name,
+#             "phone": user.phone,
+#             "role": user.role,
+#             "account_info": account_info,
+#             "projects": list(project_dict.values())
+#         }
+
+#         return ProjectServiceResponse(
+#             data=user_details,
+#             message="User details fetched successfully",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         db.rollback()
+#         logging.error(f"Error in get_user_details API: {str(e)}")
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=500,
+#             message="An error occurred while fetching user details"
+#         ).model_dump()
+
+
 @admin_app.get(
     "/user/{user_id}/details",
     tags=["admin_panel"]
@@ -1259,7 +1361,7 @@ def get_user_details(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        # Role check
+        # Allow only privileged roles to use this API
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
@@ -1271,7 +1373,7 @@ def get_user_details(
                 message="Unauthorized to view user details"
             ).model_dump()
 
-        # Get user
+        # Fetch the target user whose details are being requested
         user = db.query(User).filter(User.uuid == user_id).first()
         if not user:
             return ProjectServiceResponse(
@@ -1280,7 +1382,7 @@ def get_user_details(
                 message="User not found"
             ).model_dump()
 
-        # Get account info (Person)
+        # Fetch account info from Person table
         person = db.query(Person).filter(Person.user_id == user.uuid).first()
         account_info = {
             "name": person.name if person else None,
@@ -1291,21 +1393,43 @@ def get_user_details(
             "parent_id": str(person.parent_id) if person and person.parent_id else None
         }
 
-        # Get all projects assigned to the user
+        # Fetch projects assigned to the user
         project_mappings = db.query(ProjectUserMap).filter(ProjectUserMap.user_id == user_id).all()
         project_ids = [mapping.project_id for mapping in project_mappings]
         projects = db.query(Project).filter(Project.uuid.in_(project_ids)).all()
 
-        # For each project, get items mapped to the user (if any)
+        # Determine if user is in privileged role
+        privileged_roles = [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.PROJECT_MANAGER.value,
+            UserRole.ACCOUNTANT.value,
+        ]
+        is_privileged = user.role in privileged_roles
+
+        # Fetch project-wise item mappings
         project_dict = {}
         for project in projects:
-            # Get items for this user in this project
-            item_mappings = (
-                db.query(Item)
-                .join(ProjectUserItemMap, Item.uuid == ProjectUserItemMap.item_id)
-                .filter(ProjectUserItemMap.user_id == user_id, ProjectUserItemMap.project_id == project.uuid)
-                .all()
-            )
+            if is_privileged:
+                # Fetch all items for the project (global project item map)
+                item_mappings = (
+                    db.query(Item)
+                    .join(ProjectItemMap, Item.uuid == ProjectItemMap.item_id)
+                    .filter(ProjectItemMap.project_id == project.uuid)
+                    .all()
+                )
+            else:
+                # Fetch only items mapped to the user under that project
+                item_mappings = (
+                    db.query(Item)
+                    .join(ProjectUserItemMap, Item.uuid == ProjectUserItemMap.item_id)
+                    .filter(
+                        ProjectUserItemMap.user_id == user_id,
+                        ProjectUserItemMap.project_id == project.uuid
+                    )
+                    .all()
+                )
+
             items_list = [
                 {
                     "uuid": str(item.uuid),
@@ -1316,6 +1440,7 @@ def get_user_details(
                 }
                 for item in item_mappings
             ]
+
             project_dict[project.uuid] = {
                 "uuid": str(project.uuid),
                 "name": project.name,
@@ -1326,6 +1451,7 @@ def get_user_details(
                 "items": items_list
             }
 
+        # Final user detail response
         user_details = {
             "uuid": str(user.uuid),
             "name": user.name,
