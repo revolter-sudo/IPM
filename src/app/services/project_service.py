@@ -650,12 +650,13 @@ def list_all_projects(
                 "end_date": project.end_date,
                 "estimated_balance": estimated_balance,
                 "actual_balance": actual_balance,
+                "created_at": project.created_at.strftime("%Y-%m-%d %H:%M:%S"),
                 "items_count": items_count,
                 "exceeding_items": {
                     "count": len(exceeding_items),
                     "items": exceeding_items
                 },
-                "total_po_amount": total_po_amount,  # ✅ New field
+                "total_po_amount": total_po_amount,
                 "pos": pos_list
             })
 
@@ -721,6 +722,7 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             end_date=project.end_date,
             estimated_balance=estimated_balance,
             actual_balance=actual_balance,
+            created_at=project.created_at,
         ).model_dump()
         return ProjectServiceResponse(
             data=project_response_data,

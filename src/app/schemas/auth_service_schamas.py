@@ -3,6 +3,7 @@ from uuid import UUID
 from typing import Any, Optional
 from pydantic import BaseModel, field_validator
 from src.app.schemas.payment_service_schemas import CreatePerson, UpdatePerson
+from datetime import datetime, date
 
 
 class UserRole(str, Enum):
@@ -71,6 +72,7 @@ class UserResponse(BaseModel):
     phone: int
     role: str
     photo_path: Any
+    created_at: date
 
     def to_dict(self):
         """

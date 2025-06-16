@@ -104,6 +104,7 @@ class User(Base):
     is_deleted = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
     photo_path = Column(String(255), nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
     token_maps = relationship(
         "UserTokenMap",
@@ -208,6 +209,7 @@ class Project(Base):
     actual_balance = Column(Float, nullable=False, default=0.0)
     # po_document_path = Column(String(255), nullable=True)
     is_deleted = Column(Boolean, nullable=False, default=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
     project_user_map = relationship(
         "ProjectUserMap",
@@ -499,6 +501,7 @@ class Item(Base):
     # Relationship for payments associated with this item
     payments = relationship("PaymentItem", back_populates="item", cascade="all, delete-orphan")
     khatabook_items = relationship("KhatabookItem", back_populates="item", cascade="all, delete-orphan")
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
     def __repr__(self):
         return f"<Item(id={self.id}, name={self.name}, category={self.category})>"

@@ -2085,7 +2085,8 @@ def list_items(
                 "name": item.name,
                 "category": item.category,
                 "list_tag": item.list_tag,
-                "has_additional_info": item.has_additional_info
+                "has_additional_info": item.has_additional_info,
+                "created_at": item.created_at
             } for item in items
         ]
 

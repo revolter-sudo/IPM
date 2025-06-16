@@ -1,6 +1,6 @@
 from typing import Optional, Any, List
 from uuid import UUID
-from datetime import date
+from datetime import date, datetime
 from pydantic import BaseModel
 
 
@@ -13,6 +13,7 @@ class ProjectResponse(BaseModel):
     end_date: Optional[date] = None
     estimated_balance: float = 0.0
     actual_balance: float = 0.0
+    created_at: datetime
 
     def to_dict(self):
         """
@@ -36,6 +37,7 @@ class ItemResponse(BaseModel):
     category: Optional[str] = None
     list_tag: Optional[str] = None
     has_additional_info: Optional[bool] = False
+    created_at: str
 
 
 class ProjectWithItemsResponse(ProjectResponse):

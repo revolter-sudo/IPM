@@ -4063,14 +4063,14 @@ def get_dashboard_project_stats(
 
         # ───── Total Projects ─────
         total_projects = db.query(Project).filter(Project.is_deleted.is_(False)).count()
-        # recent_projects = db.query(Project).filter(
-        #     Project.is_deleted.is_(False),
-        #     Project.created_at >= last_31_days
-        # ).count()
+        recent_projects = db.query(Project).filter(
+            Project.is_deleted.is_(False),
+            Project.created_at >= last_31_days
+        ).count()
 
         # ───── Total Items ─────
         total_items = db.query(Item).count()
-        # recent_items = db.query(Item).filter(Item.created_at >= last_31_days).count()
+        recent_items = db.query(Item).filter(Item.created_at >= last_31_days).count()
 
         # ───── Total Revenue ─────
         total_revenue = db.query(func.coalesce(func.sum(InvoicePayment.amount), 0)).scalar()
@@ -4089,20 +4089,20 @@ def get_dashboard_project_stats(
 
         # ───── Active Users ─────
         active_users = db.query(User).filter(User.is_active.is_(True)).count()
-        # new_users = db.query(User).filter(
-        #     User.is_active.is_(True),
-        #     User.created_at >= last_31_days
-        # ).count()
+        new_users = db.query(User).filter(
+            User.is_active.is_(True),
+            User.created_at >= last_31_days
+        ).count()
 
         return ProjectServiceResponse(
             data={
                 "projects": {
                     "total": total_projects,
-                    "last_31_days": None
+                    "last_31_days": recent_projects
                 },
                 "items": {
                     "total": total_items,
-                    "last_31_days": None
+                    "last_31_days": recent_items
                 },
                 "revenue": {
                     "total": total_revenue,
@@ -4111,7 +4111,7 @@ def get_dashboard_project_stats(
                 },
                 "active_users": {
                     "total": active_users,
-                    "last_31_days": None
+                    "last_31_days": new_users
                 }
             },
             message="Dashboard stats fetched successfully",
