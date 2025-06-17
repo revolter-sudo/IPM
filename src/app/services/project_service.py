@@ -1770,6 +1770,7 @@ def view_project_items_for_user(
         project_items = (
             db.query(ProjectUserItemMap)
             .join(Item, ProjectUserItemMap.item_id == Item.uuid)
+            .join(ProjectItemMap, ProjectUserItemMap.item_id == ProjectItemMap.item_id)
             .filter(
                 ProjectUserItemMap.project_id == project_id,
                 ProjectUserItemMap.user_id == user_id
