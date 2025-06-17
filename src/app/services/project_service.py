@@ -1783,7 +1783,7 @@ def view_project_items_for_user(
                 "category": m.item.category if m.item else None,
                 "listTag": m.item.list_tag if m.item else None,
                 "has_additional_info": m.item.has_additional_info if m.item else None,
-                "item_balance": m.item_balance,
+                "item_balance": m.ProjectItemMap.item_balance,
                 "remaining_balance": None
 
             }
