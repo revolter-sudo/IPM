@@ -1737,15 +1737,18 @@ def delete_project_po(
  
 @project_router.get(
     "/project-item-view/{project_id}/{user_id}",
-    tags=["Projects"],
+    tags=["Mappings"],
     description="Get items visible to current user under a specific project."
 )
 def view_project_items_for_user(
     project_id: UUID,
     user_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
+    user = db.query(User).filter(User.uuid == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
     # Authorized roles who can see all items
     privileged_roles = [
         UserRole.SUPER_ADMIN.value,
@@ -1754,15 +1757,12 @@ def view_project_items_for_user(
         UserRole.ACCOUNTANT.value,
     ]
 
-    if current_user.role in privileged_roles:
+    if user.role in privileged_roles:
         # Show all items assigned to the project
         project_items = (
             db.query(ProjectItemMap)
             .join(Item, ProjectItemMap.item_id == Item.uuid)
-            .filter(
-                ProjectItemMap.project_id == project_id,
-                Item.list_tag != 'khatabook'
-            )
+            .filter(ProjectItemMap.project_id == project_id)
             .all()
         )
     else:
@@ -1770,28 +1770,30 @@ def view_project_items_for_user(
         project_items = (
             db.query(ProjectUserItemMap)
             .join(Item, ProjectUserItemMap.item_id == Item.uuid)
-            .join(ProjectItemMap, ProjectItemMap.project_id == project_id)
             .filter(
                 ProjectUserItemMap.project_id == project_id,
-                ProjectUserItemMap.user_id == user_id,
-                Item.list_tag != 'khatabook'
+                ProjectUserItemMap.user_id == user_id
             )
             .all()
         )
-    response = [
+    response = {
+        "status_code": 200,
+        "project_id": str(project_id),
+        "user_id": str(user_id),
+        "items": [
             {
-                "uuid": m.item.uuid,
-                "name": m.item.name if m.item else None,
-                "category": m.item.category if m.item else None,
-                "listTag": m.item.list_tag if m.item else None,
-                "has_additional_info": m.item.has_additional_info if m.item else None,
-                "item_balance": m.item_balance,
-                "remaining_balance": None
-
+                "uuid": m.uuid,
+                "item_id": m.item_id,
+                "item_name": m.item.name if m.item else None,
+                "item_category": m.item.category if m.item else None,
+                "item_list_tag": m.item.list_tag if m.item else None,
+                "item_has_additional_info": m.item.has_additional_info if m.item else None
             }
             for m in project_items
-        ]
-    return ProjectServiceResponse(
+        ],
+        "count": len(project_items)
+    }
+    return AdminPanelResponse(
         data=response,
         message="Project User Items Fetched Successfully.",
         status_code=200
