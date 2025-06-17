@@ -1793,7 +1793,7 @@ def view_project_items_for_user(
         ],
         "count": len(project_items)
     }
-    return AdminPanelResponse(
+    return ProjectServiceResponse(
         data=response,
         message="Project User Items Fetched Successfully.",
         status_code=200
