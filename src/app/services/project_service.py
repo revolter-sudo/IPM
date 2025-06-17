@@ -1765,30 +1765,45 @@ def view_project_items_for_user(
             .filter(ProjectItemMap.project_id == project_id)
             .all()
         )
-    else:
-        # Show only items mapped to this user
-        project_items = (
-            db.query(ProjectUserItemMap)
-            .join(Item, ProjectUserItemMap.item_id == Item.uuid)
-            .join(ProjectItemMap, ProjectUserItemMap.item_id == ProjectItemMap.item_id)
-            .filter(
-                ProjectUserItemMap.project_id == project_id,
-                ProjectUserItemMap.user_id == user_id
-            )
-            .all()
-        )
-    response = [
+        response = [
             {
                 "uuid": m.item.uuid,
                 "name": m.item.name if m.item else None,
                 "category": m.item.category if m.item else None,
                 "listTag": m.item.list_tag if m.item else None,
                 "has_additional_info": m.item.has_additional_info if m.item else None,
-                "item_balance": m.ProjectItemMap.item_balance,
+                "item_balance": m.item_balance,
                 "remaining_balance": None
-
             }
             for m in project_items
+        ]
+    else:
+        # Show only items mapped to this user
+        # Query both ProjectUserItemMap and ProjectItemMap to get item_balance
+        project_items = (
+            db.query(ProjectUserItemMap, ProjectItemMap)
+            .join(Item, ProjectUserItemMap.item_id == Item.uuid)
+            .join(ProjectItemMap, and_(
+                ProjectUserItemMap.item_id == ProjectItemMap.item_id,
+                ProjectUserItemMap.project_id == ProjectItemMap.project_id
+            ))
+            .filter(
+                ProjectUserItemMap.project_id == project_id,
+                ProjectUserItemMap.user_id == user_id
+            )
+            .all()
+        )
+        response = [
+            {
+                "uuid": user_item_map.item.uuid,
+                "name": user_item_map.item.name if user_item_map.item else None,
+                "category": user_item_map.item.category if user_item_map.item else None,
+                "listTag": user_item_map.item.list_tag if user_item_map.item else None,
+                "has_additional_info": user_item_map.item.has_additional_info if user_item_map.item else None,
+                "item_balance": project_item_map.item_balance,
+                "remaining_balance": None
+            }
+            for user_item_map, project_item_map in project_items
         ]
     return ProjectServiceResponse(
         data=response,
