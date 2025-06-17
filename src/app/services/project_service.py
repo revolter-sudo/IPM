@@ -1776,23 +1776,19 @@ def view_project_items_for_user(
             )
             .all()
         )
-    response = {
-        "status_code": 200,
-        "project_id": str(project_id),
-        "user_id": str(user_id),
-        "items": [
+    response = [
             {
-                "uuid": m.uuid,
-                "item_id": m.item_id,
-                "item_name": m.item.name if m.item else None,
-                "item_category": m.item.category if m.item else None,
-                "item_list_tag": m.item.list_tag if m.item else None,
-                "item_has_additional_info": m.item.has_additional_info if m.item else None
+                "uuid": m.item.uuid,
+                "name": m.item.name if m.item else None,
+                "category": m.item.category if m.item else None,
+                "listTag": m.item.list_tag if m.item else None,
+                "has_additional_info": m.item.has_additional_info if m.item else None,
+                "item_balance": m.item_balance,
+                "remaining_balance": None
+
             }
             for m in project_items
-        ],
-        "count": len(project_items)
-    }
+        ]
     return ProjectServiceResponse(
         data=response,
         message="Project User Items Fetched Successfully.",
