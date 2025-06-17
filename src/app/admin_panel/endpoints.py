@@ -1100,6 +1100,7 @@ def get_project_items_list(
         items_list = [
             {
                 "uuid": str(item.Item.uuid),
+                "project_map_uuid": str(item.ProjectItemMap.uuid),
                 "name": item.Item.name,
                 "category": item.Item.category,
                 "remaining_balance": item.ProjectItemMap.item_balance,
