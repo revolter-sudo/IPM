@@ -39,6 +39,17 @@ class ItemResponse(BaseModel):
     has_additional_info: Optional[bool] = False
     created_at: str
 
+class ItemUpdate(BaseModel):
+    item_id: UUID
+    item_balance: float
+
+class ProjectItemUpdateRequest(BaseModel):
+    items: List[ItemUpdate]
+
+class ProjectItemUpdateResponse(BaseModel):
+    status_code: int
+    message : str
+
 
 class ProjectWithItemsResponse(ProjectResponse):
     items: List[ItemResponse] = []

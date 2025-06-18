@@ -261,9 +261,9 @@ def export_khatabook_data(
                     KhatabookFile,
                     Khatabook.uuid == KhatabookFile.khatabook_id
                 )
-                .outerjoin(User, Khatabook.created_by == User.uuid)
+                .outerjoin(User, Khatabook.created_by == User.uuid)  # Uncommented User join
                 .outerjoin(Person, Khatabook.person_id == Person.uuid)
-                .outerjoin(Project, Khatabook.project_id == Project.uuid)
+                .outerjoin(Project, Khatabook.project_id == Project.uuid)  # Uncommented Project join
                 .filter(Khatabook.is_deleted.is_(False))
                 .distinct()
             )
@@ -332,7 +332,6 @@ def export_khatabook_data(
                 .all()
             )
 
-            # Convert to the same format as the service function
             entries = []
             for entry in khatabook_entries:
                 # Process items
@@ -341,7 +340,6 @@ def export_khatabook_data(
                     for khatabook_item in entry.items:
                         if khatabook_item.item:
                             items_data.append({
-                                "name": khatabook_item.item.name,
                                 "item": {
                                     "name": khatabook_item.item.name
                                 }
@@ -354,10 +352,10 @@ def export_khatabook_data(
                         "name": entry.person.name
                     }
 
-                # Process user info
-                user_info = None
+                # Process created_by user info
+                created_by_info = None
                 if entry.created_by_user:
-                    user_info = {
+                    created_by_info = {
                         "name": entry.created_by_user.name
                     }
 
@@ -366,11 +364,11 @@ def export_khatabook_data(
                     "expense_date": (
                         entry.expense_date.isoformat()
                         if entry.expense_date else ""
-                    ),
+                    ), 
                     "amount": entry.amount,
                     "remarks": entry.remarks,
                     "person": person_info,
-                    "user": user_info,
+                    "created_by_user": created_by_info,  # Use consistent field name
                     "items": items_data,
                     "payment_mode": entry.payment_mode,
                     "balance_after_entry": entry.balance_after_entry,
@@ -387,9 +385,15 @@ def export_khatabook_data(
         for entry in entries:
             person_name = (
                 entry.get("person", {}).get("name", "")
-                if entry.get("person") else ""
+                if isinstance(entry.get("person"), dict) else ""
             )
-
+            
+            # Handle created_by_user information consistently
+            user_name = ""
+            created_by_user = entry.get("created_by_user", {})
+            if isinstance(created_by_user, dict):
+                user_name = created_by_user.get("name", "")
+            
             # Fix for item extraction - handle different item structures
             items_list = []
             for item in entry.get("items", []):
@@ -411,6 +415,7 @@ def export_khatabook_data(
                 "Amount": entry.get("amount", 0),
                 "Remarks": entry.get("remarks", ""),
                 "Person": person_name,
+                "Created By": user_name,
                 "Items": items,
                 "Payment Mode": entry.get("payment_mode", ""),
                 "Balance After Entry": entry.get("balance_after_entry", 0),

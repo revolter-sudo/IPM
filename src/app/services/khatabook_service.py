@@ -230,6 +230,7 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
             joinedload(Khatabook.person),
             joinedload(Khatabook.items).joinedload(KhatabookItem.item),
             joinedload(Khatabook.project),
+            joinedload(Khatabook.created_by_user)  # Add created_by_user relationship
         )
         .filter(
             Khatabook.is_deleted.is_(False),
@@ -264,6 +265,15 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
                 "uuid": str(entry.project.uuid),
                 "name": entry.project.name
             }
+
+        # Add created_by_user information
+        user_info = None
+        if entry.created_by_user:
+            user_info = {
+                "uuid": str(entry.created_by_user.uuid),
+                "name": entry.created_by_user.name
+            }
+
         response_data.append({
             "uuid": str(entry.uuid),
             "amount": entry.amount,
@@ -279,7 +289,8 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
             "files": file_urls,
             "items": items_data,
             "payment_mode": entry.payment_mode,
-            "is_suspicious": entry.is_suspicious
+            "is_suspicious": entry.is_suspicious,
+            "created_by_user": user_info  # Include created_by_user info
         })
 
     return response_data

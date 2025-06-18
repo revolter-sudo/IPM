@@ -32,7 +32,10 @@ from src.app.schemas.project_service_schemas import (
     InvoicePaymentResponse,
     InvoiceAnalyticsResponse,
     InvoiceAnalyticsItem,
-    MultiInvoicePaymentRequest
+    MultiInvoicePaymentRequest,
+    ProjectItemUpdateRequest,
+    ItemUpdate,
+    ProjectItemUpdateResponse
 )
 from src.app.schemas.payment_service_schemas import PaymentStatus
 from typing import Optional, List
@@ -3400,6 +3403,9 @@ def get_all_item_analytics(
                 "current_expense": current_expense
             })
 
+        # Sort by estimation in descending order
+        items_analytics.sort(key=lambda x: x["estimation"], reverse=True)
+        
         # Prepare response
         response_data = {
             "items_analytics": items_analytics
@@ -3975,6 +3981,23 @@ def view_project_items_for_user(
             .filter(ProjectItemMap.project_id == project_id)
             .all()
         )
+        response = {
+            "status_code": 200,
+            "project_id": str(project_id),
+            "user_id": str(user_id),
+            "items": [
+                {
+                    "uuid": m.uuid,
+                    "item_id": m.item_id,
+                    "item_name": m.item.name if m.item else None,
+                    "item_category": m.item.category if m.item else None,
+                    "item_list_tag": m.item.list_tag if m.item else None,
+                    "item_has_additional_info": m.item.has_additional_info if m.item else None
+                }
+                for m in project_items
+            ],
+            "count": len(project_items)
+        }
     else:
         # Show only items mapped to this user
         project_items = (
@@ -3986,28 +4009,54 @@ def view_project_items_for_user(
             )
             .all()
         )
-    response = {
-        "status_code": 200,
-        "project_id": str(project_id),
-        "user_id": str(user_id),
-        "items": [
-            {
-                "uuid": m.uuid,
-                "item_id": m.item_id,
-                "item_name": m.item.name if m.item else None,
-                "item_category": m.item.category if m.item else None,
-                "item_list_tag": m.item.list_tag if m.item else None,
-                "item_has_additional_info": m.item.has_additional_info if m.item else None
-            }
-            for m in project_items
-        ],
-        "count": len(project_items)
-    }
+        response = {
+            "status_code": 200,
+            "project_id": str(project_id),
+            "user_id": str(user_id),
+            "items": [
+                {
+                    "uuid": m.uuid,
+                    "item_id": m.item_id,
+                    "item_name": m.item.name if m.item else None,
+                    "item_category": m.item.category if m.item else None,
+                    "item_list_tag": m.item.list_tag if m.item else None,
+                    "item_has_additional_info": m.item.has_additional_info if m.item else None
+                }
+                for m in project_items
+            ],
+            "count": len(project_items)
+        }
     return AdminPanelResponse(
         data=response,
         message="Project User Items Fetched Successfully.",
         status_code=200
     ).model_dump()
+
+@admin_app.put(
+    "/projects/{project_id}/items",
+    tags=["update_items_balance"]
+)
+
+def update_project_items(
+    project_id: UUID, 
+    payload: ProjectItemUpdateRequest, 
+    db: Session = Depends(get_db)
+):
+    updated_items = []
+    for item in payload.items:
+        mapping = db.query(ProjectItemMap).filter_by(project_id=project_id, item_id=item.item_id).first()
+        if not mapping:
+            raise HTTPException(
+                status_code=404, detail=f"Item {item.item_id} not mapped to project {project_id}")
+        
+        mapping.item_balance = item.item_balance
+        updated_items.append(str(item.item_id))
+
+    db.commit()
+    return ProjectItemUpdateResponse(
+        status_code=200,
+        message="Project Items Updated Successfully.",
+    )
 
 
 # Invoice Analytics API
