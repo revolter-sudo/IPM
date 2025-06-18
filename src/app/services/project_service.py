@@ -579,11 +579,22 @@ def list_all_projects(
             estimated_balance = project.estimated_balance or 0.0
             actual_balance = project.actual_balance or 0.0
 
-            # Item logic
+            # Item logic - use subquery to handle potential duplicates
+            subquery = (
+                db.query(
+                    ProjectItemMap.project_id,
+                    ProjectItemMap.item_id,
+                    func.max(ProjectItemMap.id).label('max_id')
+                )
+                .filter(ProjectItemMap.project_id == project.uuid)
+                .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
+                .subquery()
+            )
+
             project_items = (
                 db.query(ProjectItemMap, Item)
+                .join(subquery, ProjectItemMap.id == subquery.c.max_id)
                 .join(Item, ProjectItemMap.item_id == Item.uuid)
-                .filter(ProjectItemMap.project_id == project.uuid)
                 .all()
             )
 
@@ -1750,11 +1761,23 @@ def view_project_items_for_user(
     ]
 
     if user.role in privileged_roles:
-        # Show all items assigned to the project
+        # Show all unique items assigned to the project
+        # Use subquery to handle potential duplicates
+        subquery = (
+            db.query(
+                ProjectItemMap.project_id,
+                ProjectItemMap.item_id,
+                func.max(ProjectItemMap.id).label('max_id')
+            )
+            .filter(ProjectItemMap.project_id == project_id)
+            .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
+            .subquery()
+        )
+
         project_items = (
             db.query(ProjectItemMap)
+            .join(subquery, ProjectItemMap.id == subquery.c.max_id)
             .join(Item, ProjectItemMap.item_id == Item.uuid)
-            .filter(ProjectItemMap.project_id == project_id)
             .all()
         )
         response = [

@@ -607,6 +607,9 @@ class ProjectUserMap(Base):
 
 class ProjectItemMap(Base):
     __tablename__ = "project_item_map"
+    __table_args__ = (
+        UniqueConstraint('project_id', 'item_id', name='uq_project_item'),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)

@@ -1042,10 +1042,22 @@ def get_user_items(
 def get_project_items(db: Session, project_id: UUID, current_user: User = None):
     try:
         # Query ProjectItemMap joined with Item to get item UUID and name
+        # Use a subquery to handle potential duplicates by taking the most recent mapping
+        subquery = (
+            db.query(
+                ProjectItemMap.project_id,
+                ProjectItemMap.item_id,
+                func.max(ProjectItemMap.id).label('max_id')
+            )
+            .filter(ProjectItemMap.project_id == project_id)
+            .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
+            .subquery()
+        )
+
         project_items = (
             db.query(ProjectItemMap, Item)
+            .join(subquery, ProjectItemMap.id == subquery.c.max_id)
             .join(Item, ProjectItemMap.item_id == Item.uuid)
-            .filter(ProjectItemMap.project_id == project_id)
             .all()
         )
 
@@ -1093,10 +1105,22 @@ def get_project_items_list(
             ).model_dump()
 
         # Query ProjectItemMap joined with Item to get item UUID and name
+        # Use a subquery to handle potential duplicates by taking the most recent mapping
+        subquery = (
+            db.query(
+                ProjectItemMap.project_id,
+                ProjectItemMap.item_id,
+                func.max(ProjectItemMap.id).label('max_id')
+            )
+            .filter(ProjectItemMap.project_id == project_id)
+            .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
+            .subquery()
+        )
+
         project_items = (
             db.query(ProjectItemMap, Item)
+            .join(subquery, ProjectItemMap.id == subquery.c.max_id)
             .join(Item, ProjectItemMap.item_id == Item.uuid)
-            .filter(ProjectItemMap.project_id == project_id)
             .all()
         )
 
@@ -3355,9 +3379,22 @@ def get_all_item_analytics(
                 status_code=403
             ).model_dump()
 
-        # Get all items with their balances from all projects
+        # Get all unique items with their balances from all projects
+        # Use a subquery to get the latest/most recent ProjectItemMap entry for each (project_id, item_id) pair
+        # This handles potential duplicates by taking the most recent mapping
+        subquery = (
+            db.query(
+                ProjectItemMap.project_id,
+                ProjectItemMap.item_id,
+                func.max(ProjectItemMap.id).label('max_id')
+            )
+            .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
+            .subquery()
+        )
+
         all_items = (
             db.query(ProjectItemMap, Item, Project)
+            .join(subquery, ProjectItemMap.id == subquery.c.max_id)
             .join(Item, ProjectItemMap.item_id == Item.uuid)
             .join(Project, ProjectItemMap.project_id == Project.uuid)
             .filter(Project.is_deleted.is_(False))
@@ -3380,8 +3417,7 @@ def get_all_item_analytics(
             # Get estimation (balance added when assigned)
             estimation = project_item.item_balance or 0.0
 
-            # Get current expense (sum of transferred payments for this item)
-            # Use a more direct approach to get the sum of payment amounts
+            # Get current expense (sum of transferred payments for this item in this specific project)
             current_expense = (
                 db.query(func.sum(Payment.amount))
                 .join(PaymentItem, Payment.uuid == PaymentItem.payment_id)
@@ -3461,11 +3497,23 @@ def get_project_item_analytics(
                 status_code=404
             ).model_dump()
 
-        # Get all items mapped to this project with their balances
+        # Get all unique items mapped to this project with their balances
+        # Use a subquery to handle potential duplicates by taking the most recent mapping
+        subquery = (
+            db.query(
+                ProjectItemMap.project_id,
+                ProjectItemMap.item_id,
+                func.max(ProjectItemMap.id).label('max_id')
+            )
+            .filter(ProjectItemMap.project_id == project_id)
+            .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
+            .subquery()
+        )
+
         project_items = (
             db.query(ProjectItemMap, Item)
+            .join(subquery, ProjectItemMap.id == subquery.c.max_id)
             .join(Item, ProjectItemMap.item_id == Item.uuid)
-            .filter(ProjectItemMap.project_id == project_id)
             .all()
         )
 
