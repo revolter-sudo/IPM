@@ -3378,10 +3378,10 @@ def get_all_item_analytics(
             estimation = project_item.item_balance or 0.0
 
             # Get current expense (sum of transferred payments for this item)
-            # First, get all payment items for this item in this project
-            payment_items = (
-                db.query(PaymentItem)
-                .join(Payment, PaymentItem.payment_id == Payment.uuid)
+            # Use a more direct approach to get the sum of payment amounts
+            current_expense = (
+                db.query(func.sum(Payment.amount))
+                .join(PaymentItem, Payment.uuid == PaymentItem.payment_id)
                 .filter(
                     PaymentItem.item_id == item.uuid,
                     Payment.project_id == project.uuid,
@@ -3389,22 +3389,8 @@ def get_all_item_analytics(
                     Payment.is_deleted.is_(False),
                     PaymentItem.is_deleted.is_(False)
                 )
-                .all()
+                .scalar() or 0.0
             )
-
-            # Get the payment amounts
-            payment_ids = [pi.payment_id for pi in payment_items]
-            current_expense = 0.0
-            if payment_ids:
-                current_expense = (
-                    db.query(func.sum(Payment.amount))
-                    .filter(
-                        Payment.uuid.in_(payment_ids),
-                        Payment.status == PaymentStatus.TRANSFERRED.value,
-                        Payment.is_deleted.is_(False)
-                    )
-                    .scalar() or 0.0
-                )
 
             items_analytics.append({
                 "uuid": item.uuid,
@@ -3496,10 +3482,10 @@ def get_project_item_analytics(
             estimation = project_item.item_balance or 0.0
 
             # Get current expense (sum of transferred payments for this item)
-            # First, get all payment items for this item in this project
-            payment_items = (
-                db.query(PaymentItem)
-                .join(Payment, PaymentItem.payment_id == Payment.uuid)
+            # Use a more direct approach to get the sum of payment amounts
+            current_expense = (
+                db.query(func.sum(Payment.amount))
+                .join(PaymentItem, Payment.uuid == PaymentItem.payment_id)
                 .filter(
                     PaymentItem.item_id == item.uuid,
                     Payment.project_id == project_id,
@@ -3507,22 +3493,8 @@ def get_project_item_analytics(
                     Payment.is_deleted.is_(False),
                     PaymentItem.is_deleted.is_(False)
                 )
-                .all()
+                .scalar() or 0.0
             )
-
-            # Get the payment amounts
-            payment_ids = [pi.payment_id for pi in payment_items]
-            current_expense = 0.0
-            if payment_ids:
-                current_expense = (
-                    db.query(func.sum(Payment.amount))
-                    .filter(
-                        Payment.uuid.in_(payment_ids),
-                        Payment.status == PaymentStatus.TRANSFERRED.value,
-                        Payment.is_deleted.is_(False)
-                    )
-                    .scalar() or 0.0
-                )
 
             items_analytics.append({
                 "uuid": item.uuid,
