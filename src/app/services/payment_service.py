@@ -2,6 +2,7 @@ import os
 import traceback
 from typing import Optional, List
 from uuid import UUID
+import uuid
 from datetime import datetime
 from fastapi import (
     APIRouter,
@@ -31,7 +32,8 @@ from src.app.database.models import (
     Priority,
     BalanceDetail,
     ProjectItemMap,
-    ProjectUserMap
+    ProjectUserMap,
+    ItemCategories
 )
 import logging
 import logging
@@ -49,7 +51,9 @@ from src.app.schemas.payment_service_schemas import (
     ItemListTag,
     UpdatePerson,
     UpdateItemSchema,
-    ItemDetail
+    ItemDetail,
+    ItemCategoryCreate,
+    ItemCategoryResponse
 )
 from src.app.notification.notification_service import send_push_notification
 from src.app.notification.notification_schemas import NotificationMessage
@@ -2229,3 +2233,212 @@ def list_priorities(db: Session = Depends(get_db)):
         message="priorities fetched successfully.",
         status_code=200
     ).model_dump()
+
+
+@payment_router.post(
+    "/item-categories", 
+    tags=["Item Categories"], 
+    status_code=201
+)
+def create_item_category(
+    category: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        category_clean = category.strip()
+
+        existing = db.query(ItemCategories).filter(
+            ItemCategories.category.ilike(category_clean)
+        ).first()
+
+        if existing:
+            if existing.is_deleted:
+                # Restore soft-deleted category
+                existing.is_deleted = False
+                existing.updated_by = current_user.uuid
+                db.commit()
+                db.refresh(existing)
+
+                return PaymentServiceResponse(
+                    data={
+                        "category_uuid": str(existing.uuid),
+                        "category": existing.category
+                    },
+                    message="Soft-deleted category restored successfully.",
+                    status_code=200
+                ).model_dump()
+
+            else:
+                return PaymentServiceResponse(
+                    data=None,
+                    message="Category already exists.",
+                    status_code=400
+                ).model_dump()
+
+        # Create new category
+        new_category = ItemCategories(
+            uuid=uuid.uuid4(),
+            category=category_clean,
+            created_by=current_user.uuid
+        )
+        db.add(new_category)
+        db.commit()
+        db.refresh(new_category)
+
+        return PaymentServiceResponse(
+            data={
+                "category_uuid": str(new_category.uuid),
+                "category": new_category.category
+            },
+            message="Item category created successfully.",
+            status_code=201
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error creating category: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+
+@payment_router.get(
+    "/item-categories",
+    tags=["Item Categories"],
+    status_code=200
+)
+def get_all_item_categories(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        categories = db.query(ItemCategories).filter(
+            ItemCategories.is_deleted == False
+        ).order_by(ItemCategories.category.asc()).all()
+
+        result = [
+            {
+                "category_uuid": str(cat.uuid),
+                "category": cat.category
+            }
+            for cat in categories
+        ]
+
+        return PaymentServiceResponse(
+            data=result,
+            message="Item categories fetched successfully.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error fetching categories: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+
+@payment_router.put(
+    "/item-categories/{category_uuid}",
+    tags=["Item Categories"],
+    status_code=200
+)
+def update_item_category(
+    category_uuid: UUID,
+    new_category: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        category = db.query(ItemCategories).filter(
+            ItemCategories.uuid == category_uuid,
+            ItemCategories.is_deleted == False
+        ).first()
+
+        if not category:
+            return PaymentServiceResponse(
+                data=None,
+                message="Category not found.",
+                status_code=404
+            ).model_dump()
+
+        # Check for duplicate name (optional)
+        duplicate = db.query(ItemCategories).filter(
+            ItemCategories.category.ilike(new_category.strip()),
+            ItemCategories.is_deleted == False,
+            ItemCategories.uuid != category_uuid
+        ).first()
+
+        if duplicate:
+            return PaymentServiceResponse(
+                data=None,
+                message="Another category with the same name already exists.",
+                status_code=400
+            ).model_dump()
+
+        category.category = new_category.strip()
+        db.commit()
+        db.refresh(category)
+
+        return PaymentServiceResponse(
+            data={
+                "category_uuid": str(category.uuid),
+                "category": category.category
+            },
+            message="Item category updated successfully.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error updating category: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@payment_router.delete(
+    "/item-categories/{category_uuid}",
+    tags=["Item Categories"],
+    status_code=200
+)
+def delete_item_category(
+    category_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        category = db.query(ItemCategories).filter(
+            ItemCategories.uuid == category_uuid,
+            ItemCategories.is_deleted == False
+        ).first()
+
+        if not category:
+            return PaymentServiceResponse(
+                data=None,
+                message="Category not found.",
+                status_code=404
+            ).model_dump()
+
+        category.is_deleted = True
+        category.updated_by = current_user.uuid  # log who deleted it
+        db.commit()
+
+        return PaymentServiceResponse(
+            data={
+                "category_uuid": str(category.uuid),
+                "category": category.category
+            },
+            message="Item category deleted successfully (soft delete).",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error deleting category: {str(e)}",
+            status_code=500
+        ).model_dump()

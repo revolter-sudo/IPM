@@ -207,3 +207,14 @@ class PaymentServiceResponse(BaseModel):
             "message": self.message,
             "status_code": self.status_code
         }
+
+class ItemCategoryCreate(BaseModel):
+    category: str
+    created_by: UUID
+
+class ItemCategoryResponse(BaseModel):
+    uuid: UUID
+    category: str
+
+    class Config:
+        orm_mode = True

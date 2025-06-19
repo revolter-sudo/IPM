@@ -524,6 +524,12 @@ class Item(Base):
         cascade="all, delete-orphan"
     )
 
+    # category = relationship("ItemCategories", back_populates="items")
+
+
+    
+
+
     def __repr__(self):
         return f"<Item(name={self.name})>"
 
@@ -785,3 +791,16 @@ class UserData(Base):
     phone_number = Column(String(20), nullable=False)
     password = Column(String(20), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+class ItemCategories(Base):
+    __tablename__ = "item_categories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    category = Column(String(20), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+
+    # user = relationship("User")
+    # item = relationship("Item")
