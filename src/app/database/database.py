@@ -9,7 +9,7 @@ from src.app.schemas.constants import HOST_URL
 class Settings(BaseSettings):
     DB_USERNAME: str
     DB_PASSWORD: str
-    DB_HOST: str = HOST_URL
+    DB_HOST: str 
     DB_PORT: int = 5432
     DB_NAME: str
     UPLOADS_DIR: str
@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: str
     TWILIO_AUTH_TOKEN: str
     TWILIO_VERIFY_SERVICE_SID: str
+    HOST_URL: str
+
 
     @property
     def DATABASE_URL(self) -> str:
