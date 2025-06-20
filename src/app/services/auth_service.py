@@ -49,9 +49,9 @@ auth_router = APIRouter(prefix="/auth")
 pwd_context = CryptContext(
     schemes=["bcrypt"], bcrypt__default_rounds=12, deprecated="auto"
 )
-print("================================")
-print(f"Password Hash -> {pwd_context.hash('supersecurepassword')}")
-print("================================")
+# print("================================")
+# print(f"Password Hash -> {pwd_context.hash('supersecurepassword')}")
+# print("================================")
 
 # JWT Configuration
 SECRET_KEY = "supersecretkey"
