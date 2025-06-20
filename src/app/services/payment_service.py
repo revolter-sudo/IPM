@@ -15,7 +15,7 @@ from fastapi import (
 )
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_, and_, case, func
+from sqlalchemy import or_, and_, case, desc, func
 from src.app.database.database import get_db
 from src.app.database.models import (
     Payment,
@@ -60,11 +60,11 @@ from src.app.notification.notification_schemas import NotificationMessage
 from src.app.notification.notification_service import send_push_notification
 from src.app.notification.notification_schemas import NotificationMessage
 from sqlalchemy.orm import aliased
-from sqlalchemy import desc
 from src.app.services.auth_service import get_current_user
 from src.app.services.project_service import create_project_balance_entry
 import json
 from collections import defaultdict
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -2106,8 +2106,7 @@ def create_item(
 #             status_code=500
 #         ).model_dump()
 
-from sqlalchemy import or_, desc
-from fastapi import Query
+
 
 @payment_router.get("/items", tags=["Items"], status_code=200)
 def list_items(

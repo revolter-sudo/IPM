@@ -603,6 +603,7 @@ class ProjectUserMap(Base):
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
 
     project = relationship("Project", back_populates="project_user_map")
     user = relationship("User", back_populates="project_user_map")
@@ -622,6 +623,7 @@ class ProjectItemMap(Base):
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
     item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
     item_balance = Column(Float, nullable=True)  # Changed to nullable=True
+    is_deleted = Column(Boolean, nullable=False, default=False)
 
     project = relationship("Project")
     item = relationship("Item")
@@ -775,6 +777,7 @@ class ProjectUserItemMap(Base):
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
 
     project = relationship("Project")
     user = relationship("User")

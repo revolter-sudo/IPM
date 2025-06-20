@@ -1046,6 +1046,60 @@ def delete_bank(
         ).model_dump()
 
 
+# @project_router.delete("/{project_uuid}", status_code=status.HTTP_200_OK, tags=["Projects"])
+# def delete_project(
+#     project_uuid: UUID,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     try:
+#         project = (
+#             db.query(
+#                 Project
+#             ).filter(
+#                 Project.uuid == project_uuid,
+#                 Project.is_deleted.is_(False)
+#             ).first()
+#         )
+#         if not project:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=404,
+#                 message="Project not found"
+#             ).model_dump()
+
+#         if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=403,
+#                 message="Unauthorized to delete project"
+#             ).model_dump()
+
+#         project.is_deleted = True
+#         log_entry = Log(
+#             uuid=str(uuid4()),
+#             entity="Project",
+#             action="Delete",
+#             entity_id=project_uuid,
+#             performed_by=current_user.uuid,
+#         )
+#         db.add(log_entry)
+#         db.commit()
+
+#         return ProjectServiceResponse(
+#             data=None,
+#             message="Project deleted successfully",
+#             status_code=200
+#         ).model_dump()
+#     except Exception as e:
+#         db.rollback()
+#         logging.error(f"Error in delete_project API: {str(e)}")
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=500,
+#             message="An error occurred while deleting the project"
+#         ).model_dump()
+
 @project_router.delete("/{project_uuid}", status_code=status.HTTP_200_OK, tags=["Projects"])
 def delete_project(
     project_uuid: UUID,
@@ -1053,14 +1107,13 @@ def delete_project(
     current_user: User = Depends(get_current_user),
 ):
     try:
+        # Load project with relationships
         project = (
-            db.query(
-                Project
-            ).filter(
-                Project.uuid == project_uuid,
-                Project.is_deleted.is_(False)
-            ).first()
+            db.query(Project)
+            .filter(Project.uuid == project_uuid, Project.is_deleted.is_(False))
+            .first()
         )
+
         if not project:
             return ProjectServiceResponse(
                 data=None,
@@ -1075,7 +1128,30 @@ def delete_project(
                 message="Unauthorized to delete project"
             ).model_dump()
 
+        # Soft delete project
         project.is_deleted = True
+
+        # Soft delete related Payments
+        db.query(Payment).filter(
+            Payment.project_id == project.uuid
+        ).update({Payment.is_deleted: True})
+
+        # Soft delete ProjectUserMap
+        db.query(ProjectUserMap).filter(
+            ProjectUserMap.project_id == project.uuid
+        ).update({ProjectUserMap.is_deleted: True})
+
+        # Soft delete ProjectItemMap
+        db.query(ProjectItemMap).filter(
+            ProjectItemMap.project_id == project.uuid
+        ).update({ProjectItemMap.is_deleted: True})
+
+        # Soft delete ProjectUserItemMap
+        db.query(ProjectUserItemMap).filter(
+            ProjectUserItemMap.project_id == project.uuid
+        ).update({ProjectUserItemMap.is_deleted: True})
+
+        # Add log
         log_entry = Log(
             uuid=str(uuid4()),
             entity="Project",
@@ -1084,13 +1160,15 @@ def delete_project(
             performed_by=current_user.uuid,
         )
         db.add(log_entry)
+
         db.commit()
 
         return ProjectServiceResponse(
             data=None,
-            message="Project deleted successfully",
+            message="Project and related data soft deleted successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         db.rollback()
         logging.error(f"Error in delete_project API: {str(e)}")
@@ -1099,6 +1177,7 @@ def delete_project(
             status_code=500,
             message="An error occurred while deleting the project"
         ).model_dump()
+
 
 # Simple PO Management API for unlimited PO support
 
