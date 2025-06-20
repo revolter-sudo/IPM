@@ -9,14 +9,18 @@ from src.app.schemas.constants import HOST_URL
 class Settings(BaseSettings):
     DB_USERNAME: str
     DB_PASSWORD: str
-    DB_HOST: str = HOST_URL
+    DB_HOST: str 
     DB_PORT: int = 5432
     DB_NAME: str
     UPLOADS_DIR: str
     SERVICE_FILE: str
+    REDIS_HOST: str
+    REDIS_PORT: str
     TWILIO_ACCOUNT_SID: str
     TWILIO_AUTH_TOKEN: str
     TWILIO_VERIFY_SERVICE_SID: str
+    HOST_URL: str
+
 
     @property
     def DATABASE_URL(self) -> str:
@@ -31,8 +35,15 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# SQLAlchemy setup
-engine = create_engine(settings.DATABASE_URL)
+# SQLAlchemy setup with optimized connection pooling
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_size=20,  # Adjust based on server capacity
+    max_overflow=10,
+    pool_timeout=30,
+    pool_recycle=1800,  # Recycle connections after 30 minutes
+    pool_pre_ping=True  # Verify connections before using them
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

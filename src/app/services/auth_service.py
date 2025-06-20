@@ -8,7 +8,8 @@ from fastapi import (
     Security,
     status,
     UploadFile,
-    File
+    File,
+    Query
 )
 from fastapi.security import (
     HTTPAuthorizationCredentials,
@@ -21,7 +22,7 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session
 from uuid import uuid4
 from src.app.database.database import get_db
-from src.app.database.models import User, Log, Person, UserTokenMap
+from src.app.database.models import User, Log, Person, UserTokenMap , UserData
 from src.app.schemas.auth_service_schamas import (
     UserCreate,
     UserLogin,
@@ -29,7 +30,9 @@ from src.app.schemas.auth_service_schamas import (
     UserRole,
     AuthServiceResponse,
     ForgotPasswordRequest,
-    UserLogout
+    UserLogout,
+    UserEdit,
+    OutsideUserLogin
 )
 from src.app.notification.notification_service import (
     subscribe_news,
@@ -37,6 +40,7 @@ from src.app.notification.notification_service import (
 )
 from src.app.schemas import constants
 import os
+from typing import Optional
 
 # Router Setup
 auth_router = APIRouter(prefix="/auth")
@@ -136,7 +140,7 @@ def upload_user_photo(
     """
     try:
         # 1) Define your upload directory (following your pattern in payment_service.py)
-        upload_dir = os.path.join(constants.UPLOAD_DIR, "users")  # e.g. "uploads/users"
+        upload_dir = os.path.join(constants.UPLOAD_DIR, "users")  # e.g. "uploads/payments/users"
         os.makedirs(upload_dir, exist_ok=True)
 
         # 2) Create a unique filename or use the original filename
@@ -149,11 +153,8 @@ def upload_user_photo(
         with open(file_path, "wb") as buffer:
             buffer.write(file.file.read())
 
-        # 4) Update user.photo_path. 
-        #    If you have a HOST_URL to build a public URL, you can do that too.
-        # current_user.photo_path = file_path  
+        # 4) Update user.photo_path with the URL that will be accessible through nginx
         current_user.photo_path = f"{constants.HOST_URL}/uploads/payments/users/{unique_filename}"
-        # Alternatively, you can store the final URL if you have a static server for images:
 
         db.commit()
         db.refresh(current_user)
@@ -329,6 +330,15 @@ def login(
                 status_code=400,
                 message="Incorrect phone or password"
             ).model_dump()
+
+    # # Restrict login to only superadmin and admin roles
+    # if db_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+    #     return AuthServiceResponse(
+    #         data=None,
+    #         status_code=403,
+    #         message="Only admin can access"
+    #     ).model_dump()
+
     user_data = UserResponse(
         uuid=db_user.uuid,
         name=db_user.name,
@@ -580,7 +590,7 @@ def list_all_active_users(db: Session = Depends(get_db)):
         users = db.query(User).filter(
             User.is_active.is_(True),
             User.is_deleted.is_(False)
-        ).all()
+        ).order_by(User.id.desc()).all()
 
         user_response_data = []
         for user in users:
@@ -733,4 +743,270 @@ def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
             data=None,
             status_code=500,
             message=f"An error occurred: {str(e)}"
+        ).model_dump()
+
+
+@auth_router.put(
+    "/edit-user/{user_uuid}",
+    tags=["Users"],
+    status_code=status.HTTP_200_OK
+)
+def edit_user(
+    user_uuid: UUID,
+    user_data: UserEdit,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_required),
+):
+    """
+    Edit user information including person data.
+    Only superadmin can edit users.
+    """
+    try:
+        # Find the user
+        user = db.query(User).filter(
+            User.uuid == user_uuid,
+            User.is_deleted.is_(False)
+        ).first()
+
+        if not user:
+            return AuthServiceResponse(
+                data=None,
+                status_code=404,
+                message="User not found"
+            ).model_dump()
+
+        # Update user fields if provided
+        if user_data.name:
+            user.name = user_data.name
+
+        if user_data.phone:
+            # Check if phone is already used by another user
+            existing_user = db.query(User).filter(
+                User.phone == user_data.phone,
+                User.uuid != user_uuid,
+                User.is_deleted.is_(False)
+            ).first()
+
+            if existing_user:
+                return AuthServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message="Phone number already in use by another user"
+                ).model_dump()
+
+            user.phone = user_data.phone
+
+        if user_data.role:
+            user.role = user_data.role.value
+
+        # Update person data if provided
+        if user_data.person:
+            # Get or create person record
+            person = user.person
+
+            if not person:
+                # Create new person if it doesn't exist
+                person = Person(user_id=user.uuid)
+                db.add(person)
+                db.flush()
+
+            # Update person fields
+            if user_data.person.name:
+                person.name = user_data.person.name
+
+            if user_data.person.account_number:
+                person.account_number = user_data.person.account_number
+
+            if user_data.person.ifsc_code:
+                person.ifsc_code = user_data.person.ifsc_code
+
+            if user_data.person.phone_number:
+                person.phone_number = user_data.person.phone_number
+
+            if user_data.person.upi_number:
+                person.upi_number = user_data.person.upi_number
+
+            if user_data.person.parent_id:
+                person.parent_id = user_data.person.parent_id
+
+        # Create log entry
+        log_entry = Log(
+            uuid=str(uuid4()),
+            entity="User",
+            action="Edit",
+            entity_id=user_uuid,
+            performed_by=current_user.uuid,
+        )
+        db.add(log_entry)
+
+        # Commit changes
+        db.commit()
+        db.refresh(user)
+
+        # Prepare response
+        person_data = None
+        if user.person:
+            person_data = {
+                "uuid": str(user.person.uuid),
+                "name": user.person.name,
+                "account_number": user.person.account_number,
+                "ifsc_code": user.person.ifsc_code,
+                "phone_number": user.person.phone_number,
+                "upi_number": user.person.upi_number
+            }
+
+        return AuthServiceResponse(
+            data={
+                "uuid": str(user.uuid),
+                "name": user.name,
+                "phone": user.phone,
+                "role": user.role,
+                "photo_path": user.photo_path,
+                "person": person_data
+            },
+            message="User updated successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in edit_user API: {str(e)}")
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error updating user: {str(e)}"
+        ).model_dump()
+
+
+@auth_router.get("/persons", status_code=status.HTTP_200_OK, tags=["Persons"])
+def get_persons(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    name: Optional[str] = Query(None, description="Filter by name"),
+    phone: Optional[str] = Query(None, description="Filter by phone number"),
+):
+    """
+    Get all persons with optional filters. This endpoint provides a simplified view
+    of persons for frontend dropdowns and selections.
+    """
+    try:
+        query = db.query(Person).filter(
+            Person.is_deleted.is_(False),
+        )
+
+        # Apply filters if provided
+        if name:
+            query = query.filter(Person.name.ilike(f"%{name}%"))
+        if phone:
+            query = query.filter(Person.phone_number == phone)
+
+        persons = query.all()
+        persons_data = []
+
+        for person in persons:
+            persons_data.append({
+                "uuid": str(person.uuid),
+                "name": person.name,
+                "phone_number": person.phone_number,
+                "account_number": person.account_number,
+                "ifsc_code": person.ifsc_code,
+                "upi_number": person.upi_number
+            })
+
+        return AuthServiceResponse(
+            data=persons_data,
+            message="Persons fetched successfully",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logging.error(f"Error in get_persons API: {str(e)}")
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error fetching persons: {str(e)}")
+    
+
+@auth_router.post(
+    '/register_and_save_user',
+    tags=['non-user']
+)
+def register_and_outside_user(
+    data: OutsideUserLogin,
+    db: Session = Depends(get_db)
+):
+    phone = str(data.phone_number)
+    existing = db.query(UserData).filter(UserData.phone_number == phone).first()
+    if existing:
+        return AuthServiceResponse(
+            data=None,
+            message=(
+                "You’ve already submitted a request with this number, "
+                "our team is looking into it and will reach out shortly."
+            ),
+            status_code=200
+        )
+    try:
+        user_data = UserData(
+            name=data.name,
+            email=data.email,
+            phone_number=str(data.phone_number),
+            password=data.password
+        )
+        db.add(user_data)
+        db.commit()
+        db.refresh(user_data)
+        return AuthServiceResponse(
+            data=None,
+            message="We have received your request, our team will reach out to you soon.",
+            status_code=201
+        )
+    except Exception as e:
+        db.rollback()
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred: {str(e)}"
+        ).model_dump()
+
+
+@auth_router.get(
+    '/outside_users',
+    status_code=status.HTTP_200_OK,
+    tags=['non-user']
+)
+def list_outside_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(superadmin_required)
+):
+    """
+    List all outside users who have registered through the register_and_outside_user endpoint.
+    Only accessible by SuperAdmin users.
+    """
+    try:
+        outside_users = db.query(UserData).all()
+
+        outside_users_data = []
+        for user in outside_users:
+            outside_users_data.append({
+                "uuid": str(user.uuid),
+                "name": user.name,
+                "email": user.email,
+                "phone_number": user.phone_number,
+                "password": user.password,
+                "created_at": user.created_at.isoformat() if user.created_at else None
+            })
+
+        return AuthServiceResponse(
+            data=outside_users_data,
+            message="Outside users fetched successfully",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        logging.error(f"Error in list_outside_users API: {str(e)}")
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error fetching outside users: {str(e)}"
         ).model_dump()

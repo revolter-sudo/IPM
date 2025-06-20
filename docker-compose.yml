@@ -1,45 +1,13 @@
-# version: '3.8'
-
-# services:
-#   api:
-#     build: .
-#     restart: always
-#     env_file:
-#       - .env
-#     environment:
-#       DATABASE_URL: postgresql://myuser:200899@147.93.31.224:5432/ipm_new
-#     ports:
-#       - "8000:8000"
-#     volumes:
-#       - ./uploads:/app/uploads  # Persist files in the local uploads folder
-#     command: >
-#       sh -c "/entrypoint.sh"
-
-version: '3.8'
-
 services:
   api:
     build: .
     restart: always
-    
-    # Load environment variables from .env (plus any explicit environment pairs below).
     env_file:
       - .env
-
     environment:
       DATABASE_URL: postgresql://myuser:200899@147.93.31.224:5432/ipm_new
-
-    # Expose port 8000
     ports:
       - "8000:8000"
-
-    # Mount volumes:
-    #  1) Host uploads folder -> container uploads folder
-    #  2) Host secret file -> container's Firebase JSON path
     volumes:
       - ./uploads:/app/uploads
       - /root/secretfiles/secret_files.json:/app/src/app/utils/firebase/secret_files.json
-
-    # The same command you used before, calling your entrypoint script
-    command: >
-      sh -c "/entrypoint.sh"

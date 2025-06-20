@@ -1,3 +1,8 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+
 CAN_NOT_CREATE_PROJECT = "Not authorized to create a project."
 PROJECT_NOT_FOUND = "Project does not exist"
 CANT_APPROVE_PAYMENT = "Not authorized to approve payments"
@@ -18,4 +23,4 @@ RoleStatusMapping = {
     "Accountant": "transferred",
     "SuperAdmin": "transferred"
 }
-HOST_URL = "http://147.93.31.224:8000"
+HOST_URL = os.getenv("HOST_URL")

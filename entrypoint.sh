@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # Wait for PostgreSQL to be ready
 echo "Waiting for PostgreSQL to be ready..."
@@ -16,6 +16,13 @@ else
   echo "Alembic migrations failed!" >&2
   exit 1
 fi
+
+# Create uploads directory if it doesn't exist
+mkdir -p /app/uploads
+mkdir -p /app/uploads/payments
+mkdir -p /app/uploads/payments/users
+mkdir -p /app/uploads/admin
+mkdir -p /app/uploads/khatabook_files
 
 # Start FastAPI
 echo "Starting FastAPI..."

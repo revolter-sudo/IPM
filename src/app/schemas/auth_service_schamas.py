@@ -2,7 +2,8 @@ from enum import Enum
 from uuid import UUID
 from typing import Any, Optional
 from pydantic import BaseModel, field_validator
-from src.app.schemas.payment_service_schemas import CreatePerson
+from src.app.schemas.payment_service_schemas import CreatePerson, UpdatePerson
+from datetime import datetime, date
 
 
 class UserRole(str, Enum):
@@ -32,6 +33,19 @@ class UserCreate(BaseModel):
     def validate_phone(cls, value):
         if len(str(value)) != 10:
             raise ValueError("Phone number must be between 10")
+        return value
+
+
+class UserEdit(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[int] = None
+    role: Optional[UserRole] = None
+    person: Optional[UpdatePerson] = None
+
+    @field_validator("phone")
+    def validate_phone(cls, value):
+        if value is not None and len(str(value)) != 10:
+            raise ValueError("Phone number must be exactly 10 digits")
         return value
 
 
@@ -83,3 +97,10 @@ class AuthServiceResponse(BaseModel):
             "message": self.message,
             "status_code": self.status_code
         }
+    
+
+class OutsideUserLogin(BaseModel):
+    name: str
+    email: str
+    phone_number: int
+    password: str
