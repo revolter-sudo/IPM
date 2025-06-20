@@ -437,15 +437,14 @@ def logout_user(
 ):
     try:
         user = db.query(User).filter(
-            User.uuid == user_data.user_id,
-            User.is_deleted.is_(False)
+            User.uuid == user_data.user_id
         ).first()
-        if not user:
-            return AuthServiceResponse(
-                data=None,
-                message="User Does not exist",
-                status_code=404
-            ).model_dump()
+        # if not user:
+        #     return AuthServiceResponse(
+        #         data=None,
+        #         message="User Does not exist",
+        #         status_code=404
+        #     ).model_dump()
         user_token = db.query(UserTokenMap.fcm_token).filter(
             UserTokenMap.device_id == user_data.device_id
         ).first()
