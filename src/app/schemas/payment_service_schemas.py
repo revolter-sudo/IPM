@@ -36,7 +36,7 @@ class CreatePerson(BaseModel):
     name: str
     account_number: Optional[str] = Field(
         None,
-        min_length=11,
+        min_length=8,
         max_length=16,
         pattern=r'^\d+$',
         description="Account number must be 11 to 16 digits long and contain only numbers",
