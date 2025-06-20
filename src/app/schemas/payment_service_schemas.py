@@ -36,10 +36,10 @@ class CreatePerson(BaseModel):
     name: str
     account_number: Optional[str] = Field(
         None,
-        min_length=11,
-        max_length=16,
+        min_length=8,
+        max_length=18,
         pattern=r'^\d+$',
-        description="Account number must be 11 to 16 digits long and contain only numbers",
+        description="Account number must be 8 to 16 digits long and contain only numbers",
     )
     ifsc_code: Optional[str] = Field(
         None,
@@ -68,8 +68,8 @@ class CreatePerson(BaseModel):
         if not v.isdigit():
             raise ValueError("Account number must contain only digits")
         # Additional validation for common Indian bank account number lengths
-        if len(v) < 11 or len(v) > 16:
-            raise ValueError("Account number must be between 11 and 16 digits")
+        if len(v) < 8 or len(v) > 18:
+            raise ValueError("Account number must be between 8 and 18 digits")
         return v
 
 

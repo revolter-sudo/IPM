@@ -1526,7 +1526,6 @@ def approve_payment(
                             action="DeductBalance",
                             entity_id=item.uuid,
                             performed_by=current_user.uuid,
-                            details=f"Deducted {payment.amount} from item {payment_item.item_id} for payment {payment.uuid}"
                         )
                         db.add(log_entry)
 

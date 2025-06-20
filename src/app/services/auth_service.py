@@ -610,7 +610,6 @@ def list_all_active_users(db: Session = Depends(get_db)):
                 "phone": user.phone,
                 "role": user.role,
                 "photo_path": user.photo_path,
-                "created_at": user.created_at,
                 "person": person_data
             })
 
