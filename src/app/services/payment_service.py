@@ -2050,38 +2050,96 @@ def create_item(
         ).model_dump()
 
 
+# @payment_router.get("/items", tags=["Items"], status_code=200)
+# def list_items(
+#     list_tag: Optional[str] = None,
+#     db: Session = Depends(get_db)
+# ):
+#     try:
+#         # Base query with ordering by id in descending order
+#         base_query = db.query(Item).order_by(desc(Item.id))
+
+#         if list_tag is None:
+#             items = base_query.all()
+#         elif list_tag == 'khatabook':
+#             items = base_query.filter(
+#                 or_(
+#                     Item.list_tag.is_(None),
+#                     Item.list_tag == 'khatabook'
+#                 )
+#             ).all()
+#         elif list_tag == 'payment':
+#             items = base_query.filter(
+#                 or_(
+#                     Item.list_tag.is_(None),
+#                     Item.list_tag == 'payment'
+#                 )
+#             ).all()
+#         else:
+#             return PaymentServiceResponse(
+#                 data=None,
+#                 message="Undefined value of list_tag. Allowed Values "
+#                         "['payment', 'khatabook', null]",
+#                 status_code=400
+#             ).model_dump()
+
+#         items_data = [
+#             {
+#                 "uuid": str(item.uuid),
+#                 "name": item.name,
+#                 "category": item.category,
+#                 "list_tag": item.list_tag,
+#                 "has_additional_info": item.has_additional_info,
+#                 "created_at": item.created_at
+#             } for item in items
+#         ]
+
+#         return PaymentServiceResponse(
+#             data=items_data,
+#             message="All items fetched successfully.",
+#             status_code=200
+#         ).model_dump()
+#     except Exception as e:
+#         return PaymentServiceResponse(
+#             data=None,
+#             message=f"Error fetching items: {str(e)}",
+#             status_code=500
+#         ).model_dump()
+
+from sqlalchemy import or_, desc
+from fastapi import Query
+
 @payment_router.get("/items", tags=["Items"], status_code=200)
 def list_items(
     list_tag: Optional[str] = None,
+    category: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     try:
-        # Base query with ordering by id in descending order
-        base_query = db.query(Item).order_by(desc(Item.id))
+        query = db.query(Item).order_by(desc(Item.id))
 
-        if list_tag is None:
-            items = base_query.all()
-        elif list_tag == 'khatabook':
-            items = base_query.filter(
-                or_(
-                    Item.list_tag.is_(None),
-                    Item.list_tag == 'khatabook'
-                )
-            ).all()
-        elif list_tag == 'payment':
-            items = base_query.filter(
-                or_(
-                    Item.list_tag.is_(None),
-                    Item.list_tag == 'payment'
-                )
-            ).all()
-        else:
+        # Filter by list_tag
+        if list_tag == "khatabook":
+            query = query.filter(or_(Item.list_tag == 'khatabook', Item.list_tag.is_(None)))
+        elif list_tag == "payment":
+            query = query.filter(or_(Item.list_tag == 'payment', Item.list_tag.is_(None)))
+        elif list_tag not in (None, "payment", "khatabook"):
             return PaymentServiceResponse(
                 data=None,
-                message="Undefined value of list_tag. Allowed Values "
-                        "['payment', 'khatabook', null]",
+                message="Undefined value of list_tag. Allowed values: ['payment', 'khatabook', null]",
                 status_code=400
             ).model_dump()
+
+        # Filter by category
+        if category:
+            query = query.filter(Item.category.ilike(f"%{category.strip()}%"))
+
+        # Search by item name
+        if search:
+            query = query.filter(Item.name.ilike(f"%{search.strip()}%"))
+
+        items = query.all()
 
         items_data = [
             {
@@ -2096,9 +2154,10 @@ def list_items(
 
         return PaymentServiceResponse(
             data=items_data,
-            message="All items fetched successfully.",
+            message="Filtered items fetched successfully.",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         return PaymentServiceResponse(
             data=None,
