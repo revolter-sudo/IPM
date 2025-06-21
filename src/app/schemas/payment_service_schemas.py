@@ -33,7 +33,7 @@ class PaymentRequest(BaseModel):
 
 
 class CreatePerson(BaseModel):
-    name: str
+    name: str = Field(..., max_length=50, description="Name must be at most 50 characters")
     account_number: Optional[str] = Field(
         None,
         min_length=8,
@@ -74,7 +74,7 @@ class CreatePerson(BaseModel):
 
 
 class UpdatePerson(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, max_length=50, description="Name must be at most 50 characters")
     account_number: Optional[str] = Field(
         None,
         min_length=11,

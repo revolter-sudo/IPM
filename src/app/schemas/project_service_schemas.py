@@ -1,7 +1,7 @@
 from typing import Optional, Any, List
 from uuid import UUID
 from datetime import date, datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProjectResponse(BaseModel):

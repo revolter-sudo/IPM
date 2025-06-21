@@ -97,7 +97,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
-    name = Column(String(255), nullable=False)
+    name = Column(String(50), nullable=False)
     phone = Column(BigInteger, unique=False, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(30), nullable=False)
@@ -168,7 +168,7 @@ class Person(Base):
         unique=True,
         nullable=False
     )
-    name = Column(String(25), nullable=False)
+    name = Column(String(50), nullable=False)
     account_number = Column(String(17), nullable=False)
     ifsc_code = Column(String(11), nullable=False)
     phone_number = Column(String(10), nullable=False)
@@ -789,8 +789,8 @@ class UserData(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
-    name = Column(String(20), nullable=False)
-    email = Column(String(20), nullable=False)
+    name = Column(String(50), nullable=False)
+    email = Column(String(50), nullable=False)
     phone_number = Column(String(20), nullable=False)
     password = Column(String(20), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)

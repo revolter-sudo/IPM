@@ -1,7 +1,7 @@
 from enum import Enum
 from uuid import UUID
 from typing import Any, Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from src.app.schemas.payment_service_schemas import CreatePerson, UpdatePerson
 from datetime import datetime, date
 
@@ -23,7 +23,7 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class UserCreate(BaseModel):
-    name: str
+    name: str = Field(..., max_length=50, description="Name must be at most 50 characters")
     phone: int
     password: str
     role: UserRole
@@ -37,7 +37,7 @@ class UserCreate(BaseModel):
 
 
 class UserEdit(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, max_length=50, description="Name must be at most 50 characters")
     phone: Optional[int] = None
     role: Optional[UserRole] = None
     person: Optional[UpdatePerson] = None
@@ -100,7 +100,7 @@ class AuthServiceResponse(BaseModel):
     
 
 class OutsideUserLogin(BaseModel):
-    name: str
-    email: str
+    name: str = Field(..., max_length=50, description="Name must be at most 50 characters")
+    email: str = Field(..., max_length=50, description="Email must be at most 50 characters")
     phone_number: int
     password: str
