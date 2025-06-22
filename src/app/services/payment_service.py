@@ -335,28 +335,19 @@ def can_edit_payment(status_history: List[str], current_user_role: str) -> bool:
     return False
 
 
-def create_khatabook_entry_for_self_payment(payment: Payment, db: Session) -> bool:
+def create_khatabook_entry_for_self_payment(payment: Payment, db: Session, balance_after_entry: float) -> bool:
     """
     Creates a khatabook entry for a self payment when it's approved (transferred).
 
     Args:
         payment: The Payment object that was approved
         db: Database session
+        balance_after_entry: The user's balance after the payment amount was added
 
     Returns:
         bool: True if khatabook entry was created successfully, False otherwise
     """
     try:
-        # Get the user's current khatabook balance
-        user_balance = db.query(KhatabookBalance).filter(
-            KhatabookBalance.user_uuid == payment.created_by
-        ).first()
-
-        if not user_balance:
-            # This shouldn't happen as balance is created in the approval logic
-            logging.warning(f"No khatabook balance found for user {payment.created_by}")
-            return False
-
         # Create the khatabook entry
         khatabook_entry = Khatabook(
             amount=payment.amount,
@@ -364,7 +355,7 @@ def create_khatabook_entry_for_self_payment(payment: Payment, db: Session) -> bo
             person_id=payment.person,  # The person receiving the payment
             expense_date=payment.transferred_date or datetime.now(),
             created_by=payment.created_by,
-            balance_after_entry=user_balance.balance,  # Current balance after the payment was added
+            balance_after_entry=balance_after_entry,  # Balance after the payment was added
             project_id=payment.project_id,
             payment_mode="bank_transfer",  # Default payment mode for approved payments
             entry_type=KHATABOOK_ENTRY_TYPE_CREDIT  # Self payment entries are Credit
@@ -1506,21 +1497,39 @@ def approve_payment(
 
             # For self-payment logic
             if payment.self_payment:
+                logging.info(f"Processing self payment {payment.uuid} for user {payment.created_by}")
+
                 user_balance = db.query(KhatabookBalance).filter(
                     KhatabookBalance.user_uuid == payment.created_by
                 ).first()
+
+                old_balance = 0.0
                 if not user_balance:
+                    logging.info(f"Creating new khatabook balance for user {payment.created_by}")
                     user_balance = KhatabookBalance(
                         user_uuid=payment.created_by,
                         balance=0.0
                     )
                     db.add(user_balance)
-                user_balance.balance += payment.amount
+                else:
+                    old_balance = user_balance.balance
+                    logging.info(f"User {payment.created_by} current balance: {old_balance}")
 
-                # Create khatabook entry for the self payment
-                khatabook_created = create_khatabook_entry_for_self_payment(payment, db)
+                # Increase the user's khatabook balance
+                user_balance.balance += payment.amount
+                new_balance = user_balance.balance
+
+                # Flush to ensure balance update is persisted in this transaction
+                db.flush()
+
+                logging.info(f"Updated user {payment.created_by} balance from {old_balance} to {new_balance} (added {payment.amount})")
+
+                # Create khatabook entry for the self payment with correct balance
+                khatabook_created = create_khatabook_entry_for_self_payment(payment, db, new_balance)
                 if not khatabook_created:
                     logging.warning(f"Failed to create khatabook entry for self payment {payment.uuid}")
+                else:
+                    logging.info(f"Successfully created khatabook entry for self payment {payment.uuid}")
 
             # Deduct from the chosen bank
             balance_obj = db.query(BalanceDetail).filter(

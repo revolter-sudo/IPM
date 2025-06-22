@@ -18,10 +18,9 @@ from src.app.services.khatabook_service import (
     get_all_khatabook_entries_service,
     update_khatabook_entry_service,
     hard_delete_khatabook_entry_service,
-    get_user_balance,
     mark_khatabook_entry_suspicious
 )
-from src.app.database.models import User, Khatabook
+from src.app.database.models import User, Khatabook, KhatabookBalance
 from src.app.services.auth_service import get_current_user
 from src.app.schemas import constants
 
@@ -109,13 +108,25 @@ def get_all_khatabook_entries(
         return current_user
 
     try:
-        user_balance = get_user_balance(user_uuid=current_user.uuid, db=db)
+        # Get the current balance directly from KhatabookBalance table
+        # This is the source of truth that includes self payments
+        user_balance_record = db.query(KhatabookBalance).filter(
+            KhatabookBalance.user_uuid == current_user.uuid
+        ).first()
+
+        current_balance = user_balance_record.balance if user_balance_record else 0.0
+
         entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
-        total_amount = sum(entry["amount"] for entry in entries) if entries else 0.0
-        remaining_balance = user_balance - total_amount
+
+        # Calculate total spent (only debit entries - manual expenses)
+        total_spent = sum(
+            entry["amount"] for entry in entries
+            if entry.get("entry_type") == "Debit"
+        ) if entries else 0.0
+
         response_data = {
-            "remaining_balance": remaining_balance,
-            "total_amount": total_amount,
+            "balance": current_balance,  # Current balance from KhatabookBalance table
+            "total_spent": total_spent,  # Total manual expenses (debit entries)
             "entries": entries
         }
         return AuthServiceResponse(

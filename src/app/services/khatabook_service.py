@@ -35,12 +35,27 @@ def create_khatabook_entry_service(
     try:
         amount = float(data.get("amount", 0.0))
 
-        user_balance = get_user_balance(user_uuid=current_user, db=db)
-        entries = get_all_khatabook_entries_service(user_id=current_user, db=db)
-        total_amount = sum(entry["amount"] for entry in entries) if entries else 0.0
+        # Get the user's current balance from KhatabookBalance table
+        user_balance_record = db.query(KhatabookBalance).filter(
+            KhatabookBalance.user_uuid == current_user
+        ).first()
 
-        new_total_amount = total_amount + amount
-        new_balance = user_balance - new_total_amount
+        if not user_balance_record:
+            # Create a new balance record if it doesn't exist
+            user_balance_record = KhatabookBalance(
+                user_uuid=current_user,
+                balance=0.0
+            )
+            db.add(user_balance_record)
+            db.flush()
+
+        # For manual khatabook entries (debit), subtract from the current balance
+        # The balance in KhatabookBalance is the source of truth (includes self payments)
+        current_balance = user_balance_record.balance
+        new_balance = current_balance - amount
+
+        # Update the balance record
+        user_balance_record.balance = new_balance
 
         # 3. Create the Khatabook entry.
         kb_entry = Khatabook(
