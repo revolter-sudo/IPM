@@ -3329,7 +3329,8 @@ def get_all_khatabook_entries_admin(
                 "files": file_urls,
                 "items": items_data,
                 "is_suspicious": entry.is_suspicious,
-                "payment_mode": entry.payment_mode
+                "payment_mode": entry.payment_mode,
+                "entry_type": entry.entry_type  # Include entry_type in admin response
             })
 
         # Calculate totals
