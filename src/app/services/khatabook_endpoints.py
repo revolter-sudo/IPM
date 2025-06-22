@@ -125,8 +125,8 @@ def get_all_khatabook_entries(
         ) if entries else 0.0
 
         response_data = {
-            "balance": current_balance,  # Current balance from KhatabookBalance table
-            "total_spent": total_spent,  # Total manual expenses (debit entries)
+            "remaining_balance": current_balance,  # Current balance from KhatabookBalance table
+            "total_amount": total_spent,  # Total manual expenses (debit entries)
             "entries": entries
         }
         return AuthServiceResponse(
