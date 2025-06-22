@@ -1492,97 +1492,96 @@ def approve_payment(
         if new_order > current_order:
             payment.status = status
 
-            # If the new status is 'transferred', do the existing logic
-            if status == "transferred":
-                # We require the bank_uuid param for deduction
-                if not bank_uuid:
-                    return PaymentServiceResponse(
-                        data=None,
-                        message="Must provide bank_uuid when transferring payment.",
-                        status_code=400
-                    ).model_dump()
+        # If the status is 'transferred' (either new or existing), do the transfer logic
+        if status == "transferred":
+            # We require the bank_uuid param for deduction
+            if not bank_uuid:
+                return PaymentServiceResponse(
+                    data=None,
+                    message="Must provide bank_uuid when transferring payment.",
+                    status_code=400
+                ).model_dump()
 
-                payment.transferred_date = datetime.now()
+            payment.transferred_date = datetime.now()
 
-                # For self-payment logic
-                if payment.self_payment:
-
-                    user_balance = db.query(KhatabookBalance).filter(
-                        KhatabookBalance.user_uuid == payment.created_by
-                    ).first()
-                    if not user_balance:
-                        user_balance = KhatabookBalance(
-                            user_uuid=payment.created_by,
-                            balance=0.0
-                        )
-                        db.add(user_balance)
-                    user_balance.balance += payment.amount
-
-                    # Create khatabook entry for the self payment
-                    khatabook_created = create_khatabook_entry_for_self_payment(payment, db)
-                    if not khatabook_created:
-                        logging.warning(f"Failed to create khatabook entry for self payment {payment.uuid}")
-
-                # Deduct from the chosen bank
-                balance_obj = db.query(BalanceDetail).filter(
-                    BalanceDetail.uuid == bank_uuid
+            # For self-payment logic
+            if payment.self_payment:
+                user_balance = db.query(KhatabookBalance).filter(
+                    KhatabookBalance.user_uuid == payment.created_by
                 ).first()
-                if not balance_obj:
-                    return PaymentServiceResponse(
-                        data=None,
-                        message="No bank found for given bank_uuid.",
-                        status_code=404
-                    ).model_dump()
-
-                balance_obj.balance -= payment.amount
-
-                # Record in Payment which bank/cash account was used
-                payment.deducted_from_bank_uuid = bank_uuid
-
-                # Add to project's actual balance
-                project = db.query(Project).filter(Project.uuid == payment.project_id).first()
-                if project:
-                    project.actual_balance += payment.amount
-                    # Create project balance entry for actual balance
-                    create_project_balance_entry(
-                        db=db,
-                        project_id=payment.project_id,
-                        adjustment=payment.amount,
-                        description=f"Payment deduction for payment {payment.uuid}",
-                        current_user=current_user,
-                        balance_type="actual"
+                if not user_balance:
+                    user_balance = KhatabookBalance(
+                        user_uuid=payment.created_by,
+                        balance=0.0
                     )
+                    db.add(user_balance)
+                user_balance.balance += payment.amount
 
-                # Deduct from item balances if items are associated with this payment
-                payment_items = db.query(PaymentItem).filter(
-                    PaymentItem.payment_id == payment.uuid,
-                    PaymentItem.is_deleted.is_(False)
-                ).all()
+                # Create khatabook entry for the self payment
+                khatabook_created = create_khatabook_entry_for_self_payment(payment, db)
+                if not khatabook_created:
+                    logging.warning(f"Failed to create khatabook entry for self payment {payment.uuid}")
 
-                for payment_item in payment_items:
-                    item = db.query(ProjectItemMap).filter(
-                        ProjectItemMap.project_id == payment.project_id,
-                        ProjectItemMap.item_id == payment_item.item_id
-                    ).first()
+            # Deduct from the chosen bank
+            balance_obj = db.query(BalanceDetail).filter(
+                BalanceDetail.uuid == bank_uuid
+            ).first()
+            if not balance_obj:
+                return PaymentServiceResponse(
+                    data=None,
+                    message="No bank found for given bank_uuid.",
+                    status_code=404
+                ).model_dump()
 
-                    if item:
-                        # Deduct the full payment amount from each item's balance
-                        # Initialize item_balance to 0 if it's None
-                        if item.item_balance is None:
-                            item.item_balance = 0
+            balance_obj.balance -= payment.amount
 
-                        # Update item balance by deducting the full payment amount
-                        item.item_balance -= payment.amount
+            # Record in Payment which bank/cash account was used
+            payment.deducted_from_bank_uuid = bank_uuid
 
-                        # Log the deduction
-                        log_entry = Log(
-                            uuid=str(uuid4()),
-                            entity="ProjectItemMap",
-                            action="DeductBalance",
-                            entity_id=item.uuid,
-                            performed_by=current_user.uuid,
-                        )
-                        db.add(log_entry)
+            # Add to project's actual balance
+            project = db.query(Project).filter(Project.uuid == payment.project_id).first()
+            if project:
+                project.actual_balance += payment.amount
+                # Create project balance entry for actual balance
+                create_project_balance_entry(
+                    db=db,
+                    project_id=payment.project_id,
+                    adjustment=payment.amount,
+                    description=f"Payment deduction for payment {payment.uuid}",
+                    current_user=current_user,
+                    balance_type="actual"
+                )
+
+            # Deduct from item balances if items are associated with this payment
+            payment_items = db.query(PaymentItem).filter(
+                PaymentItem.payment_id == payment.uuid,
+                PaymentItem.is_deleted.is_(False)
+            ).all()
+
+            for payment_item in payment_items:
+                item = db.query(ProjectItemMap).filter(
+                    ProjectItemMap.project_id == payment.project_id,
+                    ProjectItemMap.item_id == payment_item.item_id
+                ).first()
+
+                if item:
+                    # Deduct the full payment amount from each item's balance
+                    # Initialize item_balance to 0 if it's None
+                    if item.item_balance is None:
+                        item.item_balance = 0
+
+                    # Update item balance by deducting the full payment amount
+                    item.item_balance -= payment.amount
+
+                    # Log the deduction
+                    log_entry = Log(
+                        uuid=str(uuid4()),
+                        entity="ProjectItemMap",
+                        action="DeductBalance",
+                        entity_id=item.uuid,
+                        performed_by=current_user.uuid,
+                    )
+                    db.add(log_entry)
 
         # 6) Handle optional file uploads
         if files:
