@@ -12,53 +12,6 @@ from sqlalchemy.orm import joinedload
 from src.app.schemas import constants
 
 
-# def create_khatabook_entry_service(
-#     db: Session,
-#     data: Dict,
-#     file_paths: list,
-#     user_id: UUID
-# ) -> Khatabook:
-#     """
-#     data is a dict with keys like 'amount', 'remarks', 'user_id', 'person_id', 'item_ids'
-#     """
-#     amount = data.get("amount")
-#     remarks = data.get("remarks")
-#     person_id = data.get("person_id")
-#     item_ids = data.get("item_ids", [])
-#     expense_date = data.get("expense_date")
-
-#     kb_entry = Khatabook(
-#         amount=amount,
-#         remarks=remarks,
-#         person_id=person_id,
-#         expense_date=expense_date,
-#         created_by=user_id
-#     )
-#     db.add(kb_entry)
-#     db.flush()
-
-#     if item_ids:
-#         for item_uuid in item_ids:
-#             item_obj = db.query(Item).filter(Item.uuid == item_uuid).first()
-#             if item_obj:
-#                 kb_item = KhatabookItem(
-#                     khatabook_id=kb_entry.uuid,
-#                     item_id=item_obj.uuid
-#                 )
-#                 db.add(kb_item)
-
-#     if file_paths:
-#         for f in file_paths:
-#             new_file = KhatabookFile(
-#                 khatabook_id=kb_entry.uuid,
-#                 file_path=f
-#             )
-#             db.add(new_file)
-
-#     db.commit()
-#     db.refresh(kb_entry)
-#     return kb_entry
-
 def create_khatabook_entry_service(
     db: Session,
     data: Dict,

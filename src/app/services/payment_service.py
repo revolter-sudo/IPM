@@ -33,7 +33,8 @@ from src.app.database.models import (
     BalanceDetail,
     ProjectItemMap,
     ProjectUserMap,
-    ItemCategories
+    ItemCategories,
+    Khatabook
 )
 import logging
 import logging
@@ -331,6 +332,51 @@ def can_edit_payment(status_history: List[str], current_user_role: str) -> bool:
         return True
 
     return False
+
+
+def create_khatabook_entry_for_self_payment(payment: Payment, db: Session) -> bool:
+    """
+    Creates a khatabook entry for a self payment when it's approved (transferred).
+
+    Args:
+        payment: The Payment object that was approved
+        db: Database session
+
+    Returns:
+        bool: True if khatabook entry was created successfully, False otherwise
+    """
+    try:
+        # Get the user's current khatabook balance
+        user_balance = db.query(KhatabookBalance).filter(
+            KhatabookBalance.user_uuid == payment.created_by
+        ).first()
+
+        if not user_balance:
+            # This shouldn't happen as balance is created in the approval logic
+            logging.warning(f"No khatabook balance found for user {payment.created_by}")
+            return False
+
+        # Create the khatabook entry
+        khatabook_entry = Khatabook(
+            amount=payment.amount,
+            remarks=f"Self payment approved - {payment.description}" if payment.description else "Self payment approved",
+            person_id=payment.person,  # The person receiving the payment
+            expense_date=payment.transferred_date or datetime.now(),
+            created_by=payment.created_by,
+            balance_after_entry=user_balance.balance,  # Current balance after the payment was added
+            project_id=payment.project_id,
+            payment_mode="bank_transfer"  # Default payment mode for approved payments
+        )
+
+        db.add(khatabook_entry)
+        db.flush()
+
+        logging.info(f"Created khatabook entry {khatabook_entry.uuid} for self payment {payment.uuid}")
+        return True
+
+    except Exception as e:
+        logging.error(f"Error creating khatabook entry for self payment {payment.uuid}: {str(e)}")
+        return False
 
 
 # ========================== Payments API Started =======================================================================
@@ -1457,6 +1503,7 @@ def approve_payment(
 
                 # For self-payment logic
                 if payment.self_payment:
+
                     user_balance = db.query(KhatabookBalance).filter(
                         KhatabookBalance.user_uuid == payment.created_by
                     ).first()
@@ -1467,6 +1514,11 @@ def approve_payment(
                         )
                         db.add(user_balance)
                     user_balance.balance += payment.amount
+
+                    # Create khatabook entry for the self payment
+                    khatabook_created = create_khatabook_entry_for_self_payment(payment, db)
+                    if not khatabook_created:
+                        logging.warning(f"Failed to create khatabook entry for self payment {payment.uuid}")
 
                 # Deduct from the chosen bank
                 balance_obj = db.query(BalanceDetail).filter(
