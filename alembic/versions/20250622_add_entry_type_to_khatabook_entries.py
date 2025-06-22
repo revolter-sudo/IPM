@@ -1,7 +1,7 @@
 """add_entry_type_to_khatabook_entries
 
 Revision ID: 20250622_add_entry_type
-Revises: 80696ef06f54
+Revises: 20250621_132726
 Create Date: 2025-06-22 12:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20250622_add_entry_type'
-down_revision = '80696ef06f54'
+down_revision = '20250621_132726'
 branch_labels = None
 depends_on = None
 
