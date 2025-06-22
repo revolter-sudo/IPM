@@ -68,6 +68,7 @@ class KhatabookOut(BaseModel):
     uuid: UUID
     amount: float
     remarks: Optional[str] = None
+    entry_type: Optional[str] = "Debit"  # New field: "Debit" for manual entries, "Credit" for self payments
     is_suspicious: Optional[bool] = False
 
     person: Optional[PersonOut] = None

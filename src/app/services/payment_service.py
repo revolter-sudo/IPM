@@ -41,6 +41,7 @@ import logging
 from src.app.schemas.auth_service_schamas import UserRole
 from uuid import uuid4
 from src.app.schemas import constants
+from src.app.schemas.constants import KHATABOOK_ENTRY_TYPE_CREDIT, KHATABOOK_PAYMENT_TYPE
 from src.app.schemas.payment_service_schemas import (
     CreatePerson,
     PaymentsResponse,
@@ -365,7 +366,8 @@ def create_khatabook_entry_for_self_payment(payment: Payment, db: Session) -> bo
             created_by=payment.created_by,
             balance_after_entry=user_balance.balance,  # Current balance after the payment was added
             project_id=payment.project_id,
-            payment_mode="bank_transfer"  # Default payment mode for approved payments
+            payment_mode="bank_transfer",  # Default payment mode for approved payments
+            entry_type=KHATABOOK_ENTRY_TYPE_CREDIT  # Self payment entries are Credit
         )
 
         db.add(khatabook_entry)
@@ -802,8 +804,9 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
             "edit": can_edit_payment(status_list, current_user.role),
             "decline_remark": payment.decline_remark,
             "approval_files": approval_files,
-            # ---------- NEW KEY ----------
-            "transferred_from_bank": bank_name
+            # ---------- NEW KEYS ----------
+            "transferred_from_bank": bank_name,
+            "payment_type": KHATABOOK_PAYMENT_TYPE if payment.self_payment else None
         })
 
     return payments_data

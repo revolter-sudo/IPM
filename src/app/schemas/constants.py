@@ -23,4 +23,12 @@ RoleStatusMapping = {
     "Accountant": "transferred",
     "SuperAdmin": "transferred"
 }
+
+# Payment type constants
+KHATABOOK_PAYMENT_TYPE = "Khatabook"
+
+# Khatabook entry type constants
+KHATABOOK_ENTRY_TYPE_DEBIT = "Debit"
+KHATABOOK_ENTRY_TYPE_CREDIT = "Credit"
+
 HOST_URL = os.getenv("HOST_URL")

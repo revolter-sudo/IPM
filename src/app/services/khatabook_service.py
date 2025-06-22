@@ -10,6 +10,7 @@ from src.app.database.models import KhatabookBalance
 from sqlalchemy import and_
 from sqlalchemy.orm import joinedload
 from src.app.schemas import constants
+from src.app.schemas.constants import KHATABOOK_ENTRY_TYPE_DEBIT
 
 
 def create_khatabook_entry_service(
@@ -50,7 +51,8 @@ def create_khatabook_entry_service(
             created_by=user_id,
             balance_after_entry=new_balance,  # Snapshot at time of creation
             project_id=data.get("project_id"),
-            payment_mode=data.get("payment_mode")
+            payment_mode=data.get("payment_mode"),
+            entry_type=KHATABOOK_ENTRY_TYPE_DEBIT  # Manual entries are always Debit
         )
         db.add(kb_entry)
         db.flush()
@@ -242,6 +244,7 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
             "files": file_urls,
             "items": items_data,
             "payment_mode": entry.payment_mode,
+            "entry_type": entry.entry_type,  # Include entry_type in response
             "is_suspicious": entry.is_suspicious,
             "created_by_user": user_info  # Include created_by_user info
         })

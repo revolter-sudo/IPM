@@ -31,6 +31,7 @@ class Khatabook(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     expense_date = Column(TIMESTAMP, nullable=True)  # New field for user-entered date
     payment_mode = Column(String(50), nullable=True)
+    entry_type = Column(String(50), nullable=False, default="Debit")  # New field: "Debit" for manual entries, "Credit" for self payments
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     balance_after_entry = Column(Float, nullable=True)
