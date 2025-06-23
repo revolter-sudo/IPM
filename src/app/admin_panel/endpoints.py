@@ -4366,6 +4366,17 @@ def map_items_to_item_group(
     current_user: User = Depends(get_current_user)
 ):
     try:
+
+        # Authorization
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+            UserRole.PROJECT_MANAGER.value
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+        
+        
         items_data = payload.get("items", [])
 
         if not items_data:
@@ -4545,9 +4556,20 @@ def map_items_to_item_group(
 )
 def get_items_by_group(
     group_uuid: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user : User = Depends(get_current_user)
 ):
     try:
+
+        # Authorization
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+            UserRole.PROJECT_MANAGER.value
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+
         # Validate group
         group = db.query(ItemGroups).filter(
             ItemGroups.uuid == group_uuid,
@@ -4624,6 +4646,16 @@ def unmap_item_from_group(
     current_user: User = Depends(get_current_user)
 ):
     try:
+
+        # Authorization
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+            UserRole.PROJECT_MANAGER.value
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+
         # Check mapping exists
         mapping = db.query(ItemGroupMap).filter(
             ItemGroupMap.item_group_id == group_uuid,
