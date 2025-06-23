@@ -37,7 +37,7 @@ from src.app.schemas.project_service_schemas import (
     ItemUpdate,
     ProjectItemUpdateResponse
 )
-from src.app.schemas.payment_service_schemas import PaymentStatus
+from src.app.schemas.payment_service_schemas import PaymentStatus, PaymentServiceResponse
 from typing import Optional, List
 from uuid import UUID, uuid4
 from datetime import datetime
@@ -72,7 +72,9 @@ from src.app.database.models import (
     ProjectUserMap,
     ProjectPO,
     InvoicePayment,
-    InvoiceItem
+    InvoiceItem,
+    ItemGroups,
+    ItemGroupMap
 )
 from sqlalchemy.orm import Session, joinedload
 from src.app.schemas import constants
@@ -87,6 +89,7 @@ from src.app.admin_panel.schemas import (
 )
 from fastapi import HTTPException
 from sqlalchemy import select
+import uuid
 
 
 logging.basicConfig(level=logging.INFO)
@@ -4327,5 +4330,331 @@ def get_dashboard_project_stats(
         return ProjectServiceResponse(
             data=None,
             message="An error occurred while fetching dashboard stats",
+            status_code=500
+        ).model_dump()
+    
+
+
+@admin_app.post(
+    "/item-groups/{group_uuid}/map-items",
+    tags=["admin_panel"],
+    status_code=200,
+    description=
+    "Map items to an item group by UUID.\n\n"
+    "### Request Body Format:\n"
+    "{\n"
+    '  "items": [\n'
+    '    {\n'
+    '      "item_id": "item1_uuid",\n'
+    '      "item_value": 5000\n'
+    '    },\n'
+    '    {\n'
+    '      "item_id": "item2_uuid",\n'
+    '      "item_value": 6000\n'
+    '    }\n'
+    "  ]\n"
+    "}\n\n"
+    "- `item_id`: UUID of the item you want to map\n"
+    "- `item_value`: Numeric value or balance associated with the item\n"
+    "- All existing items not in this list will remain unaffected (no unmapping done)"
+
+)
+def map_items_to_item_group(
+    group_uuid: UUID,
+    payload: dict = Body(...,),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        items_data = payload.get("items", [])
+
+        if not items_data:
+            return PaymentServiceResponse(
+                data=None,
+                message="Item list is empty.",
+                status_code=400
+            ).model_dump()
+
+        group = db.query(ItemGroups).filter(
+            ItemGroups.uuid == group_uuid,
+            ItemGroups.is_deleted == False
+        ).first()
+
+        if not group:
+            return PaymentServiceResponse(
+                data=None,
+                message="Item group not found.",
+                status_code=404
+            ).model_dump()
+
+        added, updated = 0, 0
+        mapped_uuids = []
+
+        for item_entry in items_data:
+            item_id_str = item_entry.get("item_id")
+            item_value = item_entry.get("item_value")
+
+            try:
+                item_uuid = UUID(item_id_str)
+            except Exception:
+                return PaymentServiceResponse(
+                    data=None,
+                    message=f"Invalid item_id: {item_id_str}",
+                    status_code=400
+                ).model_dump()
+
+            item = db.query(Item).filter(Item.uuid == item_uuid).first()
+            if not item:
+                return PaymentServiceResponse(
+                    data=None,
+                    message=f"Item not found: {item_id_str}",
+                    status_code=404
+                ).model_dump()
+
+            mapped_uuids.append(str(item_uuid))
+
+            existing_map = db.query(ItemGroupMap).filter(
+                ItemGroupMap.item_group_id == group_uuid,
+                ItemGroupMap.item_id == item_uuid
+            ).first()
+
+            if existing_map:
+                existing_map.item_balance = item_value
+                existing_map.is_deleted = False
+                updated += 1
+            else:
+                new_map = ItemGroupMap(
+                    uuid=uuid.uuid4(),
+                    item_group_id=group_uuid,
+                    item_id=item_uuid,
+                    item_balance=item_value
+                )
+                db.add(new_map)
+                added += 1
+
+        db.commit()
+
+        return PaymentServiceResponse(
+            data={
+                "group_uuid": str(group_uuid),
+                "total_items": len(items_data),
+                "added": added,
+                "updated": updated,
+                "mapped_item_ids": mapped_uuids
+            },
+            message="Items mapped to group successfully.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error mapping items to group: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+
+# @admin_app.get(
+#     "/item-groups/{group_uuid}/items",
+#     tags=["Item Groups"],
+#     status_code=200,
+#     description="Fetch all items mapped to a specific item group UUID."
+# )
+# def get_items_by_group(
+#     group_uuid: UUID,
+#     db: Session = Depends(get_db)
+# ):
+#     try:
+#         # 1. Verify the group exists
+#         group = db.query(ItemGroups).filter(
+#             ItemGroups.uuid == group_uuid,
+#             ItemGroups.is_deleted == False
+#         ).first()
+
+#         if not group:
+#             return PaymentServiceResponse(
+#                 data=None,
+#                 message="Item group not found.",
+#                 status_code=404
+#             ).model_dump()
+
+#         # 2. Fetch all non-deleted mappings for this group
+#         item_maps = db.query(ItemGroupMap).filter(
+#             ItemGroupMap.item_group_id == group_uuid,
+#             ItemGroupMap.is_deleted == False
+#         ).all()
+
+#         if not item_maps:
+#             return PaymentServiceResponse(
+#                 data=[],
+#                 message="No items mapped to this group.",
+#                 status_code=200
+#             ).model_dump()
+
+#         item_ids = [mapping.item_id for mapping in item_maps]
+
+#         # 3. Fetch full item details
+#         items = db.query(Item).filter(Item.uuid.in_(item_ids)).all()
+
+#         result = []
+#         for item in items:
+#             # Fetch all groups for each item
+#             group_mappings = db.query(ItemGroupMap, ItemGroups).join(ItemGroups, ItemGroupMap.item_group_id == ItemGroups.uuid).filter(
+#                 ItemGroupMap.item_id == item.uuid,
+#                 ItemGroupMap.is_deleted == False,
+#                 ItemGroups.is_deleted == False
+#             ).all()
+
+#             associated_groups = [
+#                 {
+#                     "group_id": str(g.uuid),
+#                     "group_name": g.item_groups
+#                 }
+#                 for _, g in group_mappings
+#             ] if group_mappings else None
+
+#             result.append({
+#                 "uuid": str(item.uuid),
+#                 "name": item.name,
+#                 "category": item.category,
+#                 "list_tag": item.list_tag,
+#                 "has_additional_info": item.has_additional_info,
+#                 "created_at": item.created_at,
+#                 "associated_groups": associated_groups
+#             })
+
+#         return PaymentServiceResponse(
+#             data=result,
+#             message="Items mapped to this group fetched successfully.",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         return PaymentServiceResponse(
+#             data=None,
+#             message=f"Error fetching group items: {str(e)}",
+#             status_code=500
+#         ).model_dump()
+
+@admin_app.get(
+    "/item-groups/{group_uuid}/items",
+    tags=["admin_panel"],
+    status_code=200,
+    description="Fetch all items mapped to a specific item group UUID including item value (balance)."
+)
+def get_items_by_group(
+    group_uuid: UUID,
+    db: Session = Depends(get_db)
+):
+    try:
+        # Validate group
+        group = db.query(ItemGroups).filter(
+            ItemGroups.uuid == group_uuid,
+            ItemGroups.is_deleted == False
+        ).first()
+
+        if not group:
+            return PaymentServiceResponse(
+                data=None,
+                message="Item group not found.",
+                status_code=404
+            ).model_dump()
+
+        # Get item mappings
+        mappings = db.query(ItemGroupMap).filter(
+            ItemGroupMap.item_group_id == group_uuid,
+            ItemGroupMap.is_deleted == False
+        ).all()
+
+        if not mappings:
+            return PaymentServiceResponse(
+                data={
+                    "group_id": str(group.uuid),
+                    "group_name": group.item_groups,
+                    "total_items": 0,
+                    "items": []
+                },
+                message="No items mapped to this group.",
+                status_code=200
+            ).model_dump()
+
+        item_data = []
+        for map_obj in mappings:
+            item = db.query(Item).filter(Item.uuid == map_obj.item_id).first()
+            if item:
+                item_data.append({
+                    "uuid": str(item.uuid),
+                    "name": item.name,
+                    "category": item.category,
+                    "list_tag": item.list_tag,
+                    "has_additional_info": item.has_additional_info,
+                    "created_at": item.created_at,
+                    "item_value": map_obj.item_balance
+                })
+
+        return PaymentServiceResponse(
+            data={
+                "group_id": str(group.uuid),
+                "group_name": group.item_groups,
+                "total_items": len(item_data),
+                "items": item_data
+            },
+            message="Items in the group fetched successfully.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error fetching group items: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@admin_app.delete(
+    "/item-groups/{group_uuid}/items/{item_uuid}",
+    tags=["admin_panel"],
+    status_code=200,
+    description="Soft delete (unmap) an item from a specific item group by marking the mapping as deleted."
+)
+def unmap_item_from_group(
+    group_uuid: UUID,
+    item_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # Check mapping exists
+        mapping = db.query(ItemGroupMap).filter(
+            ItemGroupMap.item_group_id == group_uuid,
+            ItemGroupMap.item_id == item_uuid,
+            ItemGroupMap.is_deleted == False
+        ).first()
+
+        if not mapping:
+            return PaymentServiceResponse(
+                data=None,
+                message="Mapping not found or already deleted.",
+                status_code=404
+            ).model_dump()
+
+        # Perform soft delete
+        mapping.is_deleted = True
+        db.commit()
+
+        return PaymentServiceResponse(
+            data={
+                "group_id": str(group_uuid),
+                "item_id": str(item_uuid)
+            },
+            message="Item successfully unmapped from group.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error unmapping item from group: {str(e)}",
             status_code=500
         ).model_dump()

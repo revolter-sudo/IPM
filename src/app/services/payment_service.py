@@ -11,7 +11,8 @@ from fastapi import (
     HTTPException,
     Query,
     UploadFile,
-    Form
+    Form,
+    Body
 )
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
@@ -34,9 +35,10 @@ from src.app.database.models import (
     ProjectItemMap,
     ProjectUserMap,
     ItemCategories,
-    Khatabook
+    Khatabook,
+    ItemGroups,
+    ItemGroupMap
 )
-import logging
 import logging
 from src.app.schemas.auth_service_schamas import UserRole
 from uuid import uuid4
@@ -2201,17 +2203,33 @@ def list_items(
             query = query.filter(Item.name.ilike(f"%{search.strip()}%"))
 
         items = query.all()
+        items_data = []
 
-        items_data = [
-            {
+        for item in items:
+            # Get associated item groups
+            mappings = db.query(ItemGroupMap, ItemGroups).join(ItemGroups, ItemGroupMap.item_group_id == ItemGroups.uuid)\
+                .filter(
+                    ItemGroupMap.item_id == item.uuid,
+                    ItemGroupMap.is_deleted == False,
+                    ItemGroups.is_deleted == False
+                ).all()
+
+            associated_groups = [
+                {
+                    "group_id": str(group.uuid),
+                    "group_name": group.item_groups
+                } for _, group in mappings
+            ] if mappings else None
+
+            items_data.append({
                 "uuid": str(item.uuid),
                 "name": item.name,
                 "category": item.category,
                 "list_tag": item.list_tag,
                 "has_additional_info": item.has_additional_info,
-                "created_at": item.created_at
-            } for item in items
-        ]
+                "created_at": item.created_at,
+                "associated_groups": associated_groups
+            })
 
         return PaymentServiceResponse(
             data=items_data,
@@ -2225,6 +2243,7 @@ def list_items(
             message=f"Error fetching items: {str(e)}",
             status_code=500
         ).model_dump()
+
 
 
 @payment_router.put("/items/{item_uuid}", tags=["Items"], status_code=200)
@@ -2560,5 +2579,236 @@ def delete_item_category(
         return PaymentServiceResponse(
             data=None,
             message=f"Error deleting category: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@payment_router.post(
+    "/items/group/{group_name}",
+    tags=["Item Groups"],
+    status_code=201
+)
+def create_item_group(
+    group_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # If current_user is None or not authenticated
+        if not current_user or not getattr(current_user, "uuid", None):
+            return PaymentServiceResponse(
+                data=None,
+                message="Unauthorized: User not found.",
+                status_code=401
+            ).model_dump()
+
+        name_clean = group_name.strip()
+
+        # Check if group exists
+        existing = db.query(ItemGroups).filter(
+            ItemGroups.item_groups.ilike(name_clean)
+        ).first()
+
+        if existing:
+            if existing.is_deleted:
+                existing.is_deleted = False
+                db.commit()
+                db.refresh(existing)
+
+                return PaymentServiceResponse(
+                    data={
+                        "uuid": str(existing.uuid),
+                        "group_name": existing.item_groups,
+                        "created_by": current_user.name,
+                        "created_at": existing.created_at.isoformat()
+                    },
+                    message="Soft-deleted group restored successfully.",
+                    status_code=200
+                ).model_dump()
+
+            return PaymentServiceResponse(
+                data=None,
+                message="Item group already exists.",
+                status_code=400
+            ).model_dump()
+
+        # Create new
+        new_group = ItemGroups(
+            uuid=uuid.uuid4(),
+            item_groups=name_clean,
+            created_by=current_user.uuid
+        )
+        db.add(new_group)
+        db.commit()
+        db.refresh(new_group)
+
+        return PaymentServiceResponse(
+            data={
+                "uuid": str(new_group.uuid),
+                "group_name": new_group.item_groups,
+                "created_by": current_user.name,
+                "created_at": new_group.created_at.isoformat()
+            },
+            message="Item group created successfully.",
+            status_code=201
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error creating item group: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@payment_router.get(
+    "/items/groups",
+    tags=["Item Groups"],
+    status_code=200
+)
+def get_all_item_groups(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        groups = db.query(ItemGroups).filter(ItemGroups.is_deleted == False).all()
+
+        if not groups:
+            return PaymentServiceResponse(
+                data=[],
+                message="No item groups found.",
+                status_code=200
+            ).model_dump()
+
+        group_list = []
+        for group in groups:
+            group_list.append({
+                "uuid": str(group.uuid),
+                "group_name": group.item_groups,
+                "created_by": str(group.created_by),
+                "created_at": group.created_at.isoformat()
+            })
+
+        return PaymentServiceResponse(
+            data=group_list,
+            message="Item groups fetched successfully.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error fetching item groups: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@payment_router.put(
+    "/items/group/{group_uuid}",
+    tags=["Item Groups"],
+    status_code=200
+)
+def update_item_group(
+    group_uuid: UUID,
+    new_group_name: str = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        group = db.query(ItemGroups).filter(
+            ItemGroups.uuid == group_uuid,
+            ItemGroups.is_deleted == False
+        ).first()
+
+        if not group:
+            return PaymentServiceResponse(
+                data=None,
+                message="Item group not found.",
+                status_code=404
+            ).model_dump()
+
+        name_clean = new_group_name.strip()
+
+        # Check for duplicate
+        existing = db.query(ItemGroups).filter(
+            ItemGroups.item_groups.ilike(name_clean),
+            ItemGroups.uuid != group_uuid,
+            ItemGroups.is_deleted == False
+        ).first()
+
+        if existing:
+            return PaymentServiceResponse(
+                data=None,
+                message="Another group with the same name already exists.",
+                status_code=400
+            ).model_dump()
+
+        group.item_groups = name_clean
+        # If you have an updated_by field:
+        # group.updated_by = current_user.uuid
+
+        db.commit()
+        db.refresh(group)
+
+        return PaymentServiceResponse(
+            data={
+                "uuid": str(group.uuid),
+                "group_name": group.item_groups,
+                "updated_by": current_user.name,
+                "updated_at": group.created_at.isoformat()  # or updated_at if available
+            },
+            message="Item group updated successfully.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error updating item group: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@payment_router.delete(
+    "/items/group/{group_uuid}",
+    tags=["Item Groups"],
+    status_code=200
+)
+def delete_item_group(
+    group_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        group = db.query(ItemGroups).filter(
+            ItemGroups.uuid == group_uuid,
+            ItemGroups.is_deleted == False
+        ).first()
+
+        if not group:
+            return PaymentServiceResponse(
+                data=None,
+                message="Item group not found.",
+                status_code=404
+            ).model_dump()
+
+        group.is_deleted = True
+        # If `updated_by` field exists:
+        # group.updated_by = current_user.uuid
+
+        db.commit()
+
+        return PaymentServiceResponse(
+            data={
+                "uuid": str(group.uuid),
+                "group_name": group.item_groups
+            },
+            message="Item group deleted successfully (soft delete).",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error deleting item group: {str(e)}",
             status_code=500
         ).model_dump()

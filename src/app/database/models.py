@@ -796,6 +796,31 @@ class UserData(Base):
     password = Column(String(20), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
+
+class ItemGroups(Base):
+    __tablename__ = "item_groups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    item_groups = Column(String(50), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
+class ItemGroupMap(Base):
+    __tablename__ = "item_group_map"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    item_group_id = Column(UUID(as_uuid=True), ForeignKey("item_groups.uuid"), nullable=False)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
+    item_balance = Column(Float, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
+    item = relationship("Item")
+    item_group = relationship("ItemGroups")
+
 class ItemCategories(Base):
     __tablename__ = "item_categories"
 
