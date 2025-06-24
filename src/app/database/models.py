@@ -796,6 +796,19 @@ class UserData(Base):
     password = Column(String(20), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
+class Salary(Base):
+    __tablename__ = "salary"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    month = Column(String(20), nullable=False)  # e.g. "January 2024"
+    amount = Column(Float, nullable=False, default=0.0)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
 
 class ItemGroups(Base):
     __tablename__ = "item_groups"

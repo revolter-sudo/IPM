@@ -74,7 +74,8 @@ from src.app.database.models import (
     InvoicePayment,
     InvoiceItem,
     ItemGroups,
-    ItemGroupMap
+    ItemGroupMap,
+    Salary
 )
 from sqlalchemy.orm import Session, joinedload
 from src.app.schemas import constants
@@ -86,6 +87,9 @@ from src.app.admin_panel.schemas import (
     DefaultConfigCreate,
     DefaultConfigUpdate,
     ProjectUserItemMapCreate,
+    SalaryCreateRequest,
+    SalaryUpdateRequest,
+    SalaryResponse,
 )
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -4690,3 +4694,252 @@ def unmap_item_from_group(
             message=f"Error unmapping item from group: {str(e)}",
             status_code=500
         ).model_dump()
+
+@admin_app.post(
+    "/salary",
+    tags=["Salary"],
+    status_code=201,
+)
+def create_salary(
+    payload: SalaryCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # Authorization
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+
+        # Validate user and project existence
+        user = db.query(User).filter(User.uuid == payload.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        project = db.query(Project).filter(Project.uuid == payload.project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+         # Prevent duplicate entry
+        exists = db.query(Salary).filter(
+            Salary.user_id == payload.user_id,
+            Salary.project_id == payload.project_id,
+            Salary.month == payload.month,
+            Salary.is_deleted == False
+        ).first()
+        if exists:
+            raise HTTPException(status_code=409, detail="Salary already exists for this user and month")
+        
+        # Create new salary record
+        salary = Salary(
+            uuid=uuid4(),
+            user_id=payload.user_id,
+            project_id=payload.project_id,
+            month=payload.month,
+            amount=payload.amount,
+            created_by=current_user.uuid
+        )
+        db.add(salary)
+        db.commit()
+        db.refresh(salary)
+
+        return ProjectServiceResponse(
+            data=SalaryResponse(
+                uuid=salary.uuid,
+                user_id=salary.user_id,
+                project_id=salary.project_id,
+                month=salary.month,
+                amount=salary.amount
+            ),
+            message="Salary data recorded successfully.",
+            status_code=201
+        )
+    except Exception as e:
+        db.rollback()
+        return ProjectServiceResponse(
+            data=None,
+            message=f"Failed to create salary: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@admin_app.put(
+    "/salary/{salary_uuid}",
+    tags=["Salary"],
+    status_code=200,
+    description="Update an existing salary record by UUID."
+)
+def update_salary(
+    salary_id: UUID,
+    payload: SalaryUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try : 
+        # Verify user role
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Not authorized to update invoice status"
+            ).model_dump()
+        
+        # Fetch the salary record
+        salary = db.query(Salary).filter(
+            Salary.uuid == salary_id,
+            Salary.is_deleted == False
+        ).first()
+
+        if not salary:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Salary record not found"
+            ).model_dump()
+        
+        # Update fields
+        salary.user_id = payload.user_id
+        salary.project_id = payload.project_id
+        salary.amount = payload.amount
+        salary.month = payload.month
+
+        db.commit()
+
+        return {
+            "data": None,
+            "message": "Salary Data Updated Successfully.",
+            "status_code": 201,
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "data": None,
+            "message": f"Error updating salary: {str(e)}",
+            "status_code": 500,
+        }
+
+
+@admin_app.get(
+    "/salary",
+    tags=["Salary"],
+    description="Get all salary records with optional filters (user, project, month, amount).",
+)
+def get_all_salary(
+    user_id: Optional[UUID] = Query(None, description="Filter by user ID"),
+    project_id: Optional[UUID] = Query(None, description="Filter by project ID"),
+    month: Optional[str] = Query(None, description="Filter by month name e.g. 'June 2025'"),
+    amount: Optional[float] = Query(None, description="Filter by exact salary amount"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        # Role validation
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized access.")
+
+        # Build base query with joins
+        query = (
+            db.query(
+                Salary.uuid,
+                Salary.user_id,
+                User.name.label("user_name"),
+                Salary.project_id,
+                Project.name.label("project_name"),
+                Salary.amount,
+                Salary.month
+            )
+            .join(User, Salary.user_id == User.uuid)
+            .join(Project, Salary.project_id == Project.uuid)
+            .filter(Salary.is_deleted == False)
+        )
+
+        # Apply filters
+        if user_id:
+            query = query.filter(Salary.user_id == user_id)
+        if project_id:
+            query = query.filter(Salary.project_id == project_id)
+        if month:
+            query = query.filter(Salary.month == month)
+        if amount is not None:
+            query = query.filter(Salary.amount == amount)
+
+        result = query.all()
+
+        # Format response
+        data = []
+        for row in result:
+            data.append({
+                "uuid": str(row.uuid),
+                "user_id": str(row.user_id),
+                "user_name": row.user_name,
+                "project_id": str(row.project_id),
+                "project_name": row.project_name,
+                "amount": row.amount,
+                "month": row.month
+            })
+
+        return {
+            "data": data,
+            "message": "Salary Records Fetched Successfully.",
+            "status_code": 200
+        }
+
+    except Exception as e:
+        return {
+            "data": None,
+            "message": f"Error fetching salary records: {str(e)}",
+            "status_code": 500
+        }
+
+@admin_app.delete(
+    "/salary/{salary_id}",
+    tags=["Salary"],
+    description="Soft delete a salary record by ID.",
+)
+def delete_salary_record(
+    salary_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        # 🛡️ Role-based access control
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized access.")
+
+        # 🔍 Fetch salary record
+        salary = db.query(Salary).filter(Salary.uuid == salary_id, Salary.is_deleted == False).first()
+        if not salary:
+            raise HTTPException(status_code=404, detail="Salary record not found.")
+
+        # 🗑️ Soft delete
+        salary.is_deleted = True
+        db.commit()
+
+        return {
+            "data": None,
+            "message": "Salary Record Deleted Successfully.",
+            "status_code": 200,
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "data": None,
+            "message": f"Error deleting salary: {str(e)}",
+            "status_code": 500,
+        }

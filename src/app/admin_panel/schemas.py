@@ -117,3 +117,25 @@ class UserProjectItemResponse(BaseModel):
     category: Optional[str]
     list_tag: Optional[str]
     has_additional_info: Optional[bool]
+
+class SalaryCreateRequest(BaseModel):
+    user_id: UUID
+    project_id: UUID
+    month: str
+    amount: float = Field(default=0.0, ge=0.0)
+
+class SalaryUpdateRequest(BaseModel):
+    user_id: UUID
+    project_id: UUID
+    month: str
+    amount: float = Field(default=0.0, ge=0.0)
+
+class SalaryResponse(BaseModel):
+    uuid: UUID
+    user_id: UUID
+    project_id: UUID
+    month: str
+    amount: float = Field(default=0.0, ge=0.0)
+
+    model_config = {"from_attributes": True}
+
