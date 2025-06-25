@@ -2005,7 +2005,8 @@ def create_company_info(
                 buffer.write(logo_photo_file.file.read())
 
             from src.app.schemas.constants import HOST_URL
-            logo_url = f"{HOST_URL.rstrip('/')}/{file_path.replace('\\', '/')}"
+            # logo_url = f"{HOST_URL.rstrip('/')}/{file_path.replace('\\', '/')}"
+            logo_url = f"{HOST_URL.rstrip('/')}/{file_path}"
 
 
         company = CompanyInfo(
@@ -2195,7 +2196,8 @@ current_user=Depends(get_current_user),
                 buffer.write(logo_photo_file.file.read())
 
             from src.app.schemas.constants import HOST_URL
-            logo_url = f"{HOST_URL.rstrip('/')}/{file_path.replace('\\', '/')}"
+            # logo_url = f"{HOST_URL.rstrip('/')}/{file_path.replace('\\', '/')}"
+            logo_url = f"{HOST_URL.rstrip('/')}/{file_path}"
             company.logo_photo_url = logo_url
 
         # Update only provided fields
