@@ -2151,7 +2151,7 @@ def get_all_company_info(
                 "no_of_staff": c.no_of_staff,
                 "user_construction": c.user_construction,
                 "successfull_installations": c.successfull_installations,
-                "logo_photo_url": c.logo_photo_url
+                "logo_photo_url": f"{constants.HOST_URL}/{c.logo_photo_url}" if c.logo_photo_url else None
             } for c in companies
         ]
 
