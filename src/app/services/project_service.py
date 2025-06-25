@@ -1945,43 +1945,138 @@ def get_cities_by_state(state: str = Query(..., description="State name to get c
         "status_code": 200
     }
 
+# @project_router.post(
+#     "/company-info",
+#     status_code=status.HTTP_201_CREATED,
+#     tags=["Company Info"],
+#     description="""
+# Create a new Company Info entry with a logo or document upload.
+
+# Submit the data as `multipart/form-data`:
+# - `company_data`: JSON string with company info fields.
+# - `logo_photo_file`: File upload (image, PDF, doc, etc.).
+
+# **Example `company_data` JSON**:
+# ```json
+# {
+#   "years_of_experience": 12,
+#   "no_of_staff": 35,
+#   "user_construction": "Commercial & Residential",
+#   "successfull_installations": "250+ successful projects"
+# }
+# ```
+# """,
+#     response_model=dict
+# )
+# def create_company_info(
+#     company_data: str = Form(..., description="JSON string of company info"),
+#     logo_photo_file: Optional[UploadFile] = File(None, description="Optional logo or document"),
+#     db: Session = Depends(get_db),
+#     current_user=Depends(get_current_user),
+# ):
+#     try:
+#         user_role = getattr(current_user, "role", None) or current_user.get("role")
+#         if user_role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+#             return ProjectServiceResponse(
+#                 status_code=403,
+#                 message="Unauthorized to create company info"
+#             ).model_dump()
+
+#         try:
+#             payload_dict = json.loads(company_data)
+#             payload = CompanyInfoCreate(**payload_dict)
+#         except Exception as e:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=400,
+#                 message=f"Invalid JSON: {str(e)}"
+#             ).model_dump()
+
+#         # Handle optional file upload
+#         logo_url = None
+#         if logo_photo_file:
+#             upload_dir = "uploads/company_logos"
+#             os.makedirs(upload_dir, exist_ok=True)
+#             ext = os.path.splitext(logo_photo_file.filename)[1]
+#             filename = f"logo_{str(uuid4())}{ext}"
+#             file_path = os.path.join(upload_dir, filename)
+
+#             with open(file_path, "wb") as buffer:
+#                 buffer.write(logo_photo_file.file.read())
+
+#             from src.app.schemas.constants import HOST_URL
+#             # logo_url = f"{HOST_URL.rstrip('/')}/{file_path.replace('\\', '/')}"
+#             logo_url = f"{HOST_URL.rstrip('/')}/{file_path}"
+
+
+#         company = CompanyInfo(
+#             uuid=uuid4(),
+#             years_of_experience=payload.years_of_experience,
+#             no_of_staff=payload.no_of_staff,
+#             user_construction=payload.user_construction,
+#             successfull_installations=payload.successfull_installations,
+#             logo_photo_url=logo_url
+#         )
+#         db.add(company)
+#         db.commit()
+#         db.refresh(company)
+
+#         return ProjectServiceResponse(
+#             data={
+#                 "uuid": str(company.uuid),
+#                 "years_of_experience": company.years_of_experience,
+#                 "no_of_staff": company.no_of_staff,
+#                 "user_construction": company.user_construction,
+#                 "successfull_installations": company.successfull_installations,
+#                 "logo_photo_url": company.logo_photo_url,
+#             },
+#             status_code=201,
+#             message="Company info created successfully"
+#         ).model_dump()
+
+#     except Exception as e:
+#         db.rollback()
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=500,
+#             message=f"Error while creating company info: {str(e)}"
+#         ).model_dump()
+
 @project_router.post(
     "/company-info",
     status_code=status.HTTP_201_CREATED,
     tags=["Company Info"],
     description="""
-Create a new Company Info entry with a logo or document upload.
+Create a new Company Info entry.
 
-Submit the data as `multipart/form-data`:
-- `company_data`: JSON string with company info fields.
-- `logo_photo_file`: File upload (image, PDF, doc, etc.).
+Send the `company_data` JSON string via form and optionally upload a logo file.
 
 **Example `company_data` JSON**:
 ```json
 {
-  "years_of_experience": 12,
-  "no_of_staff": 35,
-  "user_construction": "Commercial & Residential",
-  "successfull_installations": "250+ successful projects"
+  "years_of_experience": 5,
+  "no_of_staff": 30,
+  "user_construction": "Industrial",
+  "successfull_installations": "150+ installations"
 }
-```
-""",
-    response_model=dict
+"""
 )
 def create_company_info(
-    company_data: str = Form(..., description="JSON string of company info"),
-    logo_photo_file: Optional[UploadFile] = File(None, description="Optional logo or document"),
+    company_data: str = Form(..., description="JSON string with company info"),
+    logo_photo_file: Optional[UploadFile] = File(None, description="Company logo file"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     try:
+        # Role check
         user_role = getattr(current_user, "role", None) or current_user.get("role")
         if user_role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
             return ProjectServiceResponse(
-                status_code=403,
-                message="Unauthorized to create company info"
+            status_code=403,
+            message="Unauthorized to create company info"
             ).model_dump()
 
+        # Parse JSON
         try:
             payload_dict = json.loads(company_data)
             payload = CompanyInfoCreate(**payload_dict)
@@ -1992,30 +2087,24 @@ def create_company_info(
                 message=f"Invalid JSON: {str(e)}"
             ).model_dump()
 
-        # Handle optional file upload
-        logo_url = None
+        # Save logo file if present
+        file_path = None
         if logo_photo_file:
-            upload_dir = "uploads/company_logos"
-            os.makedirs(upload_dir, exist_ok=True)
             ext = os.path.splitext(logo_photo_file.filename)[1]
             filename = f"logo_{str(uuid4())}{ext}"
+            upload_dir = "uploads/company_logos"
+            os.makedirs(upload_dir, exist_ok=True)
             file_path = os.path.join(upload_dir, filename)
-
             with open(file_path, "wb") as buffer:
                 buffer.write(logo_photo_file.file.read())
 
-            from src.app.schemas.constants import HOST_URL
-            # logo_url = f"{HOST_URL.rstrip('/')}/{file_path.replace('\\', '/')}"
-            logo_url = f"{HOST_URL.rstrip('/')}/{file_path}"
-
-
+        # Create CompanyInfo
         company = CompanyInfo(
-            uuid=uuid4(),
             years_of_experience=payload.years_of_experience,
             no_of_staff=payload.no_of_staff,
             user_construction=payload.user_construction,
             successfull_installations=payload.successfull_installations,
-            logo_photo_url=logo_url
+            logo_photo_url=file_path,  # same as file_path, not full URL
         )
         db.add(company)
         db.commit()
@@ -2028,7 +2117,7 @@ def create_company_info(
                 "no_of_staff": company.no_of_staff,
                 "user_construction": company.user_construction,
                 "successfull_installations": company.successfull_installations,
-                "logo_photo_url": company.logo_photo_url,
+                "logo_photo_path": company.logo_photo_url
             },
             status_code=201,
             message="Company info created successfully"
@@ -2127,6 +2216,112 @@ def get_company_info_by_uuid(
             message=f"Error fetching company info: {str(e)}"
         ).model_dump()
 
+# @project_router.put(
+#     "/company-info/{uuid}",
+#     status_code=status.HTTP_200_OK,
+#     tags=["Company Info"],
+#     description="""
+# Update an existing Company Info entry and optionally replace the logo/document.
+
+# Send as `multipart/form-data`:
+# - `company_data`: JSON string with updated fields.
+# - `logo_photo_file`: (Optional) new file to replace the existing logo.
+
+# **Example `company_data` JSON**:
+# ```json
+# {
+#   "years_of_experience": 20,
+#   "no_of_staff": 50,
+#   "user_construction": "Industrial",
+#   "successfull_installations": "500+ successful projects"
+# }
+# """
+# )
+# def update_company_info(
+# uuid: UUID,
+# company_data: str = Form(..., description="Updated JSON data"),
+# logo_photo_file: Optional[UploadFile] = File(None, description="New logo or document"),
+# db: Session = Depends(get_db),
+# current_user=Depends(get_current_user),
+# ):
+#     try:
+#         # Role check
+#         user_role = getattr(current_user, "role", None) or current_user.get("role")
+#         if user_role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+#             return ProjectServiceResponse(
+#             status_code=403,
+#             message="Unauthorized to update company info"
+#             ).model_dump()
+
+#         # Fetch record
+#         company = db.query(CompanyInfo).filter(CompanyInfo.uuid == uuid).first()
+#         if not company:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=404,
+#                 message="Company info not found"
+#             ).model_dump()
+
+#         # Parse JSON
+#         try:
+#             payload_dict = json.loads(company_data)
+#             payload = CompanyInfoUpdate(**payload_dict)
+#         except Exception as e:
+#             return ProjectServiceResponse(
+#                 data=None,
+#                 status_code=400,
+#                 message=f"Invalid JSON: {str(e)}"
+#             ).model_dump()
+
+#         # Handle file upload
+#         if logo_photo_file:
+#             upload_dir = "uploads/company_logos"
+#             os.makedirs(upload_dir, exist_ok=True)
+#             ext = os.path.splitext(logo_photo_file.filename)[1]
+#             filename = f"logo_{str(uuid4())}{ext}"
+#             file_path = os.path.join(upload_dir, filename)
+#             with open(file_path, "wb") as buffer:
+#                 buffer.write(logo_photo_file.file.read())
+
+#             from src.app.schemas.constants import HOST_URL
+#             # logo_url = f"{HOST_URL.rstrip('/')}/{file_path.replace('\\', '/')}"
+#             logo_url = f"{HOST_URL.rstrip('/')}/{file_path}"
+#             company.logo_photo_url = logo_url
+
+#         # Update only provided fields
+#         if payload.years_of_experience is not None:
+#             company.years_of_experience = payload.years_of_experience
+#         if payload.no_of_staff is not None:
+#             company.no_of_staff = payload.no_of_staff
+#         if payload.user_construction is not None:
+#             company.user_construction = payload.user_construction
+#         if payload.successfull_installations is not None:
+#             company.successfull_installations = payload.successfull_installations
+
+#         db.commit()
+#         db.refresh(company)
+
+#         return ProjectServiceResponse(
+#             data={
+#                 "uuid": str(company.uuid),
+#                 "years_of_experience": company.years_of_experience,
+#                 "no_of_staff": company.no_of_staff,
+#                 "user_construction": company.user_construction,
+#                 "successfull_installations": company.successfull_installations,
+#                 "logo_photo_url": company.logo_photo_url,
+#             },
+#             status_code=200,
+#             message="Company info updated successfully"
+#         ).model_dump()
+
+#     except Exception as e:
+#         db.rollback()
+#         return ProjectServiceResponse(
+#             data=None,
+#             status_code=500,
+#             message=f"Error while updating company info: {str(e)}"
+#         ).model_dump()
+
 @project_router.put(
     "/company-info/{uuid}",
     status_code=status.HTTP_200_OK,
@@ -2150,11 +2345,11 @@ Send as `multipart/form-data`:
 """
 )
 def update_company_info(
-uuid: UUID,
-company_data: str = Form(..., description="Updated JSON data"),
-logo_photo_file: Optional[UploadFile] = File(None, description="New logo or document"),
-db: Session = Depends(get_db),
-current_user=Depends(get_current_user),
+    uuid: UUID,
+    company_data: str = Form(..., description="Updated JSON data"),
+    logo_photo_file: Optional[UploadFile] = File(None, description="New logo or document"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
     try:
         # Role check
@@ -2165,7 +2360,7 @@ current_user=Depends(get_current_user),
             message="Unauthorized to update company info"
             ).model_dump()
 
-        # Fetch record
+        # Fetch company record
         company = db.query(CompanyInfo).filter(CompanyInfo.uuid == uuid).first()
         if not company:
             return ProjectServiceResponse(
@@ -2185,7 +2380,7 @@ current_user=Depends(get_current_user),
                 message=f"Invalid JSON: {str(e)}"
             ).model_dump()
 
-        # Handle file upload
+        # Save new logo if provided
         if logo_photo_file:
             upload_dir = "uploads/company_logos"
             os.makedirs(upload_dir, exist_ok=True)
@@ -2194,13 +2389,9 @@ current_user=Depends(get_current_user),
             file_path = os.path.join(upload_dir, filename)
             with open(file_path, "wb") as buffer:
                 buffer.write(logo_photo_file.file.read())
+            company.logo_photo_url = file_path  # just store relative path
 
-            from src.app.schemas.constants import HOST_URL
-            # logo_url = f"{HOST_URL.rstrip('/')}/{file_path.replace('\\', '/')}"
-            logo_url = f"{HOST_URL.rstrip('/')}/{file_path}"
-            company.logo_photo_url = logo_url
-
-        # Update only provided fields
+        # Update fields if present
         if payload.years_of_experience is not None:
             company.years_of_experience = payload.years_of_experience
         if payload.no_of_staff is not None:
@@ -2220,7 +2411,7 @@ current_user=Depends(get_current_user),
                 "no_of_staff": company.no_of_staff,
                 "user_construction": company.user_construction,
                 "successfull_installations": company.successfull_installations,
-                "logo_photo_url": company.logo_photo_url,
+                "logo_photo_path": company.logo_photo_url
             },
             status_code=200,
             message="Company info updated successfully"
