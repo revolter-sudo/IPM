@@ -75,7 +75,8 @@ from src.app.database.models import (
     InvoiceItem,
     ItemGroups,
     ItemGroupMap,
-    Salary
+    Salary,
+    InquiryData
 )
 from sqlalchemy.orm import Session, joinedload
 from src.app.schemas import constants

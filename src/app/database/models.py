@@ -859,3 +859,24 @@ class ItemCategories(Base):
 
     # user = relationship("User")
     # item = relationship("Item")
+
+
+class InquiryData(Base):
+    __tablename__ = "inquiry_data"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
+
+    # Inquiry details
+    name = Column(String(100), nullable=False)
+    phone_number = Column(String(15), nullable=False)
+    project_type = Column(String(50), nullable=False)
+    state = Column(String(50), nullable=False)
+    city = Column(String(50), nullable=False)
+
+    # Timestamps and soft delete
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
+    def __repr__(self):
+        return f"<InquiryData(name={self.name}, phone_number={self.phone_number}, project_type={self.project_type})>"
