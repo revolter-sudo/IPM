@@ -201,3 +201,16 @@ class ProjectPOUpdateSchema(BaseModel):
     description: Optional[str]
     po_date: Optional[str]  # "YYYY-MM-DD"
     items: List[POItemInput] = []
+
+class CompanyInfoCreate(BaseModel):
+    years_of_experience: int = Field(..., ge=0)
+    no_of_staff: int = Field(..., ge=0)
+    user_construction: str
+    successfull_installations: str
+    logo_photo_url: Optional[str] = None
+
+class CompanyInfoUpdate(BaseModel):
+    years_of_experience: Optional[int] = None
+    no_of_staff: Optional[int] = None
+    user_construction: Optional[str] = None
+    successfull_installations: Optional[str] = None

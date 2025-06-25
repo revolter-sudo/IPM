@@ -834,6 +834,19 @@ class ItemGroupMap(Base):
     item = relationship("Item")
     item_group = relationship("ItemGroups")
 
+class CompanyInfo(Base):
+    __tablename__ = "company_info"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    years_of_experience = Column(Integer, nullable=False, default=0)
+    no_of_staff = Column(Integer, nullable=False, default=0)
+    user_construction = Column(String(255), nullable=False, default=False)
+    successfull_installations = Column(String(255), nullable=False, default=0)
+    logo_photo_url = Column(Text, nullable=True)
+
+
+
 class ItemCategories(Base):
     __tablename__ = "item_categories"
 

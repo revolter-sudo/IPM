@@ -32,3 +32,9 @@ __pycache__/
 # Other
 *.sqlite3
 *.db
+
+# upload files
+uploads/
+uploads/*
+uploads/company_logos
+uploads/company_logos/*

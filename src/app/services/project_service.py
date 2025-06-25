@@ -3,7 +3,7 @@ import os
 import json
 from uuid import UUID, uuid4
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Query
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 from decimal import Decimal
@@ -23,7 +23,8 @@ from src.app.database.models import (
     Invoice,
     PaymentItem,
     ProjectPO,
-    ProjectPOItem
+    ProjectPOItem,
+    CompanyInfo
 )
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
@@ -37,8 +38,11 @@ from src.app.schemas.project_service_schemas import (
     InvoiceCreateRequest,
     InvoiceResponse,
     InvoiceStatusUpdateRequest,
-    ProjectPOUpdateSchema
+    ProjectPOUpdateSchema,
+    CompanyInfoCreate,
+    CompanyInfoUpdate
 )
+from src.app.services.location_service import LocationService
 from src.app.services.auth_service import get_current_user
 from datetime import datetime, timedelta
 
@@ -1904,3 +1908,326 @@ def view_project_items_for_user(
         message="Project User Items Fetched Successfully.",
         status_code=200
     ).model_dump()
+
+@project_router.get(
+        "/states",
+        tags=["Location"],
+        description="Get a list of all Indian states", 
+    )
+def get_all_states():
+    states = list(LocationService._INDIA_STATES_CITIES.keys())
+    return {
+        "data": states,
+        "message": "List of Indian States fetched successfully.",
+        "status_code": 200
+    }
+
+@project_router.get(
+        "/cities", 
+        tags=["Location"],
+        description="Get a list of cities for a given state",
+    )
+def get_cities_by_state(state: str = Query(..., description="State name to get cities for")):
+    normalized_state = state.strip().lower()
+    matched_state = None
+
+    for key in LocationService._INDIA_STATES_CITIES:
+        if key.lower() == normalized_state:
+            matched_state = key
+            break
+
+    if not matched_state:
+        raise HTTPException(status_code=404, detail="State not found")
+
+    return {
+        "data": LocationService._INDIA_STATES_CITIES[matched_state],
+        "message": f"Cities fetched for {matched_state.title()}",
+        "status_code": 200
+    }
+
+@project_router.post(
+    "/company-info",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Company Info"],
+    description="""
+Create a new Company Info entry with a logo or document upload.
+
+Submit the data as `multipart/form-data`:
+- `company_data`: JSON string with company info fields.
+- `logo_photo_file`: File upload (image, PDF, doc, etc.).
+
+**Example `company_data` JSON**:
+```json
+{
+  "years_of_experience": 12,
+  "no_of_staff": 35,
+  "user_construction": "Commercial & Residential",
+  "successfull_installations": "250+ successful projects"
+}
+```
+""",
+    response_model=dict
+)
+def create_company_info(
+    company_data: str = Form(..., description="JSON string of company info"),
+    logo_photo_file: Optional[UploadFile] = File(None, description="Optional logo or document"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    try:
+        user_role = getattr(current_user, "role", None) or current_user.get("role")
+        if user_role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            return ProjectServiceResponse(
+                status_code=403,
+                message="Unauthorized to create company info"
+            ).model_dump()
+
+        try:
+            payload_dict = json.loads(company_data)
+            payload = CompanyInfoCreate(**payload_dict)
+        except Exception as e:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=400,
+                message=f"Invalid JSON: {str(e)}"
+            ).model_dump()
+
+        # Handle optional file upload
+        logo_url = None
+        if logo_photo_file:
+            upload_dir = "uploads/company_logos"
+            os.makedirs(upload_dir, exist_ok=True)
+            ext = os.path.splitext(logo_photo_file.filename)[1]
+            filename = f"logo_{str(uuid4())}{ext}"
+            file_path = os.path.join(upload_dir, filename)
+
+            with open(file_path, "wb") as buffer:
+                buffer.write(logo_photo_file.file.read())
+
+            from src.app.schemas.constants import HOST_URL
+            logo_url = f"{HOST_URL.rstrip('/')}/{file_path.replace('\\', '/')}"
+
+
+        company = CompanyInfo(
+            uuid=uuid4(),
+            years_of_experience=payload.years_of_experience,
+            no_of_staff=payload.no_of_staff,
+            user_construction=payload.user_construction,
+            successfull_installations=payload.successfull_installations,
+            logo_photo_url=logo_url
+        )
+        db.add(company)
+        db.commit()
+        db.refresh(company)
+
+        return ProjectServiceResponse(
+            data={
+                "uuid": str(company.uuid),
+                "years_of_experience": company.years_of_experience,
+                "no_of_staff": company.no_of_staff,
+                "user_construction": company.user_construction,
+                "successfull_installations": company.successfull_installations,
+                "logo_photo_url": company.logo_photo_url,
+            },
+            status_code=201,
+            message="Company info created successfully"
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error while creating company info: {str(e)}"
+        ).model_dump()
+
+@project_router.get(
+    "/company-info",
+    tags=["Company Info"],
+    response_model=dict,
+    summary="Get all company info records",
+    description="Fetches all company info entries including logo URL"
+)
+def get_all_company_info(
+    db: Session = Depends(get_db)
+):
+    try:
+        companies = db.query(CompanyInfo).filter().all()
+
+        data = [
+            {
+                "uuid": str(c.uuid),
+                "years_of_experience": c.years_of_experience,
+                "no_of_staff": c.no_of_staff,
+                "user_construction": c.user_construction,
+                "successfull_installations": c.successfull_installations,
+                "logo_photo_url": c.logo_photo_url
+            } for c in companies
+        ]
+
+        return ProjectServiceResponse(
+            data=data,
+            status_code=200,
+            message="Company info records fetched successfully"
+        ).model_dump()
+
+    except Exception as e:
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error fetching records: {str(e)}"
+        ).model_dump()
+
+from uuid import UUID
+
+@project_router.get(
+    "/company-info/{uuid}",
+    tags=["Company Info"],
+    response_model=dict,
+    summary="Get single company info by UUID",
+    description="Fetch a specific company info entry",
+    deprecated=True
+)
+def get_company_info_by_uuid(
+    uuid: UUID,
+    db: Session = Depends(get_db)
+):
+    try:
+        company = db.query(CompanyInfo).filter(
+            CompanyInfo.uuid == uuid
+        ).first()
+
+        if not company:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Company info not found"
+            ).model_dump()
+
+        data = {
+            "uuid": str(company.uuid),
+            "years_of_experience": company.years_of_experience,
+            "no_of_staff": company.no_of_staff,
+            "user_construction": company.user_construction,
+            "successfull_installations": company.successfull_installations,
+            "logo_photo_url": company.logo_photo_url
+        }
+
+        return ProjectServiceResponse(
+            data=data,
+            status_code=200,
+            message="Company info fetched successfully"
+        ).model_dump()
+
+    except Exception as e:
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error fetching company info: {str(e)}"
+        ).model_dump()
+
+@project_router.put(
+    "/company-info/{uuid}",
+    status_code=status.HTTP_200_OK,
+    tags=["Company Info"],
+    response_model=dict,
+    description="""
+Update an existing Company Info entry and optionally replace the logo/document.
+
+Send as `multipart/form-data`:
+- `company_data`: JSON string with updated fields.
+- `logo_photo_file`: (Optional) new file to replace the existing logo.
+
+**Example `company_data` JSON**:
+```json
+{
+  "years_of_experience": 20,
+  "no_of_staff": 50,
+  "user_construction": "Industrial",
+  "successfull_installations": "500+ successful projects"
+}
+"""
+)
+def update_company_info(
+uuid: UUID,
+company_data: str = Form(..., description="Updated JSON data"),
+logo_photo_file: Optional[UploadFile] = File(None, description="New logo or document"),
+db: Session = Depends(get_db),
+current_user=Depends(get_current_user),
+):
+    try:
+        # Role check
+        user_role = getattr(current_user, "role", None) or current_user.get("role")
+        if user_role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            return ProjectServiceResponse(
+            status_code=403,
+            message="Unauthorized to update company info"
+            ).model_dump()
+
+        # Fetch record
+        company = db.query(CompanyInfo).filter(CompanyInfo.uuid == uuid).first()
+        if not company:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Company info not found"
+            ).model_dump()
+
+        # Parse JSON
+        try:
+            payload_dict = json.loads(company_data)
+            payload = CompanyInfoUpdate(**payload_dict)
+        except Exception as e:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=400,
+                message=f"Invalid JSON: {str(e)}"
+            ).model_dump()
+
+        # Handle file upload
+        if logo_photo_file:
+            upload_dir = "uploads/company_logos"
+            os.makedirs(upload_dir, exist_ok=True)
+            ext = os.path.splitext(logo_photo_file.filename)[1]
+            filename = f"logo_{str(uuid4())}{ext}"
+            file_path = os.path.join(upload_dir, filename)
+            with open(file_path, "wb") as buffer:
+                buffer.write(logo_photo_file.file.read())
+
+            from src.app.schemas.constants import HOST_URL
+            logo_url = f"{HOST_URL.rstrip('/')}/{file_path.replace('\\', '/')}"
+            company.logo_photo_url = logo_url
+
+        # Update only provided fields
+        if payload.years_of_experience is not None:
+            company.years_of_experience = payload.years_of_experience
+        if payload.no_of_staff is not None:
+            company.no_of_staff = payload.no_of_staff
+        if payload.user_construction is not None:
+            company.user_construction = payload.user_construction
+        if payload.successfull_installations is not None:
+            company.successfull_installations = payload.successfull_installations
+
+        db.commit()
+        db.refresh(company)
+
+        return ProjectServiceResponse(
+            data={
+                "uuid": str(company.uuid),
+                "years_of_experience": company.years_of_experience,
+                "no_of_staff": company.no_of_staff,
+                "user_construction": company.user_construction,
+                "successfull_installations": company.successfull_installations,
+                "logo_photo_url": company.logo_photo_url,
+            },
+            status_code=200,
+            message="Company info updated successfully"
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error while updating company info: {str(e)}"
+        ).model_dump()
