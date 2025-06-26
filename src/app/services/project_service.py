@@ -1791,7 +1791,6 @@ def get_all_company_info(
             message=f"Error fetching records: {str(e)}"
         ).model_dump()
 
-from uuid import UUID
 
 @project_router.get(
     "/company-info/{uuid}",

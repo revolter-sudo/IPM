@@ -159,7 +159,6 @@ def get_inquiry_by_uuid(
             detail="An unexpected error occurred while fetching the inquiry"
         )
 
-
 @inquiry_router.get(
     "/project-types/list",
     status_code=status.HTTP_200_OK,

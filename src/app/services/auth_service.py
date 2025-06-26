@@ -254,17 +254,35 @@ def register_user(
     db.add(new_user)
     db.flush()
 
-    new_person = Person(
-        name=user.person.name,
-        phone_number=user.person.phone_number,
-        account_number=user.person.account_number,
-        ifsc_code=user.person.ifsc_code,
-        user_id=new_user.uuid
-    )
-    db.add(new_person)
-    db.commit()
-    db.refresh(new_user)
-    db.refresh(new_person)
+    # Try to find existing person by phone_number or account_number
+    existing_person = db.query(Person).filter(
+        (Person.phone_number == user.person.phone_number) &
+        (Person.account_number == user.person.account_number)
+    ).first()
+
+    if existing_person:
+        # Link existing person to new user
+        existing_person.user_id = new_user.uuid
+        db.add(existing_person)
+        db.commit()
+        db.refresh(new_user)
+        db.refresh(existing_person)
+        person_to_return = existing_person
+    else:
+        # Create new person as before
+        new_person = Person(
+            name=user.person.name,
+            phone_number=user.person.phone_number,
+            account_number=user.person.account_number,
+            ifsc_code=user.person.ifsc_code,
+            user_id=new_user.uuid
+        )
+        db.add(new_person)
+        db.commit()
+        db.refresh(new_user)
+        db.refresh(new_person)
+        person_to_return = new_person
+
     access_token = create_access_token(data={"sub": str(new_user.uuid)})
     response = {"access_token": access_token, "token_type": "bearer"}
     return AuthServiceResponse(
@@ -645,7 +663,7 @@ def list_all_active_users(db: Session = Depends(get_db)):
 #         person_data = None
 #         if user.person:
 #             person_data = {
-#                 "uuid": str(user.person.uuid),
+#                 "uuid": user.person.uuid,
 #                 "name": user.person.name,
 #                 "account_number": user.person.account_number,
 #                 "ifsc_code": user.person.ifsc_code,
@@ -653,7 +671,7 @@ def list_all_active_users(db: Session = Depends(get_db)):
 #             }
 
 #         user_response = {
-#             "uuid": str(user.uuid),
+#             "uuid": user.uuid,
 #             "name": user.name,
 #             "phone": user.phone,
 #             "role": user.role,
