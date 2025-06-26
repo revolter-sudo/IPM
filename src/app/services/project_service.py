@@ -1,5 +1,5 @@
-import logging
 import os
+from src.app.utils.logging_config import get_logger
 import json
 from uuid import UUID, uuid4
 from typing import Optional, List
@@ -45,6 +45,9 @@ from src.app.schemas.project_service_schemas import (
 from src.app.services.location_service import LocationService
 from src.app.services.auth_service import get_current_user
 from datetime import datetime, timedelta
+
+# Initialize logger
+logger = get_logger(__name__)
 
 project_router = APIRouter(prefix="/projects")
 
@@ -240,10 +243,10 @@ def create_project(
         request_data = json.loads(request)
         project_request = ProjectCreateRequest(**request_data)
 
-        logging.info(f"Create project request received: {project_request}")
+        logger.info(f"Create project request received: {project_request}")
         # Fix: current_user might be dict, access role accordingly
         user_role = current_user.role if hasattr(current_user, 'role') else current_user.get('role')
-        logging.info(f"Current user role: {user_role}")
+        logger.info(f"Current user role: {user_role}")
         if user_role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
@@ -349,7 +352,7 @@ def create_project(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in create_project API: {str(e)}")
+        logger.error(f"Error in create_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -533,7 +536,7 @@ def create_project(
 #         ).model_dump()
 
 #     except Exception as e:
-#         logging.error(f"Error in list_all_projects API: {str(e)}")
+#         logger.error(f"Error in list_all_projects API: {str(e)}")
 #         return ProjectServiceResponse(
 #             data=None,
 #             status_code=500,
@@ -674,7 +677,7 @@ def list_all_projects(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in list_all_projects API: {str(e)}")
+        logger.error(f"Error in list_all_projects API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -737,7 +740,7 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in get_project_info API: {str(e)}")
+        logger.error(f"Error in get_project_info API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -890,7 +893,7 @@ def add_bank(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in add_bank: {e}")
+        logger.error(f"Error in add_bank: {e}")
         db.rollback()
         return ProjectServiceResponse(
             data=None,
@@ -943,7 +946,7 @@ def edit_bank(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in edit_bank: {e}")
+        logger.error(f"Error in edit_bank: {e}")
         db.rollback()
         return ProjectServiceResponse(
             data=None,
@@ -992,7 +995,7 @@ def get_bank_balance(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_bank_balance API: {str(e)}")
+        logger.error(f"Error in get_bank_balance API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1042,7 +1045,7 @@ def delete_bank(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in delete_bank API: {str(e)}")
+        logger.error(f"Error in delete_bank API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1121,7 +1124,7 @@ def delete_project(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in delete_project API: {str(e)}")
+        logger.error(f"Error in delete_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1400,7 +1403,7 @@ def get_project_pos(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_project_pos API: {str(e)}")
+        logger.error(f"Error in get_project_pos API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1480,7 +1483,7 @@ def update_project_po(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in update_project_po API: {str(e)}")
+        logger.error(f"Error in update_project_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,

@@ -6,8 +6,10 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://myuser:200899@147.93.31.224:5432/ipm_new
+      LOG_DIR: /app/logs
     ports:
       - "8000:8000"
     volumes:
       - ./uploads:/app/uploads
+      - ./logs:/app/logs
       - /root/secretfiles/secret_files.json:/app/src/app/utils/firebase/secret_files.json

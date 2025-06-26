@@ -1,5 +1,5 @@
-import logging
 from typing import Optional
+from src.app.utils.logging_config import get_logger
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -14,6 +14,9 @@ from src.app.services.inquiry_service import (
     get_inquiries_service,
     get_inquiry_by_uuid_service
 )
+
+# Initialize logger
+logger = get_logger(__name__)
 
 # Create router for inquiry endpoints
 inquiry_router = APIRouter(prefix="/inquiries", tags=["Inquiries"])
@@ -57,7 +60,7 @@ def create_inquiry(
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Unexpected error in create_inquiry endpoint: {str(e)}")
+        logger.error(f"Unexpected error in create_inquiry endpoint: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while creating the inquiry"
@@ -112,7 +115,7 @@ def get_inquiries(
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Unexpected error in get_inquiries endpoint: {str(e)}")
+        logger.error(f"Unexpected error in get_inquiries endpoint: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while fetching inquiries"
@@ -153,7 +156,7 @@ def get_inquiry_by_uuid(
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Unexpected error in get_inquiry_by_uuid endpoint: {str(e)}")
+        logger.error(f"Unexpected error in get_inquiry_by_uuid endpoint: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while fetching the inquiry"
@@ -180,7 +183,7 @@ def get_project_types():
         ).model_dump()
         
     except Exception as e:
-        logging.error(f"Unexpected error in get_project_types endpoint: {str(e)}")
+        logger.error(f"Unexpected error in get_project_types endpoint: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while fetching project types"

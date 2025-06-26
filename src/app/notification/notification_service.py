@@ -12,9 +12,9 @@ SERVICE_ACCOUNT_PATH = "/app/src/app/utils/firebase/secret_files.json" # noqa
 
 def check_or_up_firebase_app():
     if not firebase_admin._apps:
-        logging.info("--------------------------------")
-        logging.info("FireBase Started")
-        logging.info("--------------------------------")
+        logger.info("--------------------------------")
+        logger.info("FireBase Started")
+        logger.info("--------------------------------")
         cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
         firebase_admin.initialize_app(cred)
 
@@ -44,10 +44,10 @@ def send_push_notification(
     )
     try:
         response = messaging.send(message)
-        logging.info(f"Successfully sent message: {response}")
+        logger.info(f"Successfully sent message: {response}")
         return response
     except Exception as e:
-        logging.info(f"Error sending push notification: {str(e)}")
+        logger.info(f"Error sending push notification: {str(e)}")
         return None
 
 

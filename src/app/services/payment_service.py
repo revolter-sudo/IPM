@@ -102,7 +102,7 @@ def notify_create_payment(amount: int, user: User, db: Session):
                 title=notification.title,
                 body=notification.body
             )
-        logging.info(
+        logger.info(
             f"{len(people)} Users were notified for this payment request"
         )
         return True
@@ -225,7 +225,7 @@ def create_payment(
             db=db
         )
         if not notification:
-            logging.error(
+            logger.error(
                 "Something went wrong while sending create payment notification")
         return PaymentServiceResponse(
             data={"payment_uuid": current_payment_uuid},
@@ -366,11 +366,11 @@ def create_khatabook_entry_for_self_payment(payment: Payment, db: Session, balan
         db.add(khatabook_entry)
         db.flush()
 
-        logging.info(f"Created khatabook entry {khatabook_entry.uuid} for self payment {payment.uuid}")
+        logger.info(f"Created khatabook entry {khatabook_entry.uuid} for self payment {payment.uuid}")
         return True
 
     except Exception as e:
-        logging.error(f"Error creating khatabook entry for self payment {payment.uuid}: {str(e)}")
+        logger.error(f"Error creating khatabook entry for self payment {payment.uuid}: {str(e)}")
         return False
 
 
@@ -1319,7 +1319,7 @@ def notify_payment_status_update(
             title=notification.title,
             body=notification.body
         )
-    logging.info(f"{len(people)} Users were notified for this payment request")
+    logger.info(f"{len(people)} Users were notified for this payment request")
     return True
 
 
@@ -1499,7 +1499,7 @@ def approve_payment(
 
             # For self-payment logic
             if payment.self_payment:
-                logging.info(f"Processing self payment {payment.uuid} for user {payment.created_by}")
+                logger.info(f"Processing self payment {payment.uuid} for user {payment.created_by}")
 
                 user_balance = db.query(KhatabookBalance).filter(
                     KhatabookBalance.user_uuid == payment.created_by
@@ -1507,7 +1507,7 @@ def approve_payment(
 
                 old_balance = 0.0
                 if not user_balance:
-                    logging.info(f"Creating new khatabook balance for user {payment.created_by}")
+                    logger.info(f"Creating new khatabook balance for user {payment.created_by}")
                     user_balance = KhatabookBalance(
                         user_uuid=payment.created_by,
                         balance=0.0
@@ -1515,7 +1515,7 @@ def approve_payment(
                     db.add(user_balance)
                 else:
                     old_balance = user_balance.balance
-                    logging.info(f"User {payment.created_by} current balance: {old_balance}")
+                    logger.info(f"User {payment.created_by} current balance: {old_balance}")
 
                 # Increase the user's khatabook balance
                 user_balance.balance += payment.amount
@@ -1524,14 +1524,14 @@ def approve_payment(
                 # Flush to ensure balance update is persisted in this transaction
                 db.flush()
 
-                logging.info(f"Updated user {payment.created_by} balance from {old_balance} to {new_balance} (added {payment.amount})")
+                logger.info(f"Updated user {payment.created_by} balance from {old_balance} to {new_balance} (added {payment.amount})")
 
                 # Create khatabook entry for the self payment with correct balance
                 khatabook_created = create_khatabook_entry_for_self_payment(payment, db, new_balance)
                 if not khatabook_created:
-                    logging.warning(f"Failed to create khatabook entry for self payment {payment.uuid}")
+                    logger.warning(f"Failed to create khatabook entry for self payment {payment.uuid}")
                 else:
-                    logging.info(f"Successfully created khatabook entry for self payment {payment.uuid}")
+                    logger.info(f"Successfully created khatabook entry for self payment {payment.uuid}")
 
             # Deduct from the chosen bank
             balance_obj = db.query(BalanceDetail).filter(

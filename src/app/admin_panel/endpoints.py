@@ -82,7 +82,7 @@ from sqlalchemy.orm import Session, joinedload
 from src.app.schemas import constants
 from src.app.admin_panel.services import get_default_config_service
 from src.app.database.database import get_db
-import logging
+from src.app.utils.logging_config import get_logger, get_api_logger
 from src.app.admin_panel.schemas import (
     AdminPanelResponse,
     DefaultConfigCreate,
@@ -97,7 +97,9 @@ from sqlalchemy import select
 import uuid
 
 
-logging.basicConfig(level=logging.INFO)
+# Initialize loggers
+logger = get_logger(__name__)
+api_logger = get_api_logger()
 
 admin_app = FastAPI(
     title="Admin API",
@@ -140,7 +142,7 @@ def get_default_config():
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in get_default_config API: {str(e)}")
+        logger.error(f"Error in get_default_config API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message="Error in get_default_config API",
@@ -209,7 +211,7 @@ def create_default_config(
             status_code=201
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in create_default_config API: {str(e)}")
+        logger.error(f"Error in create_default_config API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"Error in create_default_config API: {str(e)}",
@@ -266,7 +268,7 @@ def update_default_config(
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in update_default_config API: {str(e)}")
+        logger.error(f"Error in update_default_config API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"Error in update_default_config API: {str(e)}",
@@ -318,7 +320,7 @@ def map_user_to_project(
             create_project_user_mapping(db=db, user_id=user_id, project_id=project_id)
         except Exception as db_error:
             db.rollback()
-            logging.error(f"Database error in create_project_user_mapping: {str(db_error)}")
+            logger.error(f"Database error in create_project_user_mapping: {str(db_error)}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
@@ -332,7 +334,7 @@ def map_user_to_project(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in map_user_to_project API: {str(e)}")
+        logger.error(f"Error in map_user_to_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -414,7 +416,7 @@ def map_multiple_users_to_project(
             ).model_dump()
         except Exception as db_error:
             db.rollback()
-            logging.error(f"Database error in map_multiple_users_to_project: {str(db_error)}")
+            logger.error(f"Database error in map_multiple_users_to_project: {str(db_error)}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
@@ -422,7 +424,7 @@ def map_multiple_users_to_project(
             ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in map_multiple_users_to_project API: {str(e)}")
+        logger.error(f"Error in map_multiple_users_to_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -480,7 +482,7 @@ def map_item_to_project(
             )
         except Exception as db_error:
             db.rollback()
-            logging.error(f"Database error in create_project_item_mapping: {str(db_error)}")
+            logger.error(f"Database error in create_project_item_mapping: {str(db_error)}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
@@ -494,7 +496,7 @@ def map_item_to_project(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in map_item_to_project API: {str(e)}")
+        logger.error(f"Error in map_item_to_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -602,7 +604,7 @@ def map_multiple_items_to_project(
             ).model_dump()
         except Exception as db_error:
             db.rollback()
-            logging.error(f"Database error in map_multiple_items_to_project: {str(db_error)}")
+            logger.error(f"Database error in map_multiple_items_to_project: {str(db_error)}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
@@ -610,7 +612,7 @@ def map_multiple_items_to_project(
             ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in map_multiple_items_to_project API: {str(e)}")
+        logger.error(f"Error in map_multiple_items_to_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -670,7 +672,7 @@ def map_item_to_user(
             )
         except Exception as db_error:
             db.rollback()
-            logging.error(f"Database error in create_user_item_mapping: {str(db_error)}")
+            logger.error(f"Database error in create_user_item_mapping: {str(db_error)}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
@@ -684,7 +686,7 @@ def map_item_to_user(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in map_item_to_user API: {str(e)}")
+        logger.error(f"Error in map_item_to_user API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -781,7 +783,7 @@ def map_multiple_items_to_user(
             ).model_dump()
         except Exception as db_error:
             db.rollback()
-            logging.error(f"Database error in map_multiple_items_to_user: {str(db_error)}")
+            logger.error(f"Database error in map_multiple_items_to_user: {str(db_error)}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
@@ -789,7 +791,7 @@ def map_multiple_items_to_user(
             ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in map_multiple_items_to_user API: {str(e)}")
+        logger.error(f"Error in map_multiple_items_to_user API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -855,7 +857,7 @@ def remove_item_from_project(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in remove_item_from_project API: {str(e)}")
+        logger.error(f"Error in remove_item_from_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -921,7 +923,7 @@ def remove_user_from_project(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in remove_user_from_project API: {str(e)}")
+        logger.error(f"Error in remove_user_from_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -987,7 +989,7 @@ def remove_item_from_user(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in remove_item_from_user API: {str(e)}")
+        logger.error(f"Error in remove_item_from_user API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1039,7 +1041,7 @@ def get_user_items(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_user_items API: {str(e)}")
+        logger.error(f"Error in get_user_items API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1086,7 +1088,7 @@ def get_project_items(db: Session, project_id: UUID, current_user: User = None):
             "status_code": 200
         }
     except Exception as e:
-        logging.error(f"Error in get_project_items function: {str(e)}")
+        logger.error(f"Error in get_project_items function: {str(e)}")
         return {
             "data": [],
             "message": "An error occurred while fetching project items",
@@ -1151,7 +1153,7 @@ def get_project_items_list(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in get_project_items_list API: {str(e)}")
+        logger.error(f"Error in get_project_items_list API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1212,7 +1214,7 @@ def get_project_users(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in get_project_users API: {str(e)}")
+        logger.error(f"Error in get_project_users API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1278,7 +1280,7 @@ def get_user_projects(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in get_user_projects API: {str(e)}")
+        logger.error(f"Error in get_user_projects API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1379,7 +1381,7 @@ def get_user_projects(
 
 #     except Exception as e:
 #         db.rollback()
-#         logging.error(f"Error in get_user_details API: {str(e)}")
+#         logger.error(f"Error in get_user_details API: {str(e)}")
 #         return ProjectServiceResponse(
 #             data=None,
 #             status_code=500,
@@ -1505,7 +1507,7 @@ def get_user_details(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in get_user_details API: {str(e)}")
+        logger.error(f"Error in get_user_details API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1598,7 +1600,7 @@ def get_user_project_items_old(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in get_user_project_items API: {str(e)}")
+        logger.error(f"Error in get_user_project_items API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1751,7 +1753,7 @@ def get_user_project_items_old(
 #         ).model_dump()
 #     except Exception as e:
 #         db.rollback()
-#         logging.error(f"Error in upload_invoice API: {str(e)}")
+#         logger.error(f"Error in upload_invoice API: {str(e)}")
 #         return ProjectServiceResponse(
 #             data=None,
 #             status_code=500,
@@ -1929,7 +1931,7 @@ def upload_single_invoice_for_po(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in upload_single_invoice_for_po API: {str(e)}")
+        logger.error(f"Error in upload_single_invoice_for_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2149,7 +2151,7 @@ def upload_multiple_invoices_for_po(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in upload_multiple_invoices_for_po API: {str(e)}")
+        logger.error(f"Error in upload_multiple_invoices_for_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2238,7 +2240,7 @@ def update_invoice_status(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in update_invoice_status API: {str(e)}")
+        logger.error(f"Error in update_invoice_status API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2298,7 +2300,7 @@ def list_invoices(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in list_invoices API: {str(e)}")
+        logger.error(f"Error in list_invoices API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2360,7 +2362,7 @@ def get_invoice(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_invoice API: {str(e)}")
+        logger.error(f"Error in get_invoice API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2498,7 +2500,7 @@ def update_invoice(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in update_invoice API: {str(e)}")
+        logger.error(f"Error in update_invoice API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2567,7 +2569,7 @@ def delete_invoice(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in delete_invoice API: {str(e)}")
+        logger.error(f"Error in delete_invoice API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2665,7 +2667,7 @@ def get_invoices_by_po(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_invoices_by_po API: {str(e)}")
+        logger.error(f"Error in get_invoices_by_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2805,7 +2807,7 @@ def get_invoices_by_po(
 #         ).model_dump()
 #     except Exception as e:
 #         db.rollback()
-#         logging.error(f"Error in create_invoice_payment API: {str(e)}")
+#         logger.error(f"Error in create_invoice_payment API: {str(e)}")
 #         return ProjectServiceResponse(
 #             data=None,
 #             status_code=500,
@@ -2934,7 +2936,7 @@ def create_multiple_invoice_payments(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error creating multiple payments: {str(e)}")
+        logger.error(f"Error creating multiple payments: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -3011,7 +3013,7 @@ def get_invoice_payments(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_invoice_payments API: {str(e)}")
+        logger.error(f"Error in get_invoice_payments API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -3078,7 +3080,7 @@ def get_invoice_payments(
 #             status_code=200
 #         ).model_dump()
 #     except Exception as e:
-#         logging.error(f"Error in list_invoice_payments API: {str(e)}")
+#         logger.error(f"Error in list_invoice_payments API: {str(e)}")
 #         return ProjectServiceResponse(
 #             data=None,
 #             status_code=500,
@@ -3176,7 +3178,7 @@ def delete_invoice_payment(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in delete_invoice_payment API: {str(e)}")
+        logger.error(f"Error in delete_invoice_payment API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -3355,7 +3357,7 @@ def get_all_khatabook_entries_admin(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_all_khatabook_entries_admin API: {str(e)}")
+        logger.error(f"Error in get_all_khatabook_entries_admin API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -3462,7 +3464,7 @@ def get_all_item_analytics(
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in get_all_item_analytics API: {str(e)}")
+        logger.error(f"Error in get_all_item_analytics API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"An error occurred while fetching item analytics: {str(e)}",
@@ -3579,7 +3581,7 @@ def get_project_item_analytics(
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in get_project_item_analytics API: {str(e)}")
+        logger.error(f"Error in get_project_item_analytics API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"An error occurred while fetching item analytics: {str(e)}",
@@ -3689,7 +3691,7 @@ def get_project_payment_analytics(
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in get_project_payment_analytics API: {str(e)}")
+        logger.error(f"Error in get_project_payment_analytics API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"An error occurred while fetching payment analytics: {str(e)}",
@@ -3787,7 +3789,7 @@ def get_all_logs(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_all_logs API: {str(e)}")
+        logger.error(f"Error in get_all_logs API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             status_code=500,
@@ -3940,7 +3942,7 @@ def sync_project_user_item_map(
         }
     except Exception as db_error:
         db.rollback()
-        logging.error(f"Database error in sync_project_user_item_mappings: {str(db_error)}")
+        logger.error(f"Database error in sync_project_user_item_mappings: {str(db_error)}")
         raise HTTPException(
             status_code=500,
             detail=f"Database error while synchronizing items: {str(db_error)}"
@@ -4243,7 +4245,7 @@ def get_project_invoice_analytics(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_project_invoice_analytics API: {str(e)}")
+        logger.error(f"Error in get_project_invoice_analytics API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -4331,7 +4333,7 @@ def get_dashboard_project_stats(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_dashboard_project_stats API: {str(e)}")
+        logger.error(f"Error in get_dashboard_project_stats API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             message="An error occurred while fetching dashboard stats",

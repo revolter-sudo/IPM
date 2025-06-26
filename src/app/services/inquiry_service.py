@@ -73,7 +73,7 @@ def create_inquiry_service(db: Session, inquiry_data: InquiryCreateRequest) -> I
         
     except Exception as e:
         db.rollback()
-        logging.error(f"Error creating inquiry: {str(e)}")
+        logger.error(f"Error creating inquiry: {str(e)}")
         return InquiryServiceResponse(
             data=None,
             message=f"Error creating inquiry: {str(e)}",
@@ -153,7 +153,7 @@ def get_inquiries_service(
         )
         
     except Exception as e:
-        logging.error(f"Error fetching inquiries: {str(e)}")
+        logger.error(f"Error fetching inquiries: {str(e)}")
         return InquiryServiceResponse(
             data=None,
             message=f"Error fetching inquiries: {str(e)}",
@@ -205,7 +205,7 @@ def get_inquiry_by_uuid_service(db: Session, inquiry_uuid: str) -> InquiryServic
         )
         
     except Exception as e:
-        logging.error(f"Error fetching inquiry: {str(e)}")
+        logger.error(f"Error fetching inquiry: {str(e)}")
         return InquiryServiceResponse(
             data=None,
             message=f"Error fetching inquiry: {str(e)}",

@@ -24,6 +24,11 @@ mkdir -p /app/uploads/payments/users
 mkdir -p /app/uploads/admin
 mkdir -p /app/uploads/khatabook_files
 
+# Create logs directory if it doesn't exist (using LOG_DIR env var or default)
+LOG_DIR=${LOG_DIR:-/app/logs}
+mkdir -p "$LOG_DIR"
+echo "Logs directory created: $LOG_DIR"
+
 # Start FastAPI
 echo "Starting FastAPI..."
 exec uvicorn src.app.main:app --host 0.0.0.0 --port 8000 --workers 4

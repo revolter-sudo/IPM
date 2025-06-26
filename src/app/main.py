@@ -1,4 +1,3 @@
-import logging
 import firebase_admin
 from firebase_admin import credentials
 from fastapi import FastAPI, Request
@@ -20,13 +19,30 @@ from src.app.sms_service.auth_service import sms_service_router
 from dotenv import load_dotenv
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
-from fastapi_cache.decorator import cache
+
 import redis
 import time
-logging.basicConfig(level=logging.INFO)
-logging.info("************************************")
-logging.info("Test log from main.py startup")
-logging.info("************************************")
+
+# Import centralized logging configuration
+from src.app.utils.logging_config import setup_logging, log_startup_info, get_logger, get_api_logger
+
+# Initialize logging before any other operations
+setup_logging(
+    log_level=os.getenv("LOG_LEVEL", "INFO"),
+    log_dir=os.getenv("LOG_DIR", "/app/logs"),
+    app_name="ipm"
+)
+
+# Log startup information
+log_startup_info()
+
+# Get loggers
+logger = get_logger(__name__)
+api_logger = get_api_logger()
+
+logger.info("************************************")
+logger.info("IPM FastAPI Application Starting")
+logger.info("************************************")
 
 
 load_dotenv()
@@ -61,13 +77,25 @@ app.add_middleware(
 
 app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 
-# Performance middleware to track request timing
+# Performance middleware to track request timing and log API requests
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     start_time = time.time()
+
+    # Log incoming request
+    api_logger.info(f"Request: {request.method} {request.url.path} - Client: {request.client.host if request.client else 'unknown'}")
+
     response = await call_next(request)
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
+
+    # Log response with timing
+    api_logger.info(f"Response: {request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.4f}s")
+
+    # Log slow requests as warnings
+    if process_time > 1.0:  # Log requests taking more than 1 second
+        logger.warning(f"Slow request detected: {request.method} {request.url.path} took {process_time:.4f}s")
+
     return response
 
 # Local
@@ -102,10 +130,10 @@ SERVICE_ACCOUNT_PATH = SERVICE_FILE # noqa
 if not firebase_admin._apps:
     cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
     firebase_admin.initialize_app(cred)
-    logging.info("--------------------------------")
-    logging.info(f"File Path: {SERVICE_ACCOUNT_PATH}")
-    logging.info("FireBase Started")
-    logging.info("--------------------------------")
+    logger.info("--------------------------------")
+    logger.info(f"Firebase Service Account Path: {SERVICE_ACCOUNT_PATH}")
+    logger.info("Firebase Admin SDK Initialized Successfully")
+    logger.info("--------------------------------")
 
 
 # Initialize Redis cache on startup
@@ -120,12 +148,16 @@ async def startup_event():
             decode_responses=True
         )
         FastAPICache.init(RedisBackend(redis_instance), prefix="ipm-cache")
-        logging.info("Redis cache initialized successfully")
+        logger.info(f"Redis cache initialized successfully - Host: {redis_host}:{redis_port}")
     except Exception as e:
         # Fallback to in-memory cache if Redis is not available
-        logging.warning(f"Redis connection failed: {str(e)}. Using in-memory cache.")
-        from fastapi_cache.backends.memory import InMemoryBackend
-        FastAPICache.init(InMemoryBackend(), prefix="ipm-cache")
+        logger.warning(f"Redis connection failed: {str(e)}. Using in-memory cache.")
+        try:
+            from fastapi_cache.backends.memory import InMemoryBackend
+            FastAPICache.init(InMemoryBackend(), prefix="ipm-cache")
+            logger.info("In-memory cache initialized as fallback")
+        except ImportError:
+            logger.error("Failed to initialize fallback cache. Cache will be disabled.")
 
 
 @app.get("/")
