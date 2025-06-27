@@ -14,7 +14,6 @@ from fastapi import (
     Form,
     Body
 )
-from src.app.main import logger
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_, case, desc, func
