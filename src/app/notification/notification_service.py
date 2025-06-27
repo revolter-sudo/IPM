@@ -9,6 +9,9 @@ from src.app.notification.notification_schemas import (
 
 SERVICE_ACCOUNT_PATH = "/app/src/app/utils/firebase/secret_files.json" # noqa
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 def check_or_up_firebase_app():
     if not firebase_admin._apps:

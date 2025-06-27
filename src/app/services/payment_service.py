@@ -71,6 +71,7 @@ from collections import defaultdict
 
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 payment_router = APIRouter(prefix="/payments", tags=["Payments"])
 
@@ -1524,14 +1525,46 @@ def approve_payment(
                 # Flush to ensure balance update is persisted in this transaction
                 db.flush()
 
-                # logger.info(f"Updated user {payment.created_by} balance from {old_balance} to {new_balance} (added {payment.amount})")
+                logger.info(
+                    f"Updated user {payment.created_by} balance from "
+                    f"{old_balance} to {new_balance} (added {payment.amount})"
+                )
 
-                # # Create khatabook entry for the self payment with correct balance
-                # khatabook_created = create_khatabook_entry_for_self_payment(payment, db, new_balance)
-                # if not khatabook_created:
-                #     logger.warning(f"Failed to create khatabook entry for self payment {payment.uuid}")
-                # else:
-                #     logger.info(f"Successfully created khatabook entry for self payment {payment.uuid}")
+                # Get the last khatabook entry's balance_after_entry to
+                # maintain consistency
+                last_entry = db.query(Khatabook).filter(
+                    Khatabook.created_by == payment.created_by,
+                    Khatabook.is_deleted.is_(False)
+                ).order_by(Khatabook.created_at.desc()).first()
+
+                # Calculate balance_after_entry as last entry's balance +
+                # payment amount
+                last_balance_after_entry = (
+                    last_entry.balance_after_entry if last_entry else 0.0
+                )
+                balance_after_entry = last_balance_after_entry + payment.amount
+
+                logger.info(
+                    f"Calculated balance_after_entry: "
+                    f"{last_balance_after_entry} + {payment.amount} = "
+                    f"{balance_after_entry}"
+                )
+
+                # Create khatabook entry for the self payment with correct
+                # balance
+                khatabook_created = create_khatabook_entry_for_self_payment(
+                    payment, db, balance_after_entry
+                )
+                if not khatabook_created:
+                    logger.warning(
+                        f"Failed to create khatabook entry for self payment "
+                        f"{payment.uuid}"
+                    )
+                else:
+                    logger.info(
+                        f"Successfully created khatabook entry for self "
+                        f"payment {payment.uuid}"
+                    )
 
             # Deduct from the chosen bank
             balance_obj = db.query(BalanceDetail).filter(
