@@ -126,7 +126,7 @@ def get_all_khatabook_entries(
         remaining_balance = current_balance - total_spent
 
         response_data = {
-            "remaining_balance": current_balance,  # Current balance from KhatabookBalance table
+            "remaining_balance": remaining_balance,  # Current balance from KhatabookBalance table
             "total_amount": total_spent,  # Total manual expenses (debit entries)
             "entries": entries
         }

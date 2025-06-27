@@ -35,13 +35,12 @@ def create_khatabook_entry_service(
     try:
         amount = float(data.get("amount", 0.0))
 
-        # Get the user's current balance from KhatabookBalance table
+        # Get the user's total received amount
         user_balance_record = db.query(KhatabookBalance).filter(
             KhatabookBalance.user_uuid == current_user
         ).first()
 
         if not user_balance_record:
-            # Create a new balance record if it doesn't exist
             user_balance_record = KhatabookBalance(
                 user_uuid=current_user,
                 balance=0.0
@@ -49,25 +48,32 @@ def create_khatabook_entry_service(
             db.add(user_balance_record)
             db.flush()
 
-        # For manual khatabook entries (debit), subtract from the current balance
-        # The balance in KhatabookBalance is the source of truth (includes self payments)
-        current_balance = user_balance_record.balance
-        new_balance = current_balance - amount
+        entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
 
-        # Update the balance record
-        user_balance_record.balance = new_balance
+        # Calculate total spent (only debit entries - manual expenses)
+        total_spent = sum(
+            entry["amount"] for entry in entries
+            if entry.get("entry_type") == "Debit"
+        ) if entries else 0.0
 
-        # 3. Create the Khatabook entry.
+        # Calculate available balance
+        current_available_balance = user_balance_record.balance - total_spent
+        new_available_balance = current_available_balance - amount
+
+        # ✅ DON'T update user_balance_record.balance - it should only track received amounts
+        # user_balance_record.balance stays the same!
+
+        # Create the Khatabook entry with the new available balance
         kb_entry = Khatabook(
             amount=amount,
             remarks=data.get("remarks"),
             person_id=data.get("person_id"),
             expense_date=data.get("expense_date"),
             created_by=user_id,
-            balance_after_entry=new_balance,  # Snapshot at time of creation
+            balance_after_entry=new_available_balance,  # Available balance after this expense
             project_id=data.get("project_id"),
             payment_mode=data.get("payment_mode"),
-            entry_type=KHATABOOK_ENTRY_TYPE_DEBIT  # Manual entries are always Debit
+            entry_type=KHATABOOK_ENTRY_TYPE_DEBIT
         )
         db.add(kb_entry)
         db.flush()

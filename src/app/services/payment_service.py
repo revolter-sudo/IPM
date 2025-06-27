@@ -14,6 +14,7 @@ from fastapi import (
     Form,
     Body
 )
+from src.app.main import logger
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_, case, desc, func
@@ -1524,14 +1525,14 @@ def approve_payment(
                 # Flush to ensure balance update is persisted in this transaction
                 db.flush()
 
-                logger.info(f"Updated user {payment.created_by} balance from {old_balance} to {new_balance} (added {payment.amount})")
+                # logger.info(f"Updated user {payment.created_by} balance from {old_balance} to {new_balance} (added {payment.amount})")
 
-                # Create khatabook entry for the self payment with correct balance
-                khatabook_created = create_khatabook_entry_for_self_payment(payment, db, new_balance)
-                if not khatabook_created:
-                    logger.warning(f"Failed to create khatabook entry for self payment {payment.uuid}")
-                else:
-                    logger.info(f"Successfully created khatabook entry for self payment {payment.uuid}")
+                # # Create khatabook entry for the self payment with correct balance
+                # khatabook_created = create_khatabook_entry_for_self_payment(payment, db, new_balance)
+                # if not khatabook_created:
+                #     logger.warning(f"Failed to create khatabook entry for self payment {payment.uuid}")
+                # else:
+                #     logger.info(f"Successfully created khatabook entry for self payment {payment.uuid}")
 
             # Deduct from the chosen bank
             balance_obj = db.query(BalanceDetail).filter(
