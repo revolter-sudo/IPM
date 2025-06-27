@@ -48,7 +48,9 @@ def create_khatabook_entry_service(
             db.add(user_balance_record)
             db.flush()
 
-        entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
+        # entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
+        entries = get_all_khatabook_entries_service(user_id=current_user, db=db)
+
 
         # Calculate total spent (only debit entries - manual expenses)
         total_spent = sum(
