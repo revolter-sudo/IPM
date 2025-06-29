@@ -139,6 +139,25 @@ class User(Base):
         cascade="all, delete-orphan"
     )
 
+    # Attendance relationships
+    self_attendances = relationship(
+        "SelfAttendance",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
+    project_attendances = relationship(
+        "ProjectAttendance",
+        back_populates="site_engineer",
+        cascade="all, delete-orphan"
+    )
+
+    configured_wages = relationship(
+        "ProjectDailyWage",
+        back_populates="configured_by",
+        cascade="all, delete-orphan"
+    )
+
 
 class UserTokenMap(Base):
     __tablename__ = "user_token_map"
@@ -187,6 +206,13 @@ class Person(Base):
     parent_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=True)
     parent = relationship("Person", remote_side=[uuid], back_populates="children")
     children = relationship("Person", back_populates="parent", cascade="all, delete-orphan")
+
+    # Attendance relationship
+    project_attendances = relationship(
+        "ProjectAttendance",
+        back_populates="sub_contractor",
+        cascade="all, delete-orphan"
+    )
 
     def __repr__(self):
         return f"<Person(id={self.id}, name={self.name}, user_id={self.user_id})>"
@@ -239,6 +265,19 @@ class Project(Base):
     # New relationship for multiple POs
     project_pos = relationship(
         "ProjectPO",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+
+    # Attendance relationships
+    project_attendances = relationship(
+        "ProjectAttendance",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+
+    daily_wages = relationship(
+        "ProjectDailyWage",
         back_populates="project",
         cascade="all, delete-orphan"
     )
@@ -880,3 +919,106 @@ class InquiryData(Base):
 
     def __repr__(self):
         return f"<InquiryData(name={self.name}, phone_number={self.phone_number}, project_type={self.project_type})>"
+
+
+class SelfAttendance(Base):
+    __tablename__ = "self_attendance"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    attendance_date = Column(Date, nullable=False)
+
+    # Punch In Details
+    punch_in_time = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    punch_in_latitude = Column(Float, nullable=False)
+    punch_in_longitude = Column(Float, nullable=False)
+    punch_in_location_address = Column(Text, nullable=True)
+
+    # Punch Out Details (can be NULL if user forgets to punch out)
+    punch_out_time = Column(TIMESTAMP, nullable=True)
+    punch_out_latitude = Column(Float, nullable=True)
+    punch_out_longitude = Column(Float, nullable=True)
+    punch_out_location_address = Column(Text, nullable=True)
+
+    # Array of project UUIDs user was assigned to at time of punch in
+    assigned_projects = Column(Text, nullable=True)  # JSON string
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    # Relationships
+    user = relationship("User", back_populates="self_attendances")
+
+    def __repr__(self):
+        return f"<SelfAttendance(user_id={self.user_id}, attendance_date={self.attendance_date}, punch_in_time={self.punch_in_time})>"
+
+
+class ProjectAttendance(Base):
+    __tablename__ = "project_attendance"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    site_engineer_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    sub_contractor_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=False)
+    no_of_labours = Column(Integer, nullable=False)
+    attendance_date = Column(Date, nullable=False)
+    marked_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    latitude = Column(Float, nullable=False)
+    longitude = Column(Float, nullable=False)
+    location_address = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    # Relationships
+    site_engineer = relationship("User", back_populates="project_attendances")
+    project = relationship("Project", back_populates="project_attendances")
+    sub_contractor = relationship("Person", back_populates="project_attendances")
+    wage_calculation = relationship("ProjectAttendanceWage", back_populates="project_attendance", uselist=False)
+
+    def __repr__(self):
+        return f"<ProjectAttendance(project_id={self.project_id}, site_engineer_id={self.site_engineer_id}, attendance_date={self.attendance_date})>"
+
+
+class ProjectDailyWage(Base):
+    __tablename__ = "project_daily_wage"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    daily_wage_rate = Column(Float, nullable=False)
+    effective_date = Column(Date, nullable=False)
+    configured_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    # Relationships
+    project = relationship("Project", back_populates="daily_wages")
+    configured_by = relationship("User", back_populates="configured_wages")
+    wage_calculations = relationship("ProjectAttendanceWage", back_populates="project_daily_wage")
+
+    def __repr__(self):
+        return f"<ProjectDailyWage(project_id={self.project_id}, daily_wage_rate={self.daily_wage_rate}, effective_date={self.effective_date})>"
+
+
+class ProjectAttendanceWage(Base):
+    __tablename__ = "project_attendance_wage"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    project_attendance_id = Column(UUID(as_uuid=True), ForeignKey("project_attendance.uuid"), nullable=False)
+    project_daily_wage_id = Column(UUID(as_uuid=True), ForeignKey("project_daily_wage.uuid"), nullable=False)
+    no_of_labours = Column(Integer, nullable=False)
+    daily_wage_rate = Column(Float, nullable=False)
+    total_wage_amount = Column(Float, nullable=False)  # no_of_labours * daily_wage_rate
+    calculated_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    # Relationships
+    project_attendance = relationship("ProjectAttendance", back_populates="wage_calculation")
+    project_daily_wage = relationship("ProjectDailyWage", back_populates="wage_calculations")
+
+    def __repr__(self):
+        return f"<ProjectAttendanceWage(project_attendance_id={self.project_attendance_id}, total_wage_amount={self.total_wage_amount})>"
