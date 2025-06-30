@@ -2083,61 +2083,38 @@ def get_all_persons(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        # Aliases for parent and child so filters can be applied to both
-        Child = aliased(Person)
-
-        base_query = db.query(Person).filter(
+        # Fetch all parent persons with children eagerly loaded
+        persons = db.query(Person).options(
+            joinedload(Person.children)
+        ).filter(
             Person.is_deleted.is_(False),
-            Person.parent_id.is_(None)  # Only fetch parents initially
-        )
+            Person.parent_id.is_(None),
+            or_(Person.user_id.is_(None), Person.user_id != current_user.uuid)
+        ).all()
 
-        # Join with children
-        base_query = base_query.outerjoin(Child, Person.children)
+        def matches(person: Person) -> bool:
+            """Returns True if this person or any child matches the filter."""
+            def match(p: Person):
+                return all([
+                    (not name or name.lower() in (p.name or "").lower()),
+                    (not phone_number or p.phone_number == phone_number),
+                    (not account_number or p.account_number == account_number),
+                    (not ifsc_code or p.ifsc_code == ifsc_code)
+                ])
 
-        # Exclude current user's person
-        base_query = base_query.filter(or_(
-            Person.user_id.is_(None),
-            Person.user_id != current_user.uuid
-        ))
+            if match(person):
+                return True
+            for child in person.children:
+                if not child.is_deleted and match(child):
+                    return True
+            return False
 
-        # Apply filters to both parent and children
-        if name:
-            base_query = base_query.filter(
-                or_(
-                    Person.name.ilike(f"%{name}%"),
-                    and_(Child.is_deleted == False, Child.name.ilike(f"%{name}%"))
-                )
-            )
-        if phone_number:
-            base_query = base_query.filter(
-                or_(
-                    Person.phone_number == phone_number,
-                    and_(Child.is_deleted == False, Child.phone_number == phone_number)
-                )
-            )
-        if account_number:
-            base_query = base_query.filter(
-                or_(
-                    Person.account_number == account_number,
-                    and_(Child.is_deleted == False, Child.account_number == account_number)
-                )
-            )
-        if ifsc_code:
-            base_query = base_query.filter(
-                or_(
-                    Person.ifsc_code == ifsc_code,
-                    and_(Child.is_deleted == False, Child.ifsc_code == ifsc_code)
-                )
-            )
+        # Apply filters in Python
+        filtered_persons = [person for person in persons if matches(person)]
 
-        # Avoid duplicate parents if multiple children match
-        base_query = base_query.distinct()
-
-        persons = base_query.all()
-
-        # Serialize response
+        # Format result
         persons_data = []
-        for person in persons:
+        for person in filtered_persons:
             persons_data.append({
                 "uuid": person.uuid,
                 "name": person.name,
