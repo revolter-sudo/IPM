@@ -214,7 +214,7 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
             Khatabook.is_deleted.is_(False),
             Khatabook.created_by == user_id
         )
-        .order_by(Khatabook.id.desc())
+        .order_by(Khatabook.expense_date.desc())
         .all()
     )
 
