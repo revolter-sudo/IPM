@@ -1997,6 +1997,80 @@ def update_person(
         ).model_dump()
 
 
+# @payment_router.get(
+#     "/persons", status_code=h_status.HTTP_200_OK, tags=["Payments"]
+# )
+# def get_all_persons(
+#     name: str = Query(None),
+#     phone_number: str = Query(None),
+#     account_number: str = Query(None),
+#     ifsc_code: str = Query(None),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     try:
+#         query = db.query(Person).filter(
+#             Person.is_deleted.is_(False),
+#             Person.parent_id.is_(None)
+#         )
+
+#         if name:
+#             query = query.filter(Person.name.ilike(f"%{name}%"))
+#         if phone_number:
+#             query = query.filter(Person.phone_number == phone_number)
+#         if account_number:
+#             query = query.filter(Person.account_number == account_number)
+#         if ifsc_code:
+#             query = query.filter(Person.ifsc_code == ifsc_code)
+
+#         # Exclude the current user's Person record if it exists:
+#         query = query.filter(or_(
+#             Person.user_id.is_(None),
+#             Person.user_id != current_user.uuid
+#         ))
+
+#         persons = query.all()
+#         persons_data = []
+
+#         for person in persons:
+#             persons_data.append(
+#                 {
+#                     "uuid": person.uuid,
+#                     "name": person.name,
+#                     "account_number": person.account_number,
+#                     "ifsc_code": person.ifsc_code,
+#                     "phone_number": person.phone_number,
+#                     "parent_id": person.parent_id,
+#                     "upi_number": person.upi_number,
+#                     "secondary_accounts": [
+#                         {
+#                             "uuid": child.uuid,
+#                             "name": child.name,
+#                             "account_number": child.account_number,
+#                             "ifsc_code": child.ifsc_code,
+#                             "phone_number": child.phone_number,
+#                             "upi_number": child.upi_number
+#                         }
+#                         for child in person.children if not child.is_deleted
+#                     ]
+#                 }
+#             )
+
+#         return PaymentServiceResponse(
+#             data=persons_data,
+#             message="All persons info fetched successfully.",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         traceback.print_exc()
+#         return PaymentServiceResponse(
+#             data=None,
+#             message=f"An Error Occurred: {str(e)}",
+#             status_code=500
+#         ).model_dump()
+
+
 @payment_router.get(
     "/persons", status_code=h_status.HTTP_200_OK, tags=["Payments"]
 )
@@ -2009,52 +2083,81 @@ def get_all_persons(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        query = db.query(Person).filter(
+        # Aliases for parent and child so filters can be applied to both
+        Child = aliased(Person)
+
+        base_query = db.query(Person).filter(
             Person.is_deleted.is_(False),
-            Person.parent_id.is_(None)
+            Person.parent_id.is_(None)  # Only fetch parents initially
         )
 
-        if name:
-            query = query.filter(Person.name.ilike(f"%{name}%"))
-        if phone_number:
-            query = query.filter(Person.phone_number == phone_number)
-        if account_number:
-            query = query.filter(Person.account_number == account_number)
-        if ifsc_code:
-            query = query.filter(Person.ifsc_code == ifsc_code)
+        # Join with children
+        base_query = base_query.outerjoin(Child, Person.children)
 
-        # Exclude the current user's Person record if it exists:
-        query = query.filter(or_(
+        # Exclude current user's person
+        base_query = base_query.filter(or_(
             Person.user_id.is_(None),
             Person.user_id != current_user.uuid
         ))
 
-        persons = query.all()
-        persons_data = []
-
-        for person in persons:
-            persons_data.append(
-                {
-                    "uuid": person.uuid,
-                    "name": person.name,
-                    "account_number": person.account_number,
-                    "ifsc_code": person.ifsc_code,
-                    "phone_number": person.phone_number,
-                    "parent_id": person.parent_id,
-                    "upi_number": person.upi_number,
-                    "secondary_accounts": [
-                        {
-                            "uuid": child.uuid,
-                            "name": child.name,
-                            "account_number": child.account_number,
-                            "ifsc_code": child.ifsc_code,
-                            "phone_number": child.phone_number,
-                            "upi_number": child.upi_number
-                        }
-                        for child in person.children if not child.is_deleted
-                    ]
-                }
+        # Apply filters to both parent and children
+        if name:
+            base_query = base_query.filter(
+                or_(
+                    Person.name.ilike(f"%{name}%"),
+                    and_(Child.is_deleted == False, Child.name.ilike(f"%{name}%"))
+                )
             )
+        if phone_number:
+            base_query = base_query.filter(
+                or_(
+                    Person.phone_number == phone_number,
+                    and_(Child.is_deleted == False, Child.phone_number == phone_number)
+                )
+            )
+        if account_number:
+            base_query = base_query.filter(
+                or_(
+                    Person.account_number == account_number,
+                    and_(Child.is_deleted == False, Child.account_number == account_number)
+                )
+            )
+        if ifsc_code:
+            base_query = base_query.filter(
+                or_(
+                    Person.ifsc_code == ifsc_code,
+                    and_(Child.is_deleted == False, Child.ifsc_code == ifsc_code)
+                )
+            )
+
+        # Avoid duplicate parents if multiple children match
+        base_query = base_query.distinct()
+
+        persons = base_query.all()
+
+        # Serialize response
+        persons_data = []
+        for person in persons:
+            persons_data.append({
+                "uuid": person.uuid,
+                "name": person.name,
+                "account_number": person.account_number,
+                "ifsc_code": person.ifsc_code,
+                "phone_number": person.phone_number,
+                "parent_id": person.parent_id,
+                "upi_number": person.upi_number,
+                "secondary_accounts": [
+                    {
+                        "uuid": child.uuid,
+                        "name": child.name,
+                        "account_number": child.account_number,
+                        "ifsc_code": child.ifsc_code,
+                        "phone_number": child.phone_number,
+                        "upi_number": child.upi_number
+                    }
+                    for child in person.children if not child.is_deleted
+                ]
+            })
 
         return PaymentServiceResponse(
             data=persons_data,
