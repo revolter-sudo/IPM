@@ -30,8 +30,8 @@ class WageConfigurationCreate(BaseModel):
 
     @field_validator("effective_date")
     def validate_effective_date(cls, value):
-        if value and value > date.today():
-            raise ValueError("Effective date cannot be in the future")
+        # if value and value > date.today():
+        #     raise ValueError("Effective date cannot be in the future")
         return value
 
 

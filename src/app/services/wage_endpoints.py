@@ -140,9 +140,11 @@ def configure_daily_wage_rate(
         
         # Log the action
         log_entry = Log(
-            user_id=current_user.uuid,
+            performed_by=current_user.uuid,
             action="WAGE_RATE_CONFIGURED",
-            details=f"User {current_user.name} configured wage rate ₹{wage_data.daily_wage_rate} for project {project.name} effective from {effective_date}"
+            entity="project_daily_wage",
+            entity_id=new_wage_config.uuid,
+            # details=f"User {current_user.name} configured wage rate ₹{wage_data.daily_wage_rate} for project {project.name} effective from {effective_date}"
         )
         db.add(log_entry)
         db.commit()

@@ -5,6 +5,7 @@ Combines self attendance and project attendance functionality
 
 import os
 import json
+import uuid
 import traceback
 from typing import Optional, List
 from uuid import UUID
@@ -257,9 +258,11 @@ def punch_in_self_attendance(
         
         # Log the action
         log_entry = Log(
-            user_id=current_user.uuid,
-            action="SELF_ATTENDANCE_PUNCH_IN",
-            details=f"User {current_user.name} punched in at {new_attendance.punch_in_time}"
+            performed_by=current_user.uuid,
+            action="PUNCH_IN",
+            entity="self_attendance",
+            entity_id=new_attendance.uuid
+            # details=f"User {current_user.name} punched in at {new_attendance.punch_in_time}"
         )
         db.add(log_entry)
         db.commit()
@@ -389,9 +392,11 @@ def punch_out_self_attendance(
 
         # Log the action
         log_entry = Log(
-            user_id=current_user.uuid,
-            action="SELF_ATTENDANCE_PUNCH_OUT",
-            details=f"User {current_user.name} punched out at {attendance_record.punch_out_time}, total hours: {total_hours}"
+            performed_by=current_user.uuid,
+            action="PUNCH_OUT",
+            entity="self_attendance",
+            entity_id=attendance_record.uuid
+            # details=f"User {current_user.name} punched out at {attendance_record.punch_out_time}, total hours: {total_hours}"
         )
         db.add(log_entry)
         db.commit()
@@ -435,8 +440,15 @@ def get_self_attendance_status(
             )
         else:
             current_hours = None
-            if attendance_record.punch_in_time and not attendance_record.punch_out_time:
-                current_hours = get_current_hours_worked(attendance_record.punch_in_time)
+            if attendance_record.punch_in_time and attendance_record.punch_out_time:
+                hours = (attendance_record.punch_out_time - attendance_record.punch_in_time).total_seconds() / 3600
+                current_hours = f"{float(hours):.2f} hrs"
+            elif attendance_record.punch_in_time and not attendance_record.punch_out_time:
+                hours = get_current_hours_worked(attendance_record.punch_in_time)
+                current_hours = f"{float(hours):.2f} hrs" if hours is not None else None
+
+
+
 
             response_data = SelfAttendanceStatus(
                 uuid=attendance_record.uuid,
@@ -589,9 +601,11 @@ def mark_project_attendance(
 
         # Log the action
         log_entry = Log(
-            user_id=current_user.uuid,
+            performed_by=current_user.uuid,
             action="PROJECT_ATTENDANCE_MARKED",
-            details=f"User {current_user.name} marked attendance for {attendance_data.no_of_labours} labours in project {project.name}"
+            entity="project_attendance",
+            entity_id=new_attendance.uuid
+            # details=f"User {current_user.name} marked attendance for {attendance_data.no_of_labours} labours in project {project.name}"
         )
         db.add(log_entry)
         db.commit()
@@ -611,3 +625,131 @@ def mark_project_attendance(
             message=f"Internal server error: {str(e)}",
             status_code=500
         ).to_dict()
+
+
+@attendance_router.get("/project/history", tags=["Project Attendance"])
+def get_project_attendance_history(
+    project_id: Optional[UUID] = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    no_of_labours: Optional[int] = Query(None),
+    wage_rate: Optional[float] = Query(None),
+    sub_contractor_id: Optional[UUID] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get project attendance history with optional filtering and pagination.
+    Site Engineers can only see their own project attendances.
+    """
+    try:
+        query = db.query(ProjectAttendance).filter(ProjectAttendance.is_deleted.is_(False))
+
+        # Role-based filtering
+        if current_user.role == UserRole.SITE_ENGINEER:
+            query = query.filter(ProjectAttendance.site_engineer_id == current_user.uuid)
+        elif current_user.role == UserRole.PROJECT_MANAGER:
+            assigned_projects = db.query(ProjectUserMap.project_id).filter(
+                ProjectUserMap.user_id == current_user.uuid,
+                ProjectUserMap.is_deleted.is_(False)
+            ).subquery()
+            query = query.filter(ProjectAttendance.project_id.in_(assigned_projects.select()))
+
+        # Filters
+        if project_id:
+            query = query.filter(ProjectAttendance.project_id == project_id)
+        if start_date:
+            query = query.filter(ProjectAttendance.attendance_date >= start_date)
+        if end_date:
+            query = query.filter(ProjectAttendance.attendance_date <= end_date)
+        if no_of_labours is not None:
+            query = query.filter(ProjectAttendance.no_of_labours == no_of_labours)
+        if sub_contractor_id:
+            query = query.filter(ProjectAttendance.sub_contractor_id == sub_contractor_id)
+        if wage_rate is not None:
+            query = query.join(ProjectAttendanceWage).filter(
+                ProjectAttendanceWage.daily_wage_rate == wage_rate
+            ).distinct()
+
+        total_count = query.count()
+        offset = (page - 1) * limit
+
+        attendances = query.options(
+            joinedload(ProjectAttendance.project),
+            joinedload(ProjectAttendance.sub_contractor),
+            joinedload(ProjectAttendance.site_engineer),
+            joinedload(ProjectAttendance.wage_calculation)
+        ).order_by(desc(ProjectAttendance.marked_at)).offset(offset).limit(limit).all()
+
+        # Summary helpers
+        total_labour_days = 0
+        unique_contractors = set()
+        attendance_list = []
+
+        for attendance in attendances:
+            total_labour_days += attendance.no_of_labours or 0
+            unique_contractors.add(attendance.sub_contractor_id)
+
+            wage_info = None
+            if attendance.wage_calculation:
+                wc = attendance.wage_calculation
+                wage_info = WageCalculationInfo(
+                    uuid=wc.uuid,
+                    daily_wage_rate=wc.daily_wage_rate or 0.0,
+                    total_wage_amount=wc.total_wage_amount or 0.0,
+                    wage_config_effective_date=wc.project_daily_wage.effective_date if wc.project_daily_wage else None
+                )
+
+            attendance_data = ProjectAttendanceResponse(
+                uuid=attendance.uuid,
+                project=ProjectInfo(
+                    uuid=attendance.project.uuid if attendance.project else None,
+                    name=attendance.project.name if attendance.project else ""
+                ),
+                sub_contractor=PersonInfo(
+                    uuid=attendance.sub_contractor.uuid if attendance.sub_contractor else None,
+                    name=attendance.sub_contractor.name if attendance.sub_contractor else ""
+                ),
+                no_of_labours=attendance.no_of_labours or 0,
+                attendance_date=attendance.attendance_date,
+                marked_at=attendance.marked_at,
+                location=LocationData(
+                    latitude=attendance.latitude or 0.0,
+                    longitude=attendance.longitude or 0.0,
+                    address=attendance.location_address or ""
+                ),
+                notes=attendance.notes or "",
+                wage_calculation=wage_info
+            )
+            attendance_list.append(attendance_data)
+
+        summary = ProjectAttendanceSummary(
+            total_labour_days=total_labour_days,
+            unique_contractors=len([c for c in unique_contractors if c]),
+            average_daily_labours=(total_labour_days / len(attendance_list)) if attendance_list else 0.0
+        )
+
+        response_data = ProjectAttendanceHistoryResponse(
+            attendances=attendance_list,
+            total_count=total_count,
+            page=page,
+            limit=limit,
+            summary=summary
+        )
+
+        return AttendanceResponse(
+            data=response_data.model_dump(),
+            message="Project attendance history retrieved successfully",
+            status_code=200
+        ).to_dict()
+
+    except Exception as e:
+        logger.error(f"Error in get_project_attendance_history: {str(e)}")
+        return AttendanceResponse(
+            data=None,
+            message=f"Internal server error: {str(e)}",
+            status_code=500
+        ).to_dict()
+
