@@ -253,10 +253,10 @@ def create_project(
         request_data = json.loads(request)
         project_request = ProjectCreateRequest(**request_data)
 
-        logging.info(f"Create project request received: {project_request}")
+        logger.info(f"Create project request received: {project_request}")
         # Fix: current_user might be dict, access role accordingly
         user_role = current_user.role if hasattr(current_user, 'role') else current_user.get('role')
-        logging.info(f"Current user role: {user_role}")
+        logger.info(f"Current user role: {user_role}")
         if user_role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
@@ -400,7 +400,7 @@ def create_project(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in create_project API: {str(e)}")
+        logger.error(f"Error in create_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -573,7 +573,7 @@ def list_all_projects(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in list_all_projects API: {str(e)}")
+        logger.error(f"Error in list_all_projects API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -636,7 +636,7 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in get_project_info API: {str(e)}")
+        logger.error(f"Error in get_project_info API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -793,7 +793,7 @@ def add_bank(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in add_bank: {e}")
+        logger.error(f"Error in add_bank: {e}")
         db.rollback()
         return ProjectServiceResponse(
             data=None,
@@ -846,7 +846,7 @@ def edit_bank(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in edit_bank: {e}")
+        logger.error(f"Error in edit_bank: {e}")
         db.rollback()
         return ProjectServiceResponse(
             data=None,
@@ -895,7 +895,7 @@ def get_bank_balance(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_bank_balance API: {str(e)}")
+        logger.error(f"Error in get_bank_balance API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -945,7 +945,7 @@ def delete_bank(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in delete_bank API: {str(e)}")
+        logger.error(f"Error in delete_bank API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1000,7 +1000,7 @@ def delete_project(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in delete_project API: {str(e)}")
+        logger.error(f"Error in delete_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1137,10 +1137,10 @@ def add_project_po(
                     "size": len(content)
                 })
                 
-                logging.info(f"PO document saved: {po_file_path}")
+                logger.info(f"PO document saved: {po_file_path}")
                 
             except Exception as file_error:
-                logging.error(f"Error saving PO document: {str(file_error)}")
+                logger.error(f"Error saving PO document: {str(file_error)}")
                 return ProjectServiceResponse(
                     data=None,
                     status_code=500,
@@ -1189,7 +1189,7 @@ def add_project_po(
         ).model_dump()
 
     except json.JSONDecodeError as json_error:
-        logging.error(f"JSON parsing error in add_project_po: {str(json_error)}")
+        logger.error(f"JSON parsing error in add_project_po: {str(json_error)}")
         return ProjectServiceResponse(
             data=None,
             status_code=400,
@@ -1197,7 +1197,7 @@ def add_project_po(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in add_project_po API: {str(e)}")
+        logger.error(f"Error in add_project_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1274,7 +1274,7 @@ def get_project_pos(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_project_pos API: {str(e)}")
+        logger.error(f"Error in get_project_pos API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1360,7 +1360,7 @@ def update_project_po(
         ).model_dump()
 
     except json.JSONDecodeError as json_error:
-        logging.error(f"JSON parsing error in update_project_po: {str(json_error)}")
+        logger.error(f"JSON parsing error in update_project_po: {str(json_error)}")
         return ProjectServiceResponse(
             data=None,
             status_code=400,
@@ -1368,7 +1368,7 @@ def update_project_po(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in update_project_po API: {str(e)}")
+        logger.error(f"Error in update_project_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1441,7 +1441,7 @@ def delete_project_po(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in delete_project_po API: {str(e)}")
+        logger.error(f"Error in delete_project_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,

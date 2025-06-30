@@ -31,6 +31,7 @@ class Khatabook(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     expense_date = Column(TIMESTAMP, nullable=True)  # New field for user-entered date
     payment_mode = Column(String(50), nullable=True)
+    entry_type = Column(String(50), nullable=False, default="Debit")  # New field: "Debit" for manual entries, "Credit" for self payments
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     balance_after_entry = Column(Float, nullable=True)
@@ -97,7 +98,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
-    name = Column(String(255), nullable=False)
+    name = Column(String(50), nullable=False)
     phone = Column(BigInteger, unique=False, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(30), nullable=False)
@@ -168,7 +169,7 @@ class Person(Base):
         unique=True,
         nullable=False
     )
-    name = Column(String(25), nullable=False)
+    name = Column(String(50), nullable=False)
     account_number = Column(String(17), nullable=False)
     ifsc_code = Column(String(11), nullable=False)
     phone_number = Column(String(10), nullable=False)
@@ -789,11 +790,62 @@ class UserData(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
-    name = Column(String(20), nullable=False)
-    email = Column(String(20), nullable=False)
+    name = Column(String(50), nullable=False)
+    email = Column(String(50), nullable=False)
     phone_number = Column(String(20), nullable=False)
     password = Column(String(20), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+class Salary(Base):
+    __tablename__ = "salary"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    month = Column(String(20), nullable=False)  # e.g. "January 2024"
+    amount = Column(Float, nullable=False, default=0.0)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+
+class ItemGroups(Base):
+    __tablename__ = "item_groups"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    item_groups = Column(String(50), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
+class ItemGroupMap(Base):
+    __tablename__ = "item_group_map"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    item_group_id = Column(UUID(as_uuid=True), ForeignKey("item_groups.uuid"), nullable=False)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
+    item_balance = Column(Float, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
+    item = relationship("Item")
+    item_group = relationship("ItemGroups")
+
+class CompanyInfo(Base):
+    __tablename__ = "company_info"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    years_of_experience = Column(Integer, nullable=False, default=0)
+    no_of_staff = Column(Integer, nullable=False, default=0)
+    user_construction = Column(String(255), nullable=False, default=False)
+    successfull_installations = Column(String(255), nullable=False, default=0)
+    logo_photo_url = Column(Text, nullable=True)
+
+
 
 class ItemCategories(Base):
     __tablename__ = "item_categories"
@@ -807,3 +859,24 @@ class ItemCategories(Base):
 
     # user = relationship("User")
     # item = relationship("Item")
+
+
+class InquiryData(Base):
+    __tablename__ = "inquiry_data"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
+
+    # Inquiry details
+    name = Column(String(100), nullable=False)
+    phone_number = Column(String(15), nullable=False)
+    project_type = Column(String(50), nullable=False)
+    state = Column(String(50), nullable=False)
+    city = Column(String(50), nullable=False)
+
+    # Timestamps and soft delete
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
+    def __repr__(self):
+        return f"<InquiryData(name={self.name}, phone_number={self.phone_number}, project_type={self.project_type})>"

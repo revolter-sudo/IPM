@@ -10,54 +10,8 @@ from src.app.database.models import KhatabookBalance
 from sqlalchemy import and_
 from sqlalchemy.orm import joinedload
 from src.app.schemas import constants
+from src.app.schemas.constants import KHATABOOK_ENTRY_TYPE_DEBIT
 
-
-# def create_khatabook_entry_service(
-#     db: Session,
-#     data: Dict,
-#     file_paths: list,
-#     user_id: UUID
-# ) -> Khatabook:
-#     """
-#     data is a dict with keys like 'amount', 'remarks', 'user_id', 'person_id', 'item_ids'
-#     """
-#     amount = data.get("amount")
-#     remarks = data.get("remarks")
-#     person_id = data.get("person_id")
-#     item_ids = data.get("item_ids", [])
-#     expense_date = data.get("expense_date")
-
-#     kb_entry = Khatabook(
-#         amount=amount,
-#         remarks=remarks,
-#         person_id=person_id,
-#         expense_date=expense_date,
-#         created_by=user_id
-#     )
-#     db.add(kb_entry)
-#     db.flush()
-
-#     if item_ids:
-#         for item_uuid in item_ids:
-#             item_obj = db.query(Item).filter(Item.uuid == item_uuid).first()
-#             if item_obj:
-#                 kb_item = KhatabookItem(
-#                     khatabook_id=kb_entry.uuid,
-#                     item_id=item_obj.uuid
-#                 )
-#                 db.add(kb_item)
-
-#     if file_paths:
-#         for f in file_paths:
-#             new_file = KhatabookFile(
-#                 khatabook_id=kb_entry.uuid,
-#                 file_path=f
-#             )
-#             db.add(new_file)
-
-#     db.commit()
-#     db.refresh(kb_entry)
-#     return kb_entry
 
 def create_khatabook_entry_service(
     db: Session,
@@ -81,23 +35,47 @@ def create_khatabook_entry_service(
     try:
         amount = float(data.get("amount", 0.0))
 
-        user_balance = get_user_balance(user_uuid=current_user, db=db)
+        # Get the user's total received amount
+        user_balance_record = db.query(KhatabookBalance).filter(
+            KhatabookBalance.user_uuid == current_user
+        ).first()
+
+        if not user_balance_record:
+            user_balance_record = KhatabookBalance(
+                user_uuid=current_user,
+                balance=0.0
+            )
+            db.add(user_balance_record)
+            db.flush()
+
+        # entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
         entries = get_all_khatabook_entries_service(user_id=current_user, db=db)
-        total_amount = sum(entry["amount"] for entry in entries) if entries else 0.0
 
-        new_total_amount = total_amount + amount
-        new_balance = user_balance - new_total_amount
 
-        # 3. Create the Khatabook entry.
+        # Calculate total spent (only debit entries - manual expenses)
+        total_spent = sum(
+            entry["amount"] for entry in entries
+            if entry.get("entry_type") == "Debit"
+        ) if entries else 0.0
+
+        # Calculate available balance
+        current_available_balance = user_balance_record.balance - total_spent
+        new_available_balance = current_available_balance - amount
+
+        # ✅ DON'T update user_balance_record.balance - it should only track received amounts
+        # user_balance_record.balance stays the same!
+
+        # Create the Khatabook entry with the new available balance
         kb_entry = Khatabook(
             amount=amount,
             remarks=data.get("remarks"),
             person_id=data.get("person_id"),
             expense_date=data.get("expense_date"),
             created_by=user_id,
-            balance_after_entry=new_balance,  # Snapshot at time of creation
+            balance_after_entry=new_available_balance,  # Available balance after this expense
             project_id=data.get("project_id"),
-            payment_mode=data.get("payment_mode")
+            payment_mode=data.get("payment_mode"),
+            entry_type=KHATABOOK_ENTRY_TYPE_DEBIT
         )
         db.add(kb_entry)
         db.flush()
@@ -289,6 +267,7 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
             "files": file_urls,
             "items": items_data,
             "payment_mode": entry.payment_mode,
+            "entry_type": entry.entry_type,  # Include entry_type in response
             "is_suspicious": entry.is_suspicious,
             "created_by_user": user_info  # Include created_by_user info
         })

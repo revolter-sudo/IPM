@@ -1,5 +1,5 @@
-import logging
 from uuid import UUID
+from src.app.utils.logging_config import get_logger
 
 from fastapi import (
     APIRouter,
@@ -41,6 +41,9 @@ from src.app.notification.notification_service import (
 from src.app.schemas import constants
 import os
 from typing import Optional
+
+# Initialize logger
+logger = get_logger(__name__)
 
 # Router Setup
 auth_router = APIRouter(prefix="/auth")
@@ -254,17 +257,35 @@ def register_user(
     db.add(new_user)
     db.flush()
 
-    new_person = Person(
-        name=user.person.name,
-        phone_number=user.person.phone_number,
-        account_number=user.person.account_number,
-        ifsc_code=user.person.ifsc_code,
-        user_id=new_user.uuid
-    )
-    db.add(new_person)
-    db.commit()
-    db.refresh(new_user)
-    db.refresh(new_person)
+    # Try to find existing person by phone_number or account_number
+    existing_person = db.query(Person).filter(
+        (Person.phone_number == user.person.phone_number) &
+        (Person.account_number == user.person.account_number)
+    ).first()
+
+    if existing_person:
+        # Link existing person to new user
+        existing_person.user_id = new_user.uuid
+        db.add(existing_person)
+        db.commit()
+        db.refresh(new_user)
+        db.refresh(existing_person)
+        person_to_return = existing_person
+    else:
+        # Create new person as before
+        new_person = Person(
+            name=user.person.name,
+            phone_number=user.person.phone_number,
+            account_number=user.person.account_number,
+            ifsc_code=user.person.ifsc_code,
+            user_id=new_user.uuid
+        )
+        db.add(new_person)
+        db.commit()
+        db.refresh(new_user)
+        db.refresh(new_person)
+        person_to_return = new_person
+
     access_token = create_access_token(data={"sub": str(new_user.uuid)})
     response = {"access_token": access_token, "token_type": "bearer"}
     return AuthServiceResponse(
@@ -418,7 +439,7 @@ def delete_user(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in delete_user API: {str(e)}")
+        logger.error(f"Error in delete_user API: {str(e)}")
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -453,9 +474,9 @@ def logout_user(
                 tokens=user_token[0],
                 topic=str(user.uuid)
             )
-            logging.info("User unsubscribed successfully.")
+            logger.info("User unsubscribed successfully.")
         else:
-            logging.info("Issue in unsubscribing user.")
+            logger.info("Issue in unsubscribing user.")
         return AuthServiceResponse(
             data=None,
             message="User Logged Out Successfully!",
@@ -519,7 +540,7 @@ def deactivate_user(
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in deactivate_user API: {str(e)}")
+        logger.error(f"Error in deactivate_user API: {str(e)}")
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -575,7 +596,7 @@ def activate_user(
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in activate_user API: {str(e)}")
+        logger.error(f"Error in activate_user API: {str(e)}")
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -618,7 +639,7 @@ def list_all_active_users(db: Session = Depends(get_db)):
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in list_all_active_users API: {str(e)}")
+        logger.error(f"Error in list_all_active_users API: {str(e)}")
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -645,7 +666,7 @@ def list_all_active_users(db: Session = Depends(get_db)):
 #         person_data = None
 #         if user.person:
 #             person_data = {
-#                 "uuid": str(user.person.uuid),
+#                 "uuid": user.person.uuid,
 #                 "name": user.person.name,
 #                 "account_number": user.person.account_number,
 #                 "ifsc_code": user.person.ifsc_code,
@@ -653,7 +674,7 @@ def list_all_active_users(db: Session = Depends(get_db)):
 #             }
 
 #         user_response = {
-#             "uuid": str(user.uuid),
+#             "uuid": user.uuid,
 #             "name": user.name,
 #             "phone": user.phone,
 #             "role": user.role,
@@ -668,7 +689,7 @@ def list_all_active_users(db: Session = Depends(get_db)):
 #         ).model_dump()
 
 #     except Exception as e:
-#         logging.error(f"Error in get_user_info API: {str(e)}")
+#         logger.error(f"Error in get_user_info API: {str(e)}")
 #         return AuthServiceResponse(
 #             data=None,
 #             status_code=500,
@@ -869,7 +890,7 @@ def edit_user(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in edit_user API: {str(e)}")
+        logger.error(f"Error in edit_user API: {str(e)}")
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -919,7 +940,7 @@ def get_persons(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in get_persons API: {str(e)}")
+        logger.error(f"Error in get_persons API: {str(e)}")
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -1003,7 +1024,7 @@ def list_outside_users(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in list_outside_users API: {str(e)}")
+        logger.error(f"Error in list_outside_users API: {str(e)}")
         return AuthServiceResponse(
             data=None,
             status_code=500,

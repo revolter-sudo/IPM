@@ -11,7 +11,8 @@ from fastapi import (
     HTTPException,
     Query,
     UploadFile,
-    Form
+    Form,
+    Body
 )
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
@@ -33,13 +34,16 @@ from src.app.database.models import (
     BalanceDetail,
     ProjectItemMap,
     ProjectUserMap,
-    ItemCategories
+    ItemCategories,
+    Khatabook,
+    ItemGroups,
+    ItemGroupMap
 )
-import logging
 import logging
 from src.app.schemas.auth_service_schamas import UserRole
 from uuid import uuid4
 from src.app.schemas import constants
+from src.app.schemas.constants import KHATABOOK_ENTRY_TYPE_CREDIT, KHATABOOK_PAYMENT_TYPE
 from src.app.schemas.payment_service_schemas import (
     CreatePerson,
     PaymentsResponse,
@@ -67,6 +71,7 @@ from collections import defaultdict
 
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 payment_router = APIRouter(prefix="/payments", tags=["Payments"])
 
@@ -98,7 +103,7 @@ def notify_create_payment(amount: int, user: User, db: Session):
                 title=notification.title,
                 body=notification.body
             )
-        logging.info(
+        logger.info(
             f"{len(people)} Users were notified for this payment request"
         )
         return True
@@ -221,7 +226,7 @@ def create_payment(
             db=db
         )
         if not notification:
-            logging.error(
+            logger.error(
                 "Something went wrong while sending create payment notification")
         return PaymentServiceResponse(
             data={"payment_uuid": current_payment_uuid},
@@ -331,6 +336,43 @@ def can_edit_payment(status_history: List[str], current_user_role: str) -> bool:
         return True
 
     return False
+
+
+def create_khatabook_entry_for_self_payment(payment: Payment, db: Session, balance_after_entry: float) -> bool:
+    """
+    Creates a khatabook entry for a self payment when it's approved (transferred).
+
+    Args:
+        payment: The Payment object that was approved
+        db: Database session
+        balance_after_entry: The user's balance after the payment amount was added
+
+    Returns:
+        bool: True if khatabook entry was created successfully, False otherwise
+    """
+    try:
+        # Create the khatabook entry
+        khatabook_entry = Khatabook(
+            amount=payment.amount,
+            remarks=f"Self payment approved - {payment.description}" if payment.description else "Self payment approved",
+            person_id=payment.person,  # The person receiving the payment
+            expense_date=payment.transferred_date or datetime.now(),
+            created_by=payment.created_by,
+            balance_after_entry=balance_after_entry,  # Balance after the payment was added
+            project_id=payment.project_id,
+            payment_mode="bank_transfer",  # Default payment mode for approved payments
+            entry_type=KHATABOOK_ENTRY_TYPE_CREDIT  # Self payment entries are Credit
+        )
+
+        db.add(khatabook_entry)
+        db.flush()
+
+        logger.info(f"Created khatabook entry {khatabook_entry.uuid} for self payment {payment.uuid}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error creating khatabook entry for self payment {payment.uuid}: {str(e)}")
+        return False
 
 
 # ========================== Payments API Started =======================================================================
@@ -756,8 +798,9 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
             "edit": can_edit_payment(status_list, current_user.role),
             "decline_remark": payment.decline_remark,
             "approval_files": approval_files,
-            # ---------- NEW KEY ----------
-            "transferred_from_bank": bank_name
+            # ---------- NEW KEYS ----------
+            "transferred_from_bank": bank_name,
+            "payment_type": KHATABOOK_PAYMENT_TYPE if payment.self_payment else None
         })
 
     return payments_data
@@ -1277,7 +1320,7 @@ def notify_payment_status_update(
             title=notification.title,
             body=notification.body
         )
-    logging.info(f"{len(people)} Users were notified for this payment request")
+    logger.info(f"{len(people)} Users were notified for this payment request")
     return True
 
 
@@ -1443,91 +1486,146 @@ def approve_payment(
         if new_order > current_order:
             payment.status = status
 
-            # If the new status is 'transferred', do the existing logic
-            if status == "transferred":
-                # We require the bank_uuid param for deduction
-                if not bank_uuid:
-                    return PaymentServiceResponse(
-                        data=None,
-                        message="Must provide bank_uuid when transferring payment.",
-                        status_code=400
-                    ).model_dump()
+        # If the status is 'transferred' (either new or existing), do the transfer logic
+        if status == "transferred":
+            # We require the bank_uuid param for deduction
+            if not bank_uuid:
+                return PaymentServiceResponse(
+                    data=None,
+                    message="Must provide bank_uuid when transferring payment.",
+                    status_code=400
+                ).model_dump()
 
-                payment.transferred_date = datetime.now()
+            payment.transferred_date = datetime.now()
 
-                # For self-payment logic
-                if payment.self_payment:
-                    user_balance = db.query(KhatabookBalance).filter(
-                        KhatabookBalance.user_uuid == payment.created_by
-                    ).first()
-                    if not user_balance:
-                        user_balance = KhatabookBalance(
-                            user_uuid=payment.created_by,
-                            balance=0.0
-                        )
-                        db.add(user_balance)
-                    user_balance.balance += payment.amount
+            # For self-payment logic
+            if payment.self_payment:
+                logger.info(f"Processing self payment {payment.uuid} for user {payment.created_by}")
 
-                # Deduct from the chosen bank
-                balance_obj = db.query(BalanceDetail).filter(
-                    BalanceDetail.uuid == bank_uuid
+                user_balance = db.query(KhatabookBalance).filter(
+                    KhatabookBalance.user_uuid == payment.created_by
                 ).first()
-                if not balance_obj:
-                    return PaymentServiceResponse(
-                        data=None,
-                        message="No bank found for given bank_uuid.",
-                        status_code=404
-                    ).model_dump()
 
-                balance_obj.balance -= payment.amount
+                old_balance = 0.0
+                if not user_balance:
+                    logger.info(f"Creating new khatabook balance for user {payment.created_by}")
+                    user_balance = KhatabookBalance(
+                        user_uuid=payment.created_by,
+                        balance=0.0
+                    )
+                    db.add(user_balance)
+                else:
+                    old_balance = user_balance.balance
+                    logger.info(f"User {payment.created_by} current balance: {old_balance}")
 
-                # Record in Payment which bank/cash account was used
-                payment.deducted_from_bank_uuid = bank_uuid
+                # Increase the user's khatabook balance
+                user_balance.balance += payment.amount
+                new_balance = user_balance.balance
 
-                # Add to project's actual balance
-                project = db.query(Project).filter(Project.uuid == payment.project_id).first()
-                if project:
-                    project.actual_balance += payment.amount
-                    # Create project balance entry for actual balance
-                    create_project_balance_entry(
-                        db=db,
-                        project_id=payment.project_id,
-                        adjustment=payment.amount,
-                        description=f"Payment deduction for payment {payment.uuid}",
-                        current_user=current_user,
-                        balance_type="actual"
+                # Flush to ensure balance update is persisted in this transaction
+                db.flush()
+
+                logger.info(
+                    f"Updated user {payment.created_by} balance from "
+                    f"{old_balance} to {new_balance} (added {payment.amount})"
+                )
+
+                # Get the last khatabook entry's balance_after_entry to
+                # maintain consistency
+                last_entry = db.query(Khatabook).filter(
+                    Khatabook.created_by == payment.created_by,
+                    Khatabook.is_deleted.is_(False)
+                ).order_by(Khatabook.created_at.desc()).first()
+
+                # Calculate balance_after_entry as last entry's balance +
+                # payment amount
+                last_balance_after_entry = (
+                    last_entry.balance_after_entry if last_entry else 0.0
+                )
+                balance_after_entry = last_balance_after_entry + payment.amount
+
+                logger.info(
+                    f"Calculated balance_after_entry: "
+                    f"{last_balance_after_entry} + {payment.amount} = "
+                    f"{balance_after_entry}"
+                )
+
+                # Create khatabook entry for the self payment with correct
+                # balance
+                khatabook_created = create_khatabook_entry_for_self_payment(
+                    payment, db, balance_after_entry
+                )
+                if not khatabook_created:
+                    logger.warning(
+                        f"Failed to create khatabook entry for self payment "
+                        f"{payment.uuid}"
+                    )
+                else:
+                    logger.info(
+                        f"Successfully created khatabook entry for self "
+                        f"payment {payment.uuid}"
                     )
 
-                # Deduct from item balances if items are associated with this payment
-                payment_items = db.query(PaymentItem).filter(
-                    PaymentItem.payment_id == payment.uuid,
-                    PaymentItem.is_deleted.is_(False)
-                ).all()
+            # Deduct from the chosen bank
+            balance_obj = db.query(BalanceDetail).filter(
+                BalanceDetail.uuid == bank_uuid
+            ).first()
+            if not balance_obj:
+                return PaymentServiceResponse(
+                    data=None,
+                    message="No bank found for given bank_uuid.",
+                    status_code=404
+                ).model_dump()
 
-                for payment_item in payment_items:
-                    item = db.query(ProjectItemMap).filter(
-                        ProjectItemMap.project_id == payment.project_id,
-                        ProjectItemMap.item_id == payment_item.item_id
-                    ).first()
+            balance_obj.balance -= payment.amount
 
-                    if item:
-                        # Deduct the full payment amount from each item's balance
-                        # Initialize item_balance to 0 if it's None
-                        if item.item_balance is None:
-                            item.item_balance = 0
+            # Record in Payment which bank/cash account was used
+            payment.deducted_from_bank_uuid = bank_uuid
 
-                        # Update item balance by deducting the full payment amount
-                        item.item_balance -= payment.amount
+            # Add to project's actual balance
+            project = db.query(Project).filter(Project.uuid == payment.project_id).first()
+            if project:
+                project.actual_balance += payment.amount
+                # Create project balance entry for actual balance
+                create_project_balance_entry(
+                    db=db,
+                    project_id=payment.project_id,
+                    adjustment=payment.amount,
+                    description=f"Payment deduction for payment {payment.uuid}",
+                    current_user=current_user,
+                    balance_type="actual"
+                )
 
-                        # Log the deduction
-                        log_entry = Log(
-                            uuid=str(uuid4()),
-                            entity="ProjectItemMap",
-                            action="DeductBalance",
-                            entity_id=item.uuid,
-                            performed_by=current_user.uuid,
-                        )
-                        db.add(log_entry)
+            # Deduct from item balances if items are associated with this payment
+            payment_items = db.query(PaymentItem).filter(
+                PaymentItem.payment_id == payment.uuid,
+                PaymentItem.is_deleted.is_(False)
+            ).all()
+
+            for payment_item in payment_items:
+                item = db.query(ProjectItemMap).filter(
+                    ProjectItemMap.project_id == payment.project_id,
+                    ProjectItemMap.item_id == payment_item.item_id
+                ).first()
+
+                if item:
+                    # Deduct the full payment amount from each item's balance
+                    # Initialize item_balance to 0 if it's None
+                    if item.item_balance is None:
+                        item.item_balance = 0
+
+                    # Update item balance by deducting the full payment amount
+                    item.item_balance -= payment.amount
+
+                    # Log the deduction
+                    log_entry = Log(
+                        uuid=str(uuid4()),
+                        entity="ProjectItemMap",
+                        action="DeductBalance",
+                        entity_id=item.uuid,
+                        performed_by=current_user.uuid,
+                    )
+                    db.add(log_entry)
 
         # 6) Handle optional file uploads
         if files:
@@ -2138,17 +2236,33 @@ def list_items(
             query = query.filter(Item.name.ilike(f"%{search.strip()}%"))
 
         items = query.all()
+        items_data = []
 
-        items_data = [
-            {
+        for item in items:
+            # Get associated item groups
+            mappings = db.query(ItemGroupMap, ItemGroups).join(ItemGroups, ItemGroupMap.item_group_id == ItemGroups.uuid)\
+                .filter(
+                    ItemGroupMap.item_id == item.uuid,
+                    ItemGroupMap.is_deleted == False,
+                    ItemGroups.is_deleted == False
+                ).all()
+
+            associated_groups = [
+                {
+                    "group_id": str(group.uuid),
+                    "group_name": group.item_groups
+                } for _, group in mappings
+            ] if mappings else None
+
+            items_data.append({
                 "uuid": str(item.uuid),
                 "name": item.name,
                 "category": item.category,
                 "list_tag": item.list_tag,
                 "has_additional_info": item.has_additional_info,
-                "created_at": item.created_at
-            } for item in items
-        ]
+                "created_at": item.created_at,
+                "associated_groups": associated_groups
+            })
 
         return PaymentServiceResponse(
             data=items_data,
@@ -2162,6 +2276,7 @@ def list_items(
             message=f"Error fetching items: {str(e)}",
             status_code=500
         ).model_dump()
+
 
 
 @payment_router.put("/items/{item_uuid}", tags=["Items"], status_code=200)
@@ -2497,5 +2612,236 @@ def delete_item_category(
         return PaymentServiceResponse(
             data=None,
             message=f"Error deleting category: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@payment_router.post(
+    "/items/group/{group_name}",
+    tags=["Item Groups"],
+    status_code=201
+)
+def create_item_group(
+    group_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # If current_user is None or not authenticated
+        if not current_user or not getattr(current_user, "uuid", None):
+            return PaymentServiceResponse(
+                data=None,
+                message="Unauthorized: User not found.",
+                status_code=401
+            ).model_dump()
+
+        name_clean = group_name.strip()
+
+        # Check if group exists
+        existing = db.query(ItemGroups).filter(
+            ItemGroups.item_groups.ilike(name_clean)
+        ).first()
+
+        if existing:
+            if existing.is_deleted:
+                existing.is_deleted = False
+                db.commit()
+                db.refresh(existing)
+
+                return PaymentServiceResponse(
+                    data={
+                        "uuid": str(existing.uuid),
+                        "group_name": existing.item_groups,
+                        "created_by": current_user.name,
+                        "created_at": existing.created_at.isoformat()
+                    },
+                    message="Soft-deleted group restored successfully.",
+                    status_code=200
+                ).model_dump()
+
+            return PaymentServiceResponse(
+                data=None,
+                message="Item group already exists.",
+                status_code=400
+            ).model_dump()
+
+        # Create new
+        new_group = ItemGroups(
+            uuid=uuid.uuid4(),
+            item_groups=name_clean,
+            created_by=current_user.uuid
+        )
+        db.add(new_group)
+        db.commit()
+        db.refresh(new_group)
+
+        return PaymentServiceResponse(
+            data={
+                "uuid": str(new_group.uuid),
+                "group_name": new_group.item_groups,
+                "created_by": current_user.name,
+                "created_at": new_group.created_at.isoformat()
+            },
+            message="Item group created successfully.",
+            status_code=201
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error creating item group: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@payment_router.get(
+    "/items/groups",
+    tags=["Item Groups"],
+    status_code=200
+)
+def get_all_item_groups(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        groups = db.query(ItemGroups).filter(ItemGroups.is_deleted == False).all()
+
+        if not groups:
+            return PaymentServiceResponse(
+                data=[],
+                message="No item groups found.",
+                status_code=200
+            ).model_dump()
+
+        group_list = []
+        for group in groups:
+            group_list.append({
+                "uuid": str(group.uuid),
+                "group_name": group.item_groups,
+                "created_by": str(group.created_by),
+                "created_at": group.created_at.isoformat()
+            })
+
+        return PaymentServiceResponse(
+            data=group_list,
+            message="Item groups fetched successfully.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error fetching item groups: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@payment_router.put(
+    "/items/group/{group_uuid}",
+    tags=["Item Groups"],
+    status_code=200
+)
+def update_item_group(
+    group_uuid: UUID,
+    new_group_name: str = Body(..., embed=True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        group = db.query(ItemGroups).filter(
+            ItemGroups.uuid == group_uuid,
+            ItemGroups.is_deleted == False
+        ).first()
+
+        if not group:
+            return PaymentServiceResponse(
+                data=None,
+                message="Item group not found.",
+                status_code=404
+            ).model_dump()
+
+        name_clean = new_group_name.strip()
+
+        # Check for duplicate
+        existing = db.query(ItemGroups).filter(
+            ItemGroups.item_groups.ilike(name_clean),
+            ItemGroups.uuid != group_uuid,
+            ItemGroups.is_deleted == False
+        ).first()
+
+        if existing:
+            return PaymentServiceResponse(
+                data=None,
+                message="Another group with the same name already exists.",
+                status_code=400
+            ).model_dump()
+
+        group.item_groups = name_clean
+        # If you have an updated_by field:
+        # group.updated_by = current_user.uuid
+
+        db.commit()
+        db.refresh(group)
+
+        return PaymentServiceResponse(
+            data={
+                "uuid": str(group.uuid),
+                "group_name": group.item_groups,
+                "updated_by": current_user.name,
+                "updated_at": group.created_at.isoformat()  # or updated_at if available
+            },
+            message="Item group updated successfully.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error updating item group: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@payment_router.delete(
+    "/items/group/{group_uuid}",
+    tags=["Item Groups"],
+    status_code=200
+)
+def delete_item_group(
+    group_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        group = db.query(ItemGroups).filter(
+            ItemGroups.uuid == group_uuid,
+            ItemGroups.is_deleted == False
+        ).first()
+
+        if not group:
+            return PaymentServiceResponse(
+                data=None,
+                message="Item group not found.",
+                status_code=404
+            ).model_dump()
+
+        group.is_deleted = True
+        # If `updated_by` field exists:
+        # group.updated_by = current_user.uuid
+
+        db.commit()
+
+        return PaymentServiceResponse(
+            data={
+                "uuid": str(group.uuid),
+                "group_name": group.item_groups
+            },
+            message="Item group deleted successfully (soft delete).",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error deleting item group: {str(e)}",
             status_code=500
         ).model_dump()

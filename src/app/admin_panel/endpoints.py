@@ -37,7 +37,7 @@ from src.app.schemas.project_service_schemas import (
     ItemUpdate,
     ProjectItemUpdateResponse
 )
-from src.app.schemas.payment_service_schemas import PaymentStatus
+from src.app.schemas.payment_service_schemas import PaymentStatus, PaymentServiceResponse
 from typing import Optional, List
 from uuid import UUID, uuid4
 from datetime import datetime
@@ -72,24 +72,34 @@ from src.app.database.models import (
     ProjectUserMap,
     ProjectPO,
     InvoicePayment,
-    InvoiceItem
+    InvoiceItem,
+    ItemGroups,
+    ItemGroupMap,
+    Salary,
+    InquiryData
 )
 from sqlalchemy.orm import Session, joinedload
 from src.app.schemas import constants
 from src.app.admin_panel.services import get_default_config_service
 from src.app.database.database import get_db
-import logging
+from src.app.utils.logging_config import get_logger, get_api_logger
 from src.app.admin_panel.schemas import (
     AdminPanelResponse,
     DefaultConfigCreate,
     DefaultConfigUpdate,
     ProjectUserItemMapCreate,
+    SalaryCreateRequest,
+    SalaryUpdateRequest,
+    SalaryResponse,
 )
 from fastapi import HTTPException
 from sqlalchemy import select
+import uuid
 
 
-logging.basicConfig(level=logging.INFO)
+# Initialize loggers
+logger = get_logger(__name__)
+api_logger = get_api_logger()
 
 admin_app = FastAPI(
     title="Admin API",
@@ -132,7 +142,7 @@ def get_default_config():
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in get_default_config API: {str(e)}")
+        logger.error(f"Error in get_default_config API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message="Error in get_default_config API",
@@ -201,7 +211,7 @@ def create_default_config(
             status_code=201
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in create_default_config API: {str(e)}")
+        logger.error(f"Error in create_default_config API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"Error in create_default_config API: {str(e)}",
@@ -258,7 +268,7 @@ def update_default_config(
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in update_default_config API: {str(e)}")
+        logger.error(f"Error in update_default_config API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"Error in update_default_config API: {str(e)}",
@@ -310,7 +320,7 @@ def map_user_to_project(
             create_project_user_mapping(db=db, user_id=user_id, project_id=project_id)
         except Exception as db_error:
             db.rollback()
-            logging.error(f"Database error in create_project_user_mapping: {str(db_error)}")
+            logger.error(f"Database error in create_project_user_mapping: {str(db_error)}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
@@ -324,7 +334,7 @@ def map_user_to_project(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in map_user_to_project API: {str(e)}")
+        logger.error(f"Error in map_user_to_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -406,7 +416,7 @@ def map_multiple_users_to_project(
             ).model_dump()
         except Exception as db_error:
             db.rollback()
-            logging.error(f"Database error in map_multiple_users_to_project: {str(db_error)}")
+            logger.error(f"Database error in map_multiple_users_to_project: {str(db_error)}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
@@ -414,7 +424,7 @@ def map_multiple_users_to_project(
             ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in map_multiple_users_to_project API: {str(e)}")
+        logger.error(f"Error in map_multiple_users_to_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -472,7 +482,7 @@ def map_item_to_project(
             )
         except Exception as db_error:
             db.rollback()
-            logging.error(f"Database error in create_project_item_mapping: {str(db_error)}")
+            logger.error(f"Database error in create_project_item_mapping: {str(db_error)}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
@@ -486,7 +496,7 @@ def map_item_to_project(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in map_item_to_project API: {str(e)}")
+        logger.error(f"Error in map_item_to_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -594,7 +604,7 @@ def map_multiple_items_to_project(
             ).model_dump()
         except Exception as db_error:
             db.rollback()
-            logging.error(f"Database error in map_multiple_items_to_project: {str(db_error)}")
+            logger.error(f"Database error in map_multiple_items_to_project: {str(db_error)}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
@@ -602,7 +612,7 @@ def map_multiple_items_to_project(
             ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in map_multiple_items_to_project API: {str(e)}")
+        logger.error(f"Error in map_multiple_items_to_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -662,7 +672,7 @@ def map_item_to_user(
             )
         except Exception as db_error:
             db.rollback()
-            logging.error(f"Database error in create_user_item_mapping: {str(db_error)}")
+            logger.error(f"Database error in create_user_item_mapping: {str(db_error)}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
@@ -676,7 +686,7 @@ def map_item_to_user(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in map_item_to_user API: {str(e)}")
+        logger.error(f"Error in map_item_to_user API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -773,7 +783,7 @@ def map_multiple_items_to_user(
             ).model_dump()
         except Exception as db_error:
             db.rollback()
-            logging.error(f"Database error in map_multiple_items_to_user: {str(db_error)}")
+            logger.error(f"Database error in map_multiple_items_to_user: {str(db_error)}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
@@ -781,7 +791,7 @@ def map_multiple_items_to_user(
             ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in map_multiple_items_to_user API: {str(e)}")
+        logger.error(f"Error in map_multiple_items_to_user API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -847,7 +857,7 @@ def remove_item_from_project(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in remove_item_from_project API: {str(e)}")
+        logger.error(f"Error in remove_item_from_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -913,7 +923,7 @@ def remove_user_from_project(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in remove_user_from_project API: {str(e)}")
+        logger.error(f"Error in remove_user_from_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -979,7 +989,7 @@ def remove_item_from_user(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in remove_item_from_user API: {str(e)}")
+        logger.error(f"Error in remove_item_from_user API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1031,7 +1041,7 @@ def get_user_items(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_user_items API: {str(e)}")
+        logger.error(f"Error in get_user_items API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1078,7 +1088,7 @@ def get_project_items(db: Session, project_id: UUID, current_user: User = None):
             "status_code": 200
         }
     except Exception as e:
-        logging.error(f"Error in get_project_items function: {str(e)}")
+        logger.error(f"Error in get_project_items function: {str(e)}")
         return {
             "data": [],
             "message": "An error occurred while fetching project items",
@@ -1143,7 +1153,7 @@ def get_project_items_list(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in get_project_items_list API: {str(e)}")
+        logger.error(f"Error in get_project_items_list API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1204,7 +1214,7 @@ def get_project_users(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in get_project_users API: {str(e)}")
+        logger.error(f"Error in get_project_users API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1270,7 +1280,7 @@ def get_user_projects(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in get_user_projects API: {str(e)}")
+        logger.error(f"Error in get_user_projects API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1371,7 +1381,7 @@ def get_user_projects(
 
 #     except Exception as e:
 #         db.rollback()
-#         logging.error(f"Error in get_user_details API: {str(e)}")
+#         logger.error(f"Error in get_user_details API: {str(e)}")
 #         return ProjectServiceResponse(
 #             data=None,
 #             status_code=500,
@@ -1497,7 +1507,7 @@ def get_user_details(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in get_user_details API: {str(e)}")
+        logger.error(f"Error in get_user_details API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1590,7 +1600,7 @@ def get_user_project_items_old(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in get_user_project_items API: {str(e)}")
+        logger.error(f"Error in get_user_project_items API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1743,7 +1753,7 @@ def get_user_project_items_old(
 #         ).model_dump()
 #     except Exception as e:
 #         db.rollback()
-#         logging.error(f"Error in upload_invoice API: {str(e)}")
+#         logger.error(f"Error in upload_invoice API: {str(e)}")
 #         return ProjectServiceResponse(
 #             data=None,
 #             status_code=500,
@@ -1921,7 +1931,7 @@ def upload_single_invoice_for_po(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in upload_single_invoice_for_po API: {str(e)}")
+        logger.error(f"Error in upload_single_invoice_for_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2141,7 +2151,7 @@ def upload_multiple_invoices_for_po(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in upload_multiple_invoices_for_po API: {str(e)}")
+        logger.error(f"Error in upload_multiple_invoices_for_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2230,7 +2240,7 @@ def update_invoice_status(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in update_invoice_status API: {str(e)}")
+        logger.error(f"Error in update_invoice_status API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2290,7 +2300,7 @@ def list_invoices(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in list_invoices API: {str(e)}")
+        logger.error(f"Error in list_invoices API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2352,7 +2362,7 @@ def get_invoice(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_invoice API: {str(e)}")
+        logger.error(f"Error in get_invoice API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2490,7 +2500,7 @@ def update_invoice(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in update_invoice API: {str(e)}")
+        logger.error(f"Error in update_invoice API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2559,7 +2569,7 @@ def delete_invoice(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in delete_invoice API: {str(e)}")
+        logger.error(f"Error in delete_invoice API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2657,7 +2667,7 @@ def get_invoices_by_po(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_invoices_by_po API: {str(e)}")
+        logger.error(f"Error in get_invoices_by_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -2797,7 +2807,7 @@ def get_invoices_by_po(
 #         ).model_dump()
 #     except Exception as e:
 #         db.rollback()
-#         logging.error(f"Error in create_invoice_payment API: {str(e)}")
+#         logger.error(f"Error in create_invoice_payment API: {str(e)}")
 #         return ProjectServiceResponse(
 #             data=None,
 #             status_code=500,
@@ -2926,7 +2936,7 @@ def create_multiple_invoice_payments(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error creating multiple payments: {str(e)}")
+        logger.error(f"Error creating multiple payments: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -3003,7 +3013,7 @@ def get_invoice_payments(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_invoice_payments API: {str(e)}")
+        logger.error(f"Error in get_invoice_payments API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -3070,7 +3080,7 @@ def get_invoice_payments(
 #             status_code=200
 #         ).model_dump()
 #     except Exception as e:
-#         logging.error(f"Error in list_invoice_payments API: {str(e)}")
+#         logger.error(f"Error in list_invoice_payments API: {str(e)}")
 #         return ProjectServiceResponse(
 #             data=None,
 #             status_code=500,
@@ -3168,7 +3178,7 @@ def delete_invoice_payment(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in delete_invoice_payment API: {str(e)}")
+        logger.error(f"Error in delete_invoice_payment API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -3329,7 +3339,8 @@ def get_all_khatabook_entries_admin(
                 "files": file_urls,
                 "items": items_data,
                 "is_suspicious": entry.is_suspicious,
-                "payment_mode": entry.payment_mode
+                "payment_mode": entry.payment_mode,
+                "entry_type": entry.entry_type  # Include entry_type in admin response
             })
 
         # Calculate totals
@@ -3346,7 +3357,7 @@ def get_all_khatabook_entries_admin(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_all_khatabook_entries_admin API: {str(e)}")
+        logger.error(f"Error in get_all_khatabook_entries_admin API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -3453,7 +3464,7 @@ def get_all_item_analytics(
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in get_all_item_analytics API: {str(e)}")
+        logger.error(f"Error in get_all_item_analytics API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"An error occurred while fetching item analytics: {str(e)}",
@@ -3570,7 +3581,7 @@ def get_project_item_analytics(
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in get_project_item_analytics API: {str(e)}")
+        logger.error(f"Error in get_project_item_analytics API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"An error occurred while fetching item analytics: {str(e)}",
@@ -3680,7 +3691,7 @@ def get_project_payment_analytics(
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in get_project_payment_analytics API: {str(e)}")
+        logger.error(f"Error in get_project_payment_analytics API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"An error occurred while fetching payment analytics: {str(e)}",
@@ -3778,7 +3789,7 @@ def get_all_logs(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_all_logs API: {str(e)}")
+        logger.error(f"Error in get_all_logs API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             status_code=500,
@@ -3931,7 +3942,7 @@ def sync_project_user_item_map(
         }
     except Exception as db_error:
         db.rollback()
-        logging.error(f"Database error in sync_project_user_item_mappings: {str(db_error)}")
+        logger.error(f"Database error in sync_project_user_item_mappings: {str(db_error)}")
         raise HTTPException(
             status_code=500,
             detail=f"Database error while synchronizing items: {str(db_error)}"
@@ -4234,7 +4245,7 @@ def get_project_invoice_analytics(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_project_invoice_analytics API: {str(e)}")
+        logger.error(f"Error in get_project_invoice_analytics API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -4322,9 +4333,616 @@ def get_dashboard_project_stats(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_dashboard_project_stats API: {str(e)}")
+        logger.error(f"Error in get_dashboard_project_stats API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             message="An error occurred while fetching dashboard stats",
             status_code=500
         ).model_dump()
+    
+
+
+@admin_app.post(
+    "/item-groups/{group_uuid}/map-items",
+    tags=["admin_panel"],
+    status_code=200,
+    description=
+    "Map items to an item group by UUID.\n\n"
+    "### Request Body Format:\n"
+    "{\n"
+    '  "items": [\n'
+    '    {\n'
+    '      "item_id": "item1_uuid",\n'
+    '      "item_value": 5000\n'
+    '    },\n'
+    '    {\n'
+    '      "item_id": "item2_uuid",\n'
+    '      "item_value": 6000\n'
+    '    }\n'
+    "  ]\n"
+    "}\n\n"
+    "- `item_id`: UUID of the item you want to map\n"
+    "- `item_value`: Numeric value or balance associated with the item\n"
+    "- All existing items not in this list will remain unaffected (no unmapping done)"
+
+)
+def map_items_to_item_group(
+    group_uuid: UUID,
+    payload: dict = Body(...,),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+
+        # Authorization
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+            UserRole.PROJECT_MANAGER.value
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+        
+        
+        items_data = payload.get("items", [])
+
+        if not items_data:
+            return PaymentServiceResponse(
+                data=None,
+                message="Item list is empty.",
+                status_code=400
+            ).model_dump()
+
+        group = db.query(ItemGroups).filter(
+            ItemGroups.uuid == group_uuid,
+            ItemGroups.is_deleted == False
+        ).first()
+
+        if not group:
+            return PaymentServiceResponse(
+                data=None,
+                message="Item group not found.",
+                status_code=404
+            ).model_dump()
+
+        added, updated = 0, 0
+        mapped_uuids = []
+
+        for item_entry in items_data:
+            item_id_str = item_entry.get("item_id")
+            item_value = item_entry.get("item_value")
+
+            try:
+                item_uuid = UUID(item_id_str)
+            except Exception:
+                return PaymentServiceResponse(
+                    data=None,
+                    message=f"Invalid item_id: {item_id_str}",
+                    status_code=400
+                ).model_dump()
+
+            item = db.query(Item).filter(Item.uuid == item_uuid).first()
+            if not item:
+                return PaymentServiceResponse(
+                    data=None,
+                    message=f"Item not found: {item_id_str}",
+                    status_code=404
+                ).model_dump()
+
+            mapped_uuids.append(str(item_uuid))
+
+            existing_map = db.query(ItemGroupMap).filter(
+                ItemGroupMap.item_group_id == group_uuid,
+                ItemGroupMap.item_id == item_uuid
+            ).first()
+
+            if existing_map:
+                existing_map.item_balance = item_value
+                existing_map.is_deleted = False
+                updated += 1
+            else:
+                new_map = ItemGroupMap(
+                    uuid=uuid.uuid4(),
+                    item_group_id=group_uuid,
+                    item_id=item_uuid,
+                    item_balance=item_value
+                )
+                db.add(new_map)
+                added += 1
+
+        db.commit()
+
+        return PaymentServiceResponse(
+            data={
+                "group_uuid": str(group_uuid),
+                "total_items": len(items_data),
+                "added": added,
+                "updated": updated,
+                "mapped_item_ids": mapped_uuids
+            },
+            message="Items mapped to group successfully.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error mapping items to group: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+
+# @admin_app.get(
+#     "/item-groups/{group_uuid}/items",
+#     tags=["Item Groups"],
+#     status_code=200,
+#     description="Fetch all items mapped to a specific item group UUID."
+# )
+# def get_items_by_group(
+#     group_uuid: UUID,
+#     db: Session = Depends(get_db)
+# ):
+#     try:
+#         # 1. Verify the group exists
+#         group = db.query(ItemGroups).filter(
+#             ItemGroups.uuid == group_uuid,
+#             ItemGroups.is_deleted == False
+#         ).first()
+
+#         if not group:
+#             return PaymentServiceResponse(
+#                 data=None,
+#                 message="Item group not found.",
+#                 status_code=404
+#             ).model_dump()
+
+#         # 2. Fetch all non-deleted mappings for this group
+#         item_maps = db.query(ItemGroupMap).filter(
+#             ItemGroupMap.item_group_id == group_uuid,
+#             ItemGroupMap.is_deleted == False
+#         ).all()
+
+#         if not item_maps:
+#             return PaymentServiceResponse(
+#                 data=[],
+#                 message="No items mapped to this group.",
+#                 status_code=200
+#             ).model_dump()
+
+#         item_ids = [mapping.item_id for mapping in item_maps]
+
+#         # 3. Fetch full item details
+#         items = db.query(Item).filter(Item.uuid.in_(item_ids)).all()
+
+#         result = []
+#         for item in items:
+#             # Fetch all groups for each item
+#             group_mappings = db.query(ItemGroupMap, ItemGroups).join(ItemGroups, ItemGroupMap.item_group_id == ItemGroups.uuid).filter(
+#                 ItemGroupMap.item_id == item.uuid,
+#                 ItemGroupMap.is_deleted == False,
+#                 ItemGroups.is_deleted == False
+#             ).all()
+
+#             associated_groups = [
+#                 {
+#                     "group_id": str(g.uuid),
+#                     "group_name": g.item_groups
+#                 }
+#                 for _, g in group_mappings
+#             ] if group_mappings else None
+
+#             result.append({
+#                 "uuid": str(item.uuid),
+#                 "name": item.name,
+#                 "category": item.category,
+#                 "list_tag": item.list_tag,
+#                 "has_additional_info": item.has_additional_info,
+#                 "created_at": item.created_at,
+#                 "associated_groups": associated_groups
+#             })
+
+#         return PaymentServiceResponse(
+#             data=result,
+#             message="Items mapped to this group fetched successfully.",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         return PaymentServiceResponse(
+#             data=None,
+#             message=f"Error fetching group items: {str(e)}",
+#             status_code=500
+#         ).model_dump()
+
+@admin_app.get(
+    "/item-groups/{group_uuid}/items",
+    tags=["admin_panel"],
+    status_code=200,
+    description="Fetch all items mapped to a specific item group UUID including item value (balance)."
+)
+def get_items_by_group(
+    group_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user : User = Depends(get_current_user)
+):
+    try:
+
+        # Authorization
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+            UserRole.PROJECT_MANAGER.value
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+
+        # Validate group
+        group = db.query(ItemGroups).filter(
+            ItemGroups.uuid == group_uuid,
+            ItemGroups.is_deleted == False
+        ).first()
+
+        if not group:
+            return PaymentServiceResponse(
+                data=None,
+                message="Item group not found.",
+                status_code=404
+            ).model_dump()
+
+        # Get item mappings
+        mappings = db.query(ItemGroupMap).filter(
+            ItemGroupMap.item_group_id == group_uuid,
+            ItemGroupMap.is_deleted == False
+        ).all()
+
+        if not mappings:
+            return PaymentServiceResponse(
+                data={
+                    "group_id": str(group.uuid),
+                    "group_name": group.item_groups,
+                    "total_items": 0,
+                    "items": []
+                },
+                message="No items mapped to this group.",
+                status_code=200
+            ).model_dump()
+
+        item_data = []
+        for map_obj in mappings:
+            item = db.query(Item).filter(Item.uuid == map_obj.item_id).first()
+            if item:
+                item_data.append({
+                    "uuid": str(item.uuid),
+                    "name": item.name,
+                    "category": item.category,
+                    "list_tag": item.list_tag,
+                    "has_additional_info": item.has_additional_info,
+                    "created_at": item.created_at,
+                    "item_value": map_obj.item_balance
+                })
+
+        return PaymentServiceResponse(
+            data={
+                "group_id": str(group.uuid),
+                "group_name": group.item_groups,
+                "total_items": len(item_data),
+                "items": item_data
+            },
+            message="Items in the group fetched successfully.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error fetching group items: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@admin_app.delete(
+    "/item-groups/{group_uuid}/items/{item_uuid}",
+    tags=["admin_panel"],
+    status_code=200,
+    description="Soft delete (unmap) an item from a specific item group by marking the mapping as deleted."
+)
+def unmap_item_from_group(
+    group_uuid: UUID,
+    item_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+
+        # Authorization
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+            UserRole.PROJECT_MANAGER.value
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+
+        # Check mapping exists
+        mapping = db.query(ItemGroupMap).filter(
+            ItemGroupMap.item_group_id == group_uuid,
+            ItemGroupMap.item_id == item_uuid,
+            ItemGroupMap.is_deleted == False
+        ).first()
+
+        if not mapping:
+            return PaymentServiceResponse(
+                data=None,
+                message="Mapping not found or already deleted.",
+                status_code=404
+            ).model_dump()
+
+        # Perform soft delete
+        mapping.is_deleted = True
+        db.commit()
+
+        return PaymentServiceResponse(
+            data={
+                "group_id": str(group_uuid),
+                "item_id": str(item_uuid)
+            },
+            message="Item successfully unmapped from group.",
+            status_code=200
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            message=f"Error unmapping item from group: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@admin_app.post(
+    "/salary",
+    tags=["Salary"],
+    status_code=201,
+)
+def create_salary(
+    payload: SalaryCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # Authorization
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized")
+
+        # Validate user and project existence
+        user = db.query(User).filter(User.uuid == payload.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        project = db.query(Project).filter(Project.uuid == payload.project_id).first()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+         # Prevent duplicate entry
+        exists = db.query(Salary).filter(
+            Salary.user_id == payload.user_id,
+            Salary.project_id == payload.project_id,
+            Salary.month == payload.month,
+            Salary.is_deleted == False
+        ).first()
+        if exists:
+            raise HTTPException(status_code=409, detail="Salary already exists for this user and month")
+        
+        # Create new salary record
+        salary = Salary(
+            uuid=uuid4(),
+            user_id=payload.user_id,
+            project_id=payload.project_id,
+            month=payload.month,
+            amount=payload.amount,
+            created_by=current_user.uuid
+        )
+        db.add(salary)
+        db.commit()
+        db.refresh(salary)
+
+        return ProjectServiceResponse(
+            data=SalaryResponse(
+                uuid=salary.uuid,
+                user_id=salary.user_id,
+                project_id=salary.project_id,
+                month=salary.month,
+                amount=salary.amount
+            ),
+            message="Salary data recorded successfully.",
+            status_code=201
+        )
+    except Exception as e:
+        db.rollback()
+        return ProjectServiceResponse(
+            data=None,
+            message=f"Failed to create salary: {str(e)}",
+            status_code=500
+        ).model_dump()
+
+@admin_app.put(
+    "/salary/{salary_uuid}",
+    tags=["Salary"],
+    status_code=200,
+    description="Update an existing salary record by UUID."
+)
+def update_salary(
+    salary_id: UUID,
+    payload: SalaryUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try : 
+        # Verify user role
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=403,
+                message="Not authorized to update invoice status"
+            ).model_dump()
+        
+        # Fetch the salary record
+        salary = db.query(Salary).filter(
+            Salary.uuid == salary_id,
+            Salary.is_deleted == False
+        ).first()
+
+        if not salary:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Salary record not found"
+            ).model_dump()
+        
+        # Update fields
+        salary.user_id = payload.user_id
+        salary.project_id = payload.project_id
+        salary.amount = payload.amount
+        salary.month = payload.month
+
+        db.commit()
+
+        return {
+            "data": None,
+            "message": "Salary Data Updated Successfully.",
+            "status_code": 201,
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "data": None,
+            "message": f"Error updating salary: {str(e)}",
+            "status_code": 500,
+        }
+
+
+@admin_app.get(
+    "/salary",
+    tags=["Salary"],
+    description="Get all salary records with optional filters (user, project, month, amount).",
+)
+def get_all_salary(
+    user_id: Optional[UUID] = Query(None, description="Filter by user ID"),
+    project_id: Optional[UUID] = Query(None, description="Filter by project ID"),
+    month: Optional[str] = Query(None, description="Filter by month name e.g. 'June 2025'"),
+    amount: Optional[float] = Query(None, description="Filter by exact salary amount"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        # Role validation
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized access.")
+
+        # Build base query with joins
+        query = (
+            db.query(
+                Salary.uuid,
+                Salary.user_id,
+                User.name.label("user_name"),
+                Salary.project_id,
+                Project.name.label("project_name"),
+                Salary.amount,
+                Salary.month
+            )
+            .join(User, Salary.user_id == User.uuid)
+            .join(Project, Salary.project_id == Project.uuid)
+            .filter(Salary.is_deleted == False)
+        )
+
+        # Apply filters
+        if user_id:
+            query = query.filter(Salary.user_id == user_id)
+        if project_id:
+            query = query.filter(Salary.project_id == project_id)
+        if month:
+            query = query.filter(Salary.month == month)
+        if amount is not None:
+            query = query.filter(Salary.amount == amount)
+
+        result = query.all()
+
+        # Format response
+        data = []
+        for row in result:
+            data.append({
+                "uuid": str(row.uuid),
+                "user_id": str(row.user_id),
+                "user_name": row.user_name,
+                "project_id": str(row.project_id),
+                "project_name": row.project_name,
+                "amount": row.amount,
+                "month": row.month
+            })
+
+        return {
+            "data": data,
+            "message": "Salary Records Fetched Successfully.",
+            "status_code": 200
+        }
+
+    except Exception as e:
+        return {
+            "data": None,
+            "message": f"Error fetching salary records: {str(e)}",
+            "status_code": 500
+        }
+
+@admin_app.delete(
+    "/salary/{salary_id}",
+    tags=["Salary"],
+    description="Soft delete a salary record by ID.",
+)
+def delete_salary_record(
+    salary_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        # 🛡️ Role-based access control
+        if current_user.role not in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            raise HTTPException(status_code=403, detail="Unauthorized access.")
+
+        # 🔍 Fetch salary record
+        salary = db.query(Salary).filter(Salary.uuid == salary_id, Salary.is_deleted == False).first()
+        if not salary:
+            raise HTTPException(status_code=404, detail="Salary record not found.")
+
+        # 🗑️ Soft delete
+        salary.is_deleted = True
+        db.commit()
+
+        return {
+            "data": None,
+            "message": "Salary Record Deleted Successfully.",
+            "status_code": 200,
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {
+            "data": None,
+            "message": f"Error deleting salary: {str(e)}",
+            "status_code": 500,
+        }

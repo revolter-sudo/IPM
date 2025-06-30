@@ -1,9 +1,9 @@
-import logging
 import os
+from src.app.utils.logging_config import get_logger
 import json
 from uuid import UUID, uuid4
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Query
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 from decimal import Decimal
@@ -23,7 +23,8 @@ from src.app.database.models import (
     Invoice,
     PaymentItem,
     ProjectPO,
-    ProjectPOItem
+    ProjectPOItem,
+    CompanyInfo
 )
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
@@ -37,10 +38,16 @@ from src.app.schemas.project_service_schemas import (
     InvoiceCreateRequest,
     InvoiceResponse,
     InvoiceStatusUpdateRequest,
-    ProjectPOUpdateSchema
+    ProjectPOUpdateSchema,
+    CompanyInfoCreate,
+    CompanyInfoUpdate
 )
+from src.app.services.location_service import LocationService
 from src.app.services.auth_service import get_current_user
 from datetime import datetime, timedelta
+
+# Initialize logger
+logger = get_logger(__name__)
 
 project_router = APIRouter(prefix="/projects")
 
@@ -236,10 +243,10 @@ def create_project(
         request_data = json.loads(request)
         project_request = ProjectCreateRequest(**request_data)
 
-        logging.info(f"Create project request received: {project_request}")
+        logger.info(f"Create project request received: {project_request}")
         # Fix: current_user might be dict, access role accordingly
         user_role = current_user.role if hasattr(current_user, 'role') else current_user.get('role')
-        logging.info(f"Current user role: {user_role}")
+        logger.info(f"Current user role: {user_role}")
         if user_role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
@@ -345,7 +352,7 @@ def create_project(
         ).model_dump()
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in create_project API: {str(e)}")
+        logger.error(f"Error in create_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -529,7 +536,7 @@ def create_project(
 #         ).model_dump()
 
 #     except Exception as e:
-#         logging.error(f"Error in list_all_projects API: {str(e)}")
+#         logger.error(f"Error in list_all_projects API: {str(e)}")
 #         return ProjectServiceResponse(
 #             data=None,
 #             status_code=500,
@@ -670,7 +677,7 @@ def list_all_projects(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in list_all_projects API: {str(e)}")
+        logger.error(f"Error in list_all_projects API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -733,7 +740,7 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             status_code=200
         ).model_dump()
     except Exception as e:
-        logging.error(f"Error in get_project_info API: {str(e)}")
+        logger.error(f"Error in get_project_info API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -886,7 +893,7 @@ def add_bank(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in add_bank: {e}")
+        logger.error(f"Error in add_bank: {e}")
         db.rollback()
         return ProjectServiceResponse(
             data=None,
@@ -939,7 +946,7 @@ def edit_bank(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in edit_bank: {e}")
+        logger.error(f"Error in edit_bank: {e}")
         db.rollback()
         return ProjectServiceResponse(
             data=None,
@@ -988,7 +995,7 @@ def get_bank_balance(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_bank_balance API: {str(e)}")
+        logger.error(f"Error in get_bank_balance API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1038,67 +1045,13 @@ def delete_bank(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in delete_bank API: {str(e)}")
+        logger.error(f"Error in delete_bank API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
             message="An error occurred while deleting bank"
         ).model_dump()
 
-
-# @project_router.delete("/{project_uuid}", status_code=status.HTTP_200_OK, tags=["Projects"])
-# def delete_project(
-#     project_uuid: UUID,
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(get_current_user),
-# ):
-#     try:
-#         project = (
-#             db.query(
-#                 Project
-#             ).filter(
-#                 Project.uuid == project_uuid,
-#                 Project.is_deleted.is_(False)
-#             ).first()
-#         )
-#         if not project:
-#             return ProjectServiceResponse(
-#                 data=None,
-#                 status_code=404,
-#                 message="Project not found"
-#             ).model_dump()
-
-#         if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
-#             return ProjectServiceResponse(
-#                 data=None,
-#                 status_code=403,
-#                 message="Unauthorized to delete project"
-#             ).model_dump()
-
-#         project.is_deleted = True
-#         log_entry = Log(
-#             uuid=str(uuid4()),
-#             entity="Project",
-#             action="Delete",
-#             entity_id=project_uuid,
-#             performed_by=current_user.uuid,
-#         )
-#         db.add(log_entry)
-#         db.commit()
-
-#         return ProjectServiceResponse(
-#             data=None,
-#             message="Project deleted successfully",
-#             status_code=200
-#         ).model_dump()
-#     except Exception as e:
-#         db.rollback()
-#         logging.error(f"Error in delete_project API: {str(e)}")
-#         return ProjectServiceResponse(
-#             data=None,
-#             status_code=500,
-#             message="An error occurred while deleting the project"
-#         ).model_dump()
 
 @project_router.delete("/{project_uuid}", status_code=status.HTTP_200_OK, tags=["Projects"])
 def delete_project(
@@ -1171,7 +1124,7 @@ def delete_project(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in delete_project API: {str(e)}")
+        logger.error(f"Error in delete_project API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1180,232 +1133,6 @@ def delete_project(
 
 
 # Simple PO Management API for unlimited PO support
-
-
-# @project_router.post(
-#     "/{project_id}/pos",
-#     status_code=status.HTTP_201_CREATED,
-#     tags=["Project POs"],
-#     description="""
-#     Add a new PO to an existing project
-#     Request format:
-#     ```json
-#     {
-#         "po_number": "PO001",
-#         "amount": 1000.0,
-#         "description": "Additional PO for project"
-#     }
-#     ```
-#     """
-# )
-# def add_project_po(
-#     project_id: UUID,
-#     po_data: str = Form(..., description="JSON string containing PO details"),
-#     po_document: Optional[UploadFile] = File(None, description="PO document file"),
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(get_current_user),
-# ):
-#     """Add a new PO to an existing project with optional document upload."""
-#     try:
-#         # Parse PO data
-#         po_request_data = json.loads(po_data)
-        
-#         # Validate required fields
-#         if not po_request_data.get("amount") or po_request_data["amount"] <= 0:
-#             return ProjectServiceResponse(
-#                 data=None,
-#                 status_code=400,
-#                 message="Amount must be greater than 0"
-#             ).model_dump()
-
-#         # Check if project exists
-#         project = db.query(Project).filter(
-#             Project.uuid == project_id,
-#             Project.is_deleted.is_(False)
-#         ).first()
-        
-#         if not project:
-#             return ProjectServiceResponse(
-#                 data=None,
-#                 status_code=404,
-#                 message="Project not found"
-#             ).model_dump()
-
-#         # Check permissions
-#         user_role = current_user.role if hasattr(current_user, "role") else current_user.get("role")
-#         if user_role not in [
-#             UserRole.SUPER_ADMIN.value,
-#             UserRole.ADMIN.value,
-#             UserRole.PROJECT_MANAGER.value,
-#         ]:
-#             return ProjectServiceResponse(
-#                 data=None,
-#                 status_code=403,
-#                 message="Unauthorized to add POs to project"
-#             ).model_dump()
-
-#         # Create new PO
-#         new_po = ProjectPO(
-#             project_id=project_id,
-#             po_number=po_request_data.get("po_number"),
-#             amount=po_request_data["amount"],
-#             description=po_request_data.get("description"),
-#             file_path=None,  # Simplified - no file upload for now
-#             created_by=current_user.uuid
-#         )
-        
-#         db.add(new_po)
-#         db.commit()
-#         db.refresh(new_po)
-
-#         return ProjectServiceResponse(
-#             data={
-#                 "uuid": str(new_po.uuid),
-#                 "project_id": str(new_po.project_id),
-#                 "po_number": new_po.po_number,
-#                 "amount": new_po.amount,
-#                 "description": new_po.description,
-#                 "created_at": new_po.created_at.isoformat() if new_po.created_at else None
-#             },
-#             message="PO added to project successfully",
-#             status_code=201
-#         ).model_dump()
-
-#     except json.JSONDecodeError as json_error:
-#         return ProjectServiceResponse(
-#             data=None,
-#             status_code=400,
-#             message=f"Invalid JSON in PO data: {str(json_error)}"
-#         ).model_dump()
-#     except Exception as e:
-#         db.rollback()
-#         return ProjectServiceResponse(
-#             data=None,
-#             status_code=500,
-#             message=f"An error occurred while adding PO: {str(e)}"
-#         ).model_dump()
-
-# @project_router.post(
-#     "/{project_id}/pos",
-#     status_code=status.HTTP_201_CREATED,
-#     tags=["Project POs"],
-#     description="""
-#     Add a new PO to an existing project. The PO number is auto-generated.
-#     Request format:
-#     ```json
-#     {
-#         "amount": 1000.0,
-#         "description": "Additional PO for project"
-#     }
-#     ```
-#     """
-# )
-# def add_project_po(
-#     project_id: UUID,
-#     po_data: str = Form(..., description="JSON string containing PO details"),
-#     po_document: Optional[UploadFile] = File(None, description="PO document file"),
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(get_current_user),
-# ):
-#     try:
-#         import json
-#         from datetime import datetime
-
-#         # Parse and validate
-#         po_request_data = json.loads(po_data)
-#         amount = po_request_data.get("amount")
-#         description = po_request_data.get("description")
-
-#         if not amount or amount <= 0:
-#             return ProjectServiceResponse(
-#                 data=None,
-#                 status_code=400,
-#                 message="Amount must be greater than 0"
-#             ).model_dump()
-
-#         # Check project exists
-#         project = db.query(Project).filter(
-#             Project.uuid == project_id,
-#             Project.is_deleted.is_(False)
-#         ).first()
-#         if not project:
-#             return ProjectServiceResponse(
-#                 data=None,
-#                 status_code=404,
-#                 message="Project not found"
-#             ).model_dump()
-
-#         # Check role
-#         user_role = getattr(current_user, "role", None) or current_user.get("role")
-#         if user_role not in [
-#             UserRole.SUPER_ADMIN.value,
-#             UserRole.ADMIN.value,
-#             UserRole.PROJECT_MANAGER.value,
-#         ]:
-#             return ProjectServiceResponse(
-#                 data=None,
-#                 status_code=403,
-#                 message="Unauthorized to add POs to project"
-#             ).model_dump()
-
-#         # 📌 Auto-generate unique PO number
-#         year = datetime.utcnow().year
-#         existing_po_count = db.query(ProjectPO).filter(
-#             ProjectPO.project_id == project_id
-#         ).count()
-#         po_number = f"PO-{year}-{str(existing_po_count + 1).zfill(4)}"
-
-#         # 🧾 Optional: Save file (if needed)
-#         file_path = None
-#         if po_document:
-#             ext = os.path.splitext(po_document.filename)[1]
-#             filename = f"PO_{str(uuid4())}{ext}"
-#             upload_dir = "uploads/po_docs"
-#             os.makedirs(upload_dir, exist_ok=True)
-#             file_path = os.path.join(upload_dir, filename)
-#             with open(file_path, "wb") as buffer:
-#                 buffer.write(po_document.file.read())
-
-#         # Create PO
-#         new_po = ProjectPO(
-#             project_id=project_id,
-#             po_number=po_number,
-#             amount=amount,
-#             description=description,
-#             file_path=file_path,
-#             created_by=current_user.uuid
-#         )
-#         db.add(new_po)
-#         db.commit()
-#         db.refresh(new_po)
-
-#         return ProjectServiceResponse(
-#             data={
-#                 "uuid": str(new_po.uuid),
-#                 "project_id": str(project_id),
-#                 "po_number": new_po.po_number,
-#                 "amount": new_po.amount,
-#                 "description": new_po.description,
-#                 "created_at": new_po.created_at.strftime("%Y-%m-%d %H:%M:%S")
-#             },
-#             message="PO added to project successfully",
-#             status_code=201
-#         ).model_dump()
-
-#     except json.JSONDecodeError as json_error:
-#         return ProjectServiceResponse(
-#             data=None,
-#             status_code=400,
-#             message=f"Invalid JSON in PO data: {str(json_error)}"
-#         ).model_dump()
-
-#     except Exception as e:
-#         db.rollback()
-#         return ProjectServiceResponse(
-#             data=None,
-#             status_code=500,
-#             message=f"An error occurred while adding PO: {str(e)}"
-#         ).model_dump()
 
 @project_router.post(
     "/{project_id}/pos",
@@ -1676,7 +1403,7 @@ def get_project_pos(
         ).model_dump()
 
     except Exception as e:
-        logging.error(f"Error in get_project_pos API: {str(e)}")
+        logger.error(f"Error in get_project_pos API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1756,7 +1483,7 @@ def update_project_po(
 
     except Exception as e:
         db.rollback()
-        logging.error(f"Error in update_project_po API: {str(e)}")
+        logger.error(f"Error in update_project_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1904,3 +1631,316 @@ def view_project_items_for_user(
         message="Project User Items Fetched Successfully.",
         status_code=200
     ).model_dump()
+
+@project_router.get(
+        "/states",
+        tags=["Location"],
+        description="Get a list of all Indian states", 
+    )
+def get_all_states():
+    states = list(LocationService._INDIA_STATES_CITIES.keys())
+    return {
+        "data": states,
+        "message": "List of Indian States fetched successfully.",
+        "status_code": 200
+    }
+
+@project_router.get(
+        "/cities", 
+        tags=["Location"],
+        description="Get a list of cities for a given state",
+    )
+def get_cities_by_state(state: str = Query(..., description="State name to get cities for")):
+    normalized_state = state.strip().lower()
+    matched_state = None
+
+    for key in LocationService._INDIA_STATES_CITIES:
+        if key.lower() == normalized_state:
+            matched_state = key
+            break
+
+    if not matched_state:
+        raise HTTPException(status_code=404, detail="State not found")
+
+    return {
+        "data": LocationService._INDIA_STATES_CITIES[matched_state],
+        "message": f"Cities fetched for {matched_state.title()}",
+        "status_code": 200
+    }
+
+@project_router.post(
+    "/company-info",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Company Info"],
+    description="""
+Create a new Company Info entry.
+
+Send the `company_data` JSON string via form and optionally upload a logo file.
+
+**Example `company_data` JSON**:
+```json
+{
+  "years_of_experience": 5,
+  "no_of_staff": 30,
+  "user_construction": "Industrial",
+  "successfull_installations": "150+ installations"
+}
+"""
+)
+def create_company_info(
+    company_data: str = Form(..., description="JSON string with company info"),
+    logo_photo_file: Optional[UploadFile] = File(None, description="Company logo file"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    try:
+        # Role check
+        user_role = getattr(current_user, "role", None) or current_user.get("role")
+        if user_role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            return ProjectServiceResponse(
+            status_code=403,
+            message="Unauthorized to create company info"
+            ).model_dump()
+
+        # Parse JSON
+        try:
+            payload_dict = json.loads(company_data)
+            payload = CompanyInfoCreate(**payload_dict)
+        except Exception as e:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=400,
+                message=f"Invalid JSON: {str(e)}"
+            ).model_dump()
+
+        # Save logo file if present
+        file_path = None
+        if logo_photo_file:
+            ext = os.path.splitext(logo_photo_file.filename)[1]
+            filename = f"logo_{str(uuid4())}{ext}"
+            upload_dir = "uploads/company_logos"
+            os.makedirs(upload_dir, exist_ok=True)
+            file_path = os.path.join(upload_dir, filename)
+            with open(file_path, "wb") as buffer:
+                buffer.write(logo_photo_file.file.read())
+
+        # Create CompanyInfo
+        company = CompanyInfo(
+            years_of_experience=payload.years_of_experience,
+            no_of_staff=payload.no_of_staff,
+            user_construction=payload.user_construction,
+            successfull_installations=payload.successfull_installations,
+            logo_photo_url=file_path,  # same as file_path, not full URL
+        )
+        db.add(company)
+        db.commit()
+        db.refresh(company)
+
+        return ProjectServiceResponse(
+            data={
+                "uuid": str(company.uuid),
+                "years_of_experience": company.years_of_experience,
+                "no_of_staff": company.no_of_staff,
+                "user_construction": company.user_construction,
+                "successfull_installations": company.successfull_installations,
+                "logo_photo_path": company.logo_photo_url
+            },
+            status_code=201,
+            message="Company info created successfully"
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error while creating company info: {str(e)}"
+        ).model_dump()
+
+@project_router.get(
+    "/company-info",
+    tags=["Company Info"],
+    response_model=dict,
+    summary="Get all company info records",
+    description="Fetches all company info entries including logo URL"
+)
+def get_all_company_info(
+    db: Session = Depends(get_db)
+):
+    try:
+        companies = db.query(CompanyInfo).filter().all()
+
+        data = [
+            {
+                "uuid": str(c.uuid),
+                "years_of_experience": c.years_of_experience,
+                "no_of_staff": c.no_of_staff,
+                "user_construction": c.user_construction,
+                "successfull_installations": c.successfull_installations,
+                "logo_photo_url": f"{constants.HOST_URL}/{c.logo_photo_url}" if c.logo_photo_url else None
+            } for c in companies
+        ]
+
+        return ProjectServiceResponse(
+            data=data,
+            status_code=200,
+            message="Company info records fetched successfully"
+        ).model_dump()
+
+    except Exception as e:
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error fetching records: {str(e)}"
+        ).model_dump()
+
+
+@project_router.get(
+    "/company-info/{uuid}",
+    tags=["Company Info"],
+    response_model=dict,
+    summary="Get single company info by UUID",
+    description="Fetch a specific company info entry",
+    deprecated=True
+)
+def get_company_info_by_uuid(
+    uuid: UUID,
+    db: Session = Depends(get_db)
+):
+    try:
+        company = db.query(CompanyInfo).filter(
+            CompanyInfo.uuid == uuid
+        ).first()
+
+        if not company:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Company info not found"
+            ).model_dump()
+
+        data = {
+            "uuid": str(company.uuid),
+            "years_of_experience": company.years_of_experience,
+            "no_of_staff": company.no_of_staff,
+            "user_construction": company.user_construction,
+            "successfull_installations": company.successfull_installations,
+            "logo_photo_url": company.logo_photo_url
+        }
+
+        return ProjectServiceResponse(
+            data=data,
+            status_code=200,
+            message="Company info fetched successfully"
+        ).model_dump()
+
+    except Exception as e:
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error fetching company info: {str(e)}"
+        ).model_dump()
+
+@project_router.put(
+    "/company-info/{uuid}",
+    status_code=status.HTTP_200_OK,
+    tags=["Company Info"],
+    response_model=dict,
+    description="""
+Update an existing Company Info entry and optionally replace the logo/document.
+
+Send as `multipart/form-data`:
+- `company_data`: JSON string with updated fields.
+- `logo_photo_file`: (Optional) new file to replace the existing logo.
+
+**Example `company_data` JSON**:
+```json
+{
+  "years_of_experience": 20,
+  "no_of_staff": 50,
+  "user_construction": "Industrial",
+  "successfull_installations": "500+ successful projects"
+}
+"""
+)
+def update_company_info(
+    uuid: UUID,
+    company_data: str = Form(..., description="Updated JSON data"),
+    logo_photo_file: Optional[UploadFile] = File(None, description="New logo or document"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    try:
+        # Role check
+        user_role = getattr(current_user, "role", None) or current_user.get("role")
+        if user_role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            return ProjectServiceResponse(
+            status_code=403,
+            message="Unauthorized to update company info"
+            ).model_dump()
+
+        # Fetch company record
+        company = db.query(CompanyInfo).filter(CompanyInfo.uuid == uuid).first()
+        if not company:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=404,
+                message="Company info not found"
+            ).model_dump()
+
+        # Parse JSON
+        try:
+            payload_dict = json.loads(company_data)
+            payload = CompanyInfoUpdate(**payload_dict)
+        except Exception as e:
+            return ProjectServiceResponse(
+                data=None,
+                status_code=400,
+                message=f"Invalid JSON: {str(e)}"
+            ).model_dump()
+
+        # Save new logo if provided
+        if logo_photo_file:
+            upload_dir = "uploads/company_logos"
+            os.makedirs(upload_dir, exist_ok=True)
+            ext = os.path.splitext(logo_photo_file.filename)[1]
+            filename = f"logo_{str(uuid4())}{ext}"
+            file_path = os.path.join(upload_dir, filename)
+            with open(file_path, "wb") as buffer:
+                buffer.write(logo_photo_file.file.read())
+            company.logo_photo_url = file_path  # just store relative path
+
+        # Update fields if present
+        if payload.years_of_experience is not None:
+            company.years_of_experience = payload.years_of_experience
+        if payload.no_of_staff is not None:
+            company.no_of_staff = payload.no_of_staff
+        if payload.user_construction is not None:
+            company.user_construction = payload.user_construction
+        if payload.successfull_installations is not None:
+            company.successfull_installations = payload.successfull_installations
+
+        db.commit()
+        db.refresh(company)
+
+        return ProjectServiceResponse(
+            data={
+                "uuid": str(company.uuid),
+                "years_of_experience": company.years_of_experience,
+                "no_of_staff": company.no_of_staff,
+                "user_construction": company.user_construction,
+                "successfull_installations": company.successfull_installations,
+                "logo_photo_path": company.logo_photo_url
+            },
+            status_code=200,
+            message="Company info updated successfully"
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error while updating company info: {str(e)}"
+        ).model_dump()
+    

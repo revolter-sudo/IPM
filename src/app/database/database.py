@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     TWILIO_AUTH_TOKEN: str
     TWILIO_VERIFY_SERVICE_SID: str
     HOST_URL: str
+    LOG_LEVEL: str = "INFO"
+    LOG_DIR: str = "/app/logs"
 
 
     @property

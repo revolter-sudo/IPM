@@ -1,7 +1,7 @@
-import logging
 import time
 from contextvars import ContextVar
 from typing import Dict, List
+from src.app.utils.logging_config import get_performance_logger
 
 
 # Context variable to store query timing information
@@ -33,7 +33,8 @@ class QueryPerformanceTracker:
             
             # Log slow queries (> 100ms)
             if execution_time > 0.1:
-                logging.warning(f"Slow query detected: {self.query_name} took {execution_time:.4f}s")
+                perf_logger = get_performance_logger()
+                perf_logger.warning(f"Slow query detected: {self.query_name} took {execution_time:.4f}s")
 
 
 def get_query_stats() -> Dict[str, Dict[str, float]]:
