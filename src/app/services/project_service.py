@@ -634,9 +634,25 @@ def list_all_projects(
             # PO list and total value
             pos_list = []
             total_po_amount = 0.0
+            total_po_paid = 0.0
+
             for po in project.project_pos:
                 if po.is_deleted:
                     continue
+
+                paid_amount = (
+                    db.query(func.sum(Invoice.total_paid_amount))
+                    .join(ProjectPO, Invoice.project_po_id == ProjectPO.uuid)
+                    .filter(
+                        Invoice.project_po_id == po.uuid, 
+                        Invoice.is_deleted.is_(False), 
+                        # Invoice.status == 'paid',
+                        Invoice.payment_status.in_(["partially_paid", "fully_paid"])
+                    )
+                    .scalar() or 0.0
+                )
+                total_po_paid += paid_amount
+
                 creator_name = db.query(User.name).filter(User.uuid == po.created_by).scalar()
                 pos_list.append({
                     "uuid": str(po.uuid),
@@ -667,6 +683,7 @@ def list_all_projects(
                     "items": exceeding_items
                 },
                 "total_po_amount": total_po_amount,
+                "total_po_paid": total_po_paid,
                 "pos": pos_list
             })
 
@@ -717,11 +734,25 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
         # Get PO balance
         # po_balance = project.po_balance if project.po_balance else 0
 
-        # Get estimated balance
+        # Get estimated balance & actual balance
         estimated_balance = project.estimated_balance if project.estimated_balance else 0
-
-        # Get actual balance
         actual_balance = project.actual_balance if project.actual_balance else 0
+        
+        total_po_paid = 0.0
+        for po in project.project_pos:
+            if po.is_deleted:
+                continue
+            paid_amount = (
+                db.query(func.sum(Invoice.total_paid_amount))
+                .join(ProjectPO, Invoice.project_po_id == ProjectPO.uuid)
+                .filter(
+                    Invoice.project_po_id == po.uuid,
+                    Invoice.is_deleted.is_(False),
+                    Invoice.payment_status.in_(["partially_paid", "fully_paid"])
+                )
+                .scalar() or 0.0
+            )
+            total_po_paid += paid_amount
 
         project_response_data = ProjectResponse(
             uuid=project.uuid,
@@ -734,11 +765,15 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             actual_balance=actual_balance,
             created_at=project.created_at,
         ).model_dump()
+
+        project_response_data["total_po_paid"] = total_po_paid
+
         return ProjectServiceResponse(
             data=project_response_data,
             message="Project info fetched successfully.",
             status_code=200
         ).model_dump()
+    
     except Exception as e:
         logger.error(f"Error in get_project_info API: {str(e)}")
         return ProjectServiceResponse(

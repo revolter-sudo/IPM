@@ -3376,10 +3376,14 @@ def get_all_item_analytics(
 ):
     """
     Get analytics data for all items across all projects.
-    Returns item name, estimation (balance added when assigned), and current expense (sum of transferred payments).
+    Returns per-project grouped data:
+    - Item name
+    - Estimation (balance added when assigned)
+    - Current expense (sum of transferred payments)
+    - Sorted by estimation descending within each project
     """
     try:
-        # Check if user has permission
+        # Check permissions
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value
@@ -3390,9 +3394,7 @@ def get_all_item_analytics(
                 status_code=403
             ).model_dump()
 
-        # Get all unique items with their balances from all projects
-        # Use a subquery to get the latest/most recent ProjectItemMap entry for each (project_id, item_id) pair
-        # This handles potential duplicates by taking the most recent mapping
+        # Subquery to get latest ProjectItemMap entry per (project, item)
         subquery = (
             db.query(
                 ProjectItemMap.project_id,
@@ -3413,22 +3415,19 @@ def get_all_item_analytics(
         )
 
         if not all_items:
-            # Return empty analytics if no items found
             return AdminPanelResponse(
-                data={
-                    "items_analytics": []
-                },
+                data={"items_analytics": []},
                 message="No items found in any project",
                 status_code=200
             ).model_dump()
 
-        # Prepare items analytics
-        items_analytics = []
+        # Group items per project
+        from collections import defaultdict
+        project_wise_items = defaultdict(list)
+
         for project_item, item, project in all_items:
-            # Get estimation (balance added when assigned)
             estimation = project_item.item_balance or 0.0
 
-            # Get current expense (sum of transferred payments for this item in this specific project)
             current_expense = (
                 db.query(func.sum(Payment.amount))
                 .join(PaymentItem, Payment.uuid == PaymentItem.payment_id)
@@ -3442,27 +3441,28 @@ def get_all_item_analytics(
                 .scalar() or 0.0
             )
 
-            items_analytics.append({
+            project_wise_items[project.name].append({
                 "uuid": item.uuid,
                 "item_name": item.name,
-                "project_name": project.name,
                 "estimation": estimation,
                 "current_expense": current_expense
             })
 
-        # Sort by estimation in descending order
-        items_analytics.sort(key=lambda x: x["estimation"], reverse=True)
-        
-        # Prepare response
-        response_data = {
-            "items_analytics": items_analytics
-        }
+        # Sort each project's item list by estimation
+        items_analytics = []
+        for project_name, items in project_wise_items.items():
+            sorted_items = sorted(items, key=lambda x: x["estimation"], reverse=True)
+            items_analytics.append({
+                "project_name": project_name,
+                "items": sorted_items
+            })
 
         return AdminPanelResponse(
-            data=response_data,
+            data={"items_analytics": items_analytics},
             message="Item analytics fetched successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         logger.error(f"Error in get_all_item_analytics API: {str(e)}")
         return AdminPanelResponse(
@@ -3470,6 +3470,7 @@ def get_all_item_analytics(
             message=f"An error occurred while fetching item analytics: {str(e)}",
             status_code=500
         ).model_dump()
+
 
 
 @admin_app.get(
