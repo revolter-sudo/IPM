@@ -3451,7 +3451,7 @@ def get_all_item_analytics(
         # Sort each project's item list by estimation
         items_analytics = []
         for project_name, items in project_wise_items.items():
-            sorted_items = sorted(items, key=lambda x: x["estimation"], reverse=True)
+            sorted_items = sorted(items, key=lambda x: x["current_expense"], reverse=True)
             items_analytics.append({
                 "project_name": project_name,
                 "items": sorted_items
@@ -3472,6 +3472,122 @@ def get_all_item_analytics(
         ).model_dump()
 
 
+
+# @admin_app.get(
+#     "/projects/{project_id}/item-analytics",
+#     tags=["Analytics"],
+#     description="Get item analytics data for a specific project (estimation vs current expense)"
+# )
+# def get_project_item_analytics(
+#     project_id: UUID,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """
+#     Get analytics data for items in a specific project.
+#     Returns item name, estimation (balance added when assigned), and current expense (sum of transferred payments).
+#     """
+#     try:
+#         # Check if user has permission
+#         if current_user.role not in [
+#             UserRole.SUPER_ADMIN.value,
+#             UserRole.ADMIN.value,
+#             UserRole.PROJECT_MANAGER.value
+#         ]:
+#             return AdminPanelResponse(
+#                 data=None,
+#                 message="Only admin, super admin, or project manager can access item analytics",
+#                 status_code=403
+#             ).model_dump()
+
+#         # Check if project exists
+#         project = db.query(Project).filter(Project.uuid == project_id, Project.is_deleted.is_(False)).first()
+#         if not project:
+#             return AdminPanelResponse(
+#                 data=None,
+#                 message="Project not found",
+#                 status_code=404
+#             ).model_dump()
+
+#         # Get all unique items mapped to this project with their balances
+#         # Use a subquery to handle potential duplicates by taking the most recent mapping
+#         subquery = (
+#             db.query(
+#                 ProjectItemMap.project_id,
+#                 ProjectItemMap.item_id,
+#                 func.max(ProjectItemMap.id).label('max_id')
+#             )
+#             .filter(ProjectItemMap.project_id == project_id)
+#             .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
+#             .subquery()
+#         )
+
+#         project_items = (
+#             db.query(ProjectItemMap, Item)
+#             .join(subquery, ProjectItemMap.id == subquery.c.max_id)
+#             .join(Item, ProjectItemMap.item_id == Item.uuid)
+#             .all()
+#         )
+
+#         if not project_items:
+#             # Return empty analytics if no items found
+#             return AdminPanelResponse(
+#                 data={
+#                     "project_id": str(project_id),
+#                     "project_name": project.name,
+#                     "items_analytics": []
+#                 },
+#                 message="No items found for this project",
+#                 status_code=200
+#             ).model_dump()
+
+#         # Prepare items analytics
+#         items_analytics = []
+#         for project_item, item in project_items:
+#             # Get estimation (balance added when assigned)
+#             estimation = project_item.item_balance or 0.0
+
+#             # Get current expense (sum of transferred payments for this item)
+#             # Use a more direct approach to get the sum of payment amounts
+#             current_expense = (
+#                 db.query(func.sum(Payment.amount))
+#                 .join(PaymentItem, Payment.uuid == PaymentItem.payment_id)
+#                 .filter(
+#                     PaymentItem.item_id == item.uuid,
+#                     Payment.project_id == project_id,
+#                     Payment.status == PaymentStatus.TRANSFERRED.value,
+#                     Payment.is_deleted.is_(False),
+#                     PaymentItem.is_deleted.is_(False)
+#                 )
+#                 .scalar() or 0.0
+#             )
+
+#             items_analytics.append({
+#                 "uuid": item.uuid,
+#                 "item_name": item.name,
+#                 "estimation": estimation,
+#                 "current_expense": current_expense
+#             })
+
+#         # Prepare response
+#         response_data = {
+#             "project_id": str(project_id),
+#             "project_name": project.name,
+#             "items_analytics": items_analytics
+#         }
+
+#         return AdminPanelResponse(
+#             data=response_data,
+#             message="Item analytics fetched successfully",
+#             status_code=200
+#         ).model_dump()
+#     except Exception as e:
+#         logger.error(f"Error in get_project_item_analytics API: {str(e)}")
+#         return AdminPanelResponse(
+#             data=None,
+#             message=f"An error occurred while fetching item analytics: {str(e)}",
+#             status_code=500
+#         ).model_dump()
 
 @admin_app.get(
     "/projects/{project_id}/item-analytics",
@@ -3510,7 +3626,6 @@ def get_project_item_analytics(
             ).model_dump()
 
         # Get all unique items mapped to this project with their balances
-        # Use a subquery to handle potential duplicates by taking the most recent mapping
         subquery = (
             db.query(
                 ProjectItemMap.project_id,
@@ -3530,7 +3645,6 @@ def get_project_item_analytics(
         )
 
         if not project_items:
-            # Return empty analytics if no items found
             return AdminPanelResponse(
                 data={
                     "project_id": str(project_id),
@@ -3544,11 +3658,8 @@ def get_project_item_analytics(
         # Prepare items analytics
         items_analytics = []
         for project_item, item in project_items:
-            # Get estimation (balance added when assigned)
             estimation = project_item.item_balance or 0.0
 
-            # Get current expense (sum of transferred payments for this item)
-            # Use a more direct approach to get the sum of payment amounts
             current_expense = (
                 db.query(func.sum(Payment.amount))
                 .join(PaymentItem, Payment.uuid == PaymentItem.payment_id)
@@ -3569,11 +3680,17 @@ def get_project_item_analytics(
                 "current_expense": current_expense
             })
 
-        # Prepare response
+        # Sort by current_expense descending
+        sorted_items_analytics = sorted(
+            items_analytics,
+            key=lambda x: x["current_expense"],
+            reverse=True
+        )
+
         response_data = {
             "project_id": str(project_id),
             "project_name": project.name,
-            "items_analytics": items_analytics
+            "items_analytics": sorted_items_analytics
         }
 
         return AdminPanelResponse(
@@ -3581,6 +3698,7 @@ def get_project_item_analytics(
             message="Item analytics fetched successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         logger.error(f"Error in get_project_item_analytics API: {str(e)}")
         return AdminPanelResponse(
