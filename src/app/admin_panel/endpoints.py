@@ -1,5 +1,6 @@
 import os
 import json
+from collections import defaultdict
 from fastapi import FastAPI, Body
 from fastapi_sqlalchemy import DBSessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
@@ -3422,7 +3423,6 @@ def get_all_item_analytics(
             ).model_dump()
 
         # Group items per project
-        from collections import defaultdict
         project_wise_items = defaultdict(list)
 
         for project_item, item, project in all_items:
@@ -3629,7 +3629,7 @@ def get_project_payment_analytics(
         # Get all payments for this project
         payments = db.query(Payment).filter(
             Payment.project_id == project_id,
-            Payment.is_deleted.is_(False)
+            Payment.is_deleted.is_(False),
         ).all()
 
         if not payments:
@@ -4288,9 +4288,12 @@ def get_dashboard_project_stats(
         recent_items = db.query(Item).filter(Item.created_at >= last_31_days).count()
 
         # ───── Total Revenue ─────
-        total_revenue = db.query(func.coalesce(func.sum(InvoicePayment.amount), 0)).scalar()
+        total_revenue = db.query(func.coalesce(func.sum(InvoicePayment.amount), 0)).filter(
+            InvoicePayment.is_deleted.is_(False)
+        ).scalar()
         recent_revenue = db.query(func.coalesce(func.sum(InvoicePayment.amount), 0)).filter(
-            InvoicePayment.payment_date >= last_31_days
+            InvoicePayment.payment_date >= last_31_days,
+            InvoicePayment.is_deleted.is_(False)
         ).scalar()
 
         # Growth %

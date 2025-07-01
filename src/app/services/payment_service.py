@@ -866,6 +866,7 @@ def get_all_payments(
             query = query.filter(Payment.project_id == project_id)
         if status is not None:
             query = query.filter(Payment.status.in_(status))
+            # query = query.filter(Payment.status != PaymentStatus.DECLINED.value)
         if start_date and end_date:
             end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
             query = query.filter(Payment.created_at.between(start_date, end_date_with_time))
@@ -904,7 +905,8 @@ def get_all_payments(
                 PaymentStatus.REQUESTED.value,
                 PaymentStatus.APPROVED.value,
                 PaymentStatus.VERIFIED.value
-            ])
+            ]),
+            # Payment.status != PaymentStatus.DECLINED.value  # Exclude declined
         )
 
         # Apply the same role-based restrictions as the main query
