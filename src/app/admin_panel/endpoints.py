@@ -3366,6 +3366,111 @@ def get_all_khatabook_entries_admin(
         ).model_dump()
 
 
+# @admin_app.get(
+#     "/item-analytics",
+#     tags=["Analytics"],
+#     description="Get item analytics data for all projects (estimation vs current expense)"
+# )
+# def get_all_item_analytics(
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """
+#     Get analytics data for all items across all projects.
+#     Returns per-project grouped data:
+#     - Item name
+#     - Estimation (balance added when assigned)
+#     - Current expense (sum of transferred payments)
+#     - Sorted by estimation descending within each project
+#     """
+#     try:
+#         # Check permissions
+#         if current_user.role not in [
+#             UserRole.SUPER_ADMIN.value,
+#             UserRole.ADMIN.value
+#         ]:
+#             return AdminPanelResponse(
+#                 data=None,
+#                 message="Only admin and super admin can access all item analytics",
+#                 status_code=403
+#             ).model_dump()
+
+#         # Subquery to get latest ProjectItemMap entry per (project, item)
+#         subquery = (
+#             db.query(
+#                 ProjectItemMap.project_id,
+#                 ProjectItemMap.item_id,
+#                 func.max(ProjectItemMap.id).label('max_id')
+#             )
+#             .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
+#             .subquery()
+#         )
+
+#         all_items = (
+#             db.query(ProjectItemMap, Item, Project)
+#             .join(subquery, ProjectItemMap.id == subquery.c.max_id)
+#             .join(Item, ProjectItemMap.item_id == Item.uuid)
+#             .join(Project, ProjectItemMap.project_id == Project.uuid)
+#             .filter(Project.is_deleted.is_(False))
+#             .all()
+#         )
+
+#         if not all_items:
+#             return AdminPanelResponse(
+#                 data={"items_analytics": []},
+#                 message="No items found in any project",
+#                 status_code=200
+#             ).model_dump()
+
+#         # Group items per project
+#         project_wise_items = defaultdict(list)
+
+#         for project_item, item, project in all_items:
+#             estimation = project_item.item_balance or 0.0
+
+#             current_expense = (
+#                 db.query(func.sum(Payment.amount))
+#                 .join(PaymentItem, Payment.uuid == PaymentItem.payment_id)
+#                 .filter(
+#                     PaymentItem.item_id == item.uuid,
+#                     Payment.project_id == project.uuid,
+#                     Payment.status == PaymentStatus.TRANSFERRED.value,
+#                     Payment.is_deleted.is_(False),
+#                     PaymentItem.is_deleted.is_(False)
+#                 )
+#                 .scalar() or 0.0
+#             )
+
+#             project_wise_items[project.name].append({
+#                 "uuid": item.uuid,
+#                 "item_name": item.name,
+#                 "estimation": estimation,
+#                 "current_expense": current_expense
+#             })
+
+#         # Sort each project's item list by estimation
+#         items_analytics = []
+#         for project_name, items in project_wise_items.items():
+#             sorted_items = sorted(items, key=lambda x: x["current_expense"], reverse=True)
+#             items_analytics.append({
+#                 "project_name": project_name,
+#                 "items": sorted_items
+#             })
+
+#         return AdminPanelResponse(
+#             data={"items_analytics": items_analytics},
+#             message="Item analytics fetched successfully",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         logger.error(f"Error in get_all_item_analytics API: {str(e)}")
+#         return AdminPanelResponse(
+#             data=None,
+#             message=f"An error occurred while fetching item analytics: {str(e)}",
+#             status_code=500
+#         ).model_dump()
+
 @admin_app.get(
     "/item-analytics",
     tags=["Analytics"],
@@ -3381,7 +3486,7 @@ def get_all_item_analytics(
     - Item name
     - Estimation (balance added when assigned)
     - Current expense (sum of transferred payments)
-    - Sorted by estimation descending within each project
+    - Sorted by expense + estimation descending within each project
     """
     try:
         # Check permissions
@@ -3448,10 +3553,17 @@ def get_all_item_analytics(
                 "current_expense": current_expense
             })
 
-        # Sort each project's item list by estimation
+        # Apply sorting to each project's items
         items_analytics = []
         for project_name, items in project_wise_items.items():
-            sorted_items = sorted(items, key=lambda x: x["current_expense"], reverse=True)
+            sorted_items = sorted(
+                items,
+                key=lambda x: (
+                    0 if x["current_expense"] > 0 or x["estimation"] > 0 else 1,
+                    -x["current_expense"],
+                    -x["estimation"]
+                )
+            )
             items_analytics.append({
                 "project_name": project_name,
                 "items": sorted_items
@@ -3470,7 +3582,6 @@ def get_all_item_analytics(
             message=f"An error occurred while fetching item analytics: {str(e)}",
             status_code=500
         ).model_dump()
-
 
 
 # @admin_app.get(
@@ -3680,11 +3791,17 @@ def get_project_item_analytics(
                 "current_expense": current_expense
             })
 
-        # Sort by current_expense descending
+        # Sort:
+        # - first by whether it has any value (non-zero current_expense or estimation)
+        # - then by current_expense desc
+        # - then by estimation desc
         sorted_items_analytics = sorted(
             items_analytics,
-            key=lambda x: x["current_expense"],
-            reverse=True
+            key=lambda x: (
+                0 if x["current_expense"] > 0 or x["estimation"] > 0 else 1,  # 0 = has value, 1 = both zero
+                -x["current_expense"],
+                -x["estimation"]
+            )
         )
 
         response_data = {
