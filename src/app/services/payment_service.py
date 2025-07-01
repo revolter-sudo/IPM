@@ -360,7 +360,7 @@ def create_khatabook_entry_for_self_payment(payment: Payment, db: Session, balan
             created_by=payment.created_by,
             balance_after_entry=balance_after_entry,  # Balance after the payment was added
             project_id=payment.project_id,
-            payment_mode="bank_transfer",  # Default payment mode for approved payments
+            payment_mode="Bank Transfer",  # Default payment mode for approved payments
             entry_type=KHATABOOK_ENTRY_TYPE_CREDIT  # Self payment entries are Credit
         )
 
