@@ -1,6 +1,7 @@
-from typing import Optional, Any, List
-from uuid import UUID
 from datetime import date
+from typing import Any, List, Optional
+from uuid import UUID
+
 from pydantic import BaseModel
 
 
@@ -50,18 +51,19 @@ class ProjectPORequest(BaseModel):
     """
     Enhanced PO request with explicit file binding support
     """
+
     po_number: Optional[str] = None
     amount: float
     description: Optional[str] = None
     file_index: Optional[int] = None  # Index of the file to bind to this PO (0-9)
-    
+
     class Config:
         schema_extra = {
             "example": {
                 "po_number": "PO001",
                 "amount": 1000.0,
                 "description": "Purchase order for construction materials",
-                "file_index": 0
+                "file_index": 0,
             }
         }
 
@@ -78,7 +80,7 @@ class ProjectCreateRequest(BaseModel):
     actual_balance: float = 0.0
     # New field for multiple POs with file binding
     pos: Optional[List[ProjectPORequest]] = []
-    
+
     class Config:
         schema_extra = {
             "example": {
@@ -95,15 +97,15 @@ class ProjectCreateRequest(BaseModel):
                         "po_number": "PO001",
                         "amount": 1000.0,
                         "description": "Materials purchase order",
-                        "file_index": 0
+                        "file_index": 0,
                     },
                     {
                         "po_number": "PO002",
                         "amount": 1000.0,
                         "description": "Labor purchase order",
-                        "file_index": 1
-                    }
-                ]
+                        "file_index": 1,
+                    },
+                ],
             }
         }
 
@@ -143,12 +145,14 @@ class InvoiceItemUpdate(BaseModel):
     item_name: str
     basic_value: float
 
+
 class InvoiceUpdateRequest(BaseModel):
     client_name: Optional[str] = None
     amount: Optional[float] = None
     description: Optional[str] = None
     due_date: Optional[str] = None  # "YYYY-MM-DD"
     invoice_items: Optional[List[InvoiceItemUpdate]] = None
+
 
 # class InvoiceUpdateRequest(BaseModel):
 #     client_name: Optional[str] = None
@@ -224,13 +228,14 @@ class ProjectServiceResponse(BaseModel):
         return {
             "data": self.data,
             "message": self.message,
-            "status_code": self.status_code
+            "status_code": self.status_code,
         }
 
 
 # Enhanced response schemas for better PO binding information
 class POBindingInfo(BaseModel):
     """Information about PO file binding"""
+
     file_index: Optional[int] = None
     original_filename: Optional[str] = None
     file_size_bytes: int = 0
@@ -239,6 +244,7 @@ class POBindingInfo(BaseModel):
 
 class EnhancedPOResponse(BaseModel):
     """Enhanced PO response with binding information"""
+
     uuid: UUID
     po_number: Optional[str] = None
     amount: float
@@ -251,6 +257,7 @@ class EnhancedPOResponse(BaseModel):
 
 class EnhancedProjectResponse(BaseModel):
     """Enhanced project response with detailed PO binding information"""
+
     uuid: UUID
     name: str
     description: Optional[str] = None

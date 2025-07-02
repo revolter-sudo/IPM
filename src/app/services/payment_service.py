@@ -1,74 +1,71 @@
+import json
+import logging
 import os
 import traceback
-from typing import Optional, List
-from uuid import UUID
 import uuid
+from collections import defaultdict
 from datetime import datetime
+from typing import List, Optional
+from uuid import UUID, uuid4
+
 from fastapi import (
     APIRouter,
+    Body,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     UploadFile,
-    Form,
-    Body
 )
 from fastapi import status as h_status
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_, and_, case, desc, func
+from sqlalchemy import and_, case, desc, func, or_
+from sqlalchemy.orm import Session, aliased, joinedload
+
 from src.app.database.database import get_db
 from src.app.database.models import (
-    Payment,
-    Project,
-    Person,
-    User,
-    Item,
-    PaymentItem,
-    PaymentFile,
-    PaymentStatusHistory,
-    Log,
-    KhatabookBalance,
-    PaymentEditHistory,
-    Priority,
     BalanceDetail,
+    Item,
+    ItemCategories,
+    ItemGroupMap,
+    ItemGroups,
+    Khatabook,
+    KhatabookBalance,
+    Log,
+    Payment,
+    PaymentEditHistory,
+    PaymentFile,
+    PaymentItem,
+    PaymentStatusHistory,
+    Person,
+    Priority,
+    Project,
     ProjectItemMap,
     ProjectUserMap,
-    ItemCategories,
-    Khatabook,
-    ItemGroups,
-    ItemGroupMap
+    User,
 )
-import logging
-from src.app.schemas.auth_service_schamas import UserRole
-from uuid import uuid4
+from src.app.notification.notification_schemas import NotificationMessage
+from src.app.notification.notification_service import send_push_notification
 from src.app.schemas import constants
-from src.app.schemas.constants import KHATABOOK_ENTRY_TYPE_CREDIT, KHATABOOK_PAYMENT_TYPE
+from src.app.schemas.auth_service_schamas import UserRole
+from src.app.schemas.constants import (
+    KHATABOOK_ENTRY_TYPE_CREDIT,
+    KHATABOOK_PAYMENT_TYPE,
+)
 from src.app.schemas.payment_service_schemas import (
+    CreatePaymentRequest,
     CreatePerson,
+    ItemListTag,
+    PaymentServiceResponse,
     PaymentsResponse,
     PaymentStatus,
-    PaymentServiceResponse,
-    CreatePaymentRequest,
     PaymentUpdateSchema,
     StatusDatePair,
-    ItemListTag,
-    UpdatePerson,
     UpdateItemSchema,
-    ItemDetail,
-    ItemCategoryCreate,
-    ItemCategoryResponse
+    UpdatePerson,
 )
-from src.app.notification.notification_service import send_push_notification
-from src.app.notification.notification_schemas import NotificationMessage
-from src.app.notification.notification_service import send_push_notification
-from src.app.notification.notification_schemas import NotificationMessage
-from sqlalchemy.orm import aliased
 from src.app.services.auth_service import get_current_user
 from src.app.services.project_service import create_project_balance_entry
-import json
-from collections import defaultdict
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -82,11 +79,10 @@ def notify_create_payment(amount: int, user: User, db: Session):
             UserRole.ACCOUNTANT.value,
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
-            UserRole.PROJECT_MANAGER.value
+            UserRole.PROJECT_MANAGER.value,
         ]
         people_to_notify = db.query(User).filter(
-            User.role.in_(roles_to_notify),
-            User.is_deleted.is_(False)
+            User.role.in_(roles_to_notify), User.is_deleted.is_(False)
         )
         if user.role in roles_to_notify:
             # Then in a second line, exclude the current user
@@ -95,23 +91,19 @@ def notify_create_payment(amount: int, user: User, db: Session):
         people = people_to_notify.all()
         notification = NotificationMessage(
             title="Payment Request",
-            body=f"Payment of {amount} amount requested by {user.name}"
+            body=f"Payment of {amount} amount requested by {user.name}",
         )
         for person in people:
             send_push_notification(
-                topic=str(person.uuid),
-                title=notification.title,
-                body=notification.body
+                topic=str(person.uuid), title=notification.title, body=notification.body
             )
-        logger.info(
-            f"{len(people)} Users were notified for this payment request"
-        )
+        logger.info(f"{len(people)} Users were notified for this payment request")
         return True
     except Exception as e:
         return PaymentServiceResponse(
             data=None,
             message=f"Error in notify_create_payment: {str(e)}",
-            status_code=500
+            status_code=500,
         ).model_dump()
 
 
@@ -133,13 +125,12 @@ def create_payment(
         payment_request = CreatePaymentRequest(**request_data)
 
         # Validate Project
-        project = db.query(Project).filter(
-            Project.uuid == payment_request.project_id).first()
+        project = (
+            db.query(Project).filter(Project.uuid == payment_request.project_id).first()
+        )
         if not project:
             return PaymentServiceResponse(
-                status_code=404,
-                data=None,
-                message="Project not found."
+                status_code=404, data=None, message="Project not found."
             ).model_dump()
 
         # If it's a self-payment, overwrite the `person` field with current_user's Person (if any)
@@ -160,10 +151,10 @@ def create_payment(
             amount=payment_request.amount,
             description=payment_request.description,
             project_id=payment_request.project_id,
-            status='requested',
+            status="requested",
             remarks=payment_request.remarks,
             created_by=current_user.uuid,
-            person=payment_request.person,            # might be overwritten for self_payment
+            person=payment_request.person,  # might be overwritten for self_payment
             self_payment=payment_request.self_payment,  # store the flag
             latitude=payment_request.latitude,
             longitude=payment_request.longitude,
@@ -177,18 +168,20 @@ def create_payment(
         db.add(
             PaymentStatusHistory(
                 payment_id=new_payment.uuid,
-                status='requested',
-                created_by=current_user.uuid
+                status="requested",
+                created_by=current_user.uuid,
             )
         )
         db.flush()
 
         # Link items if provided
         if payment_request.item_uuids:
-            db.add_all([
-                PaymentItem(payment_id=new_payment.uuid, item_id=item_id)
-                for item_id in payment_request.item_uuids
-            ])
+            db.add_all(
+                [
+                    PaymentItem(payment_id=new_payment.uuid, item_id=item_id)
+                    for item_id in payment_request.item_uuids
+                ]
+            )
 
         # Update project balance
         create_project_balance_entry(
@@ -196,7 +189,7 @@ def create_payment(
             project_id=payment_request.project_id,
             adjustment=-payment_request.amount,
             description="Payment deduction",
-            current_user=current_user
+            current_user=current_user,
         )
 
         # Handle file uploads
@@ -214,33 +207,27 @@ def create_payment(
                     buffer.write(file.file.read())
 
                 # Store the relative path in the database
-                db.add(PaymentFile(
-                    payment_id=new_payment.uuid,
-                    file_path=file_path
-                ))
+                db.add(PaymentFile(payment_id=new_payment.uuid, file_path=file_path))
 
         db.commit()
         notification = notify_create_payment(
-            amount=payment_request.amount,
-            user=current_user,
-            db=db
+            amount=payment_request.amount, user=current_user, db=db
         )
         if not notification:
             logger.error(
-                "Something went wrong while sending create payment notification")
+                "Something went wrong while sending create payment notification"
+            )
         return PaymentServiceResponse(
             data={"payment_uuid": current_payment_uuid},
             message="Payment created successfully.",
-            status_code=201
+            status_code=201,
         ).model_dump()
 
     except Exception as e:
         traceback.print_exc()
         db.rollback()
         return PaymentServiceResponse(
-            status_code=500,
-            data=None,
-            message=f"An error occurred: {str(e)}"
+            status_code=500, data=None, message=f"An error occurred: {str(e)}"
         ).model_dump()
 
 
@@ -256,9 +243,7 @@ def update_payment_amount(
     payment = db.query(Payment).filter(Payment.uuid == payment_uuid).first()
     if not payment:
         return PaymentServiceResponse(
-            message="Payment not found",
-            data=None,
-            status_code=404
+            message="Payment not found", data=None, status_code=404
         ).model_dump()
 
     # If the new amount is different from the old, record it in PaymentEditHistory
@@ -271,7 +256,7 @@ def update_payment_amount(
             old_amount=old_amount,
             new_amount=new_amount,
             remarks=payload.remark,
-            updated_by=current_user.uuid if current_user else None
+            updated_by=current_user.uuid if current_user else None,
         )
         db.add(edit_record)
 
@@ -293,7 +278,7 @@ def update_payment_amount(
             "amount": payment.amount,
             "update_remarks": payment.update_remarks,
         },
-        status_code=201
+        status_code=201,
     ).model_dump()
 
 
@@ -330,15 +315,25 @@ def can_edit_payment(status_history: List[str], current_user_role: str) -> bool:
         return False
 
     # Project Manager, Admin, Accountant, SuperAdmin can edit in any status except transferred or declined
-    if current_user_role in [UserRole.PROJECT_MANAGER, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
-        if any(status in [PaymentStatus.TRANSFERRED, PaymentStatus.DECLINED] for status in status_history):
+    if current_user_role in [
+        UserRole.PROJECT_MANAGER,
+        UserRole.ADMIN,
+        UserRole.ACCOUNTANT,
+        UserRole.SUPER_ADMIN,
+    ]:
+        if any(
+            status in [PaymentStatus.TRANSFERRED, PaymentStatus.DECLINED]
+            for status in status_history
+        ):
             return False
         return True
 
     return False
 
 
-def create_khatabook_entry_for_self_payment(payment: Payment, db: Session, balance_after_entry: float) -> bool:
+def create_khatabook_entry_for_self_payment(
+    payment: Payment, db: Session, balance_after_entry: float
+) -> bool:
     """
     Creates a khatabook entry for a self payment when it's approved (transferred).
 
@@ -354,29 +349,38 @@ def create_khatabook_entry_for_self_payment(payment: Payment, db: Session, balan
         # Create the khatabook entry
         khatabook_entry = Khatabook(
             amount=payment.amount,
-            remarks=f"Self payment approved - {payment.description}" if payment.description else "Self payment approved",
+            remarks=(
+                f"Self payment approved - {payment.description}"
+                if payment.description
+                else "Self payment approved"
+            ),
             person_id=payment.person,  # The person receiving the payment
             expense_date=payment.transferred_date or datetime.now(),
             created_by=payment.created_by,
             balance_after_entry=balance_after_entry,  # Balance after the payment was added
             project_id=payment.project_id,
             payment_mode="Bank Transfer",  # Default payment mode for approved payments
-            entry_type=KHATABOOK_ENTRY_TYPE_CREDIT  # Self payment entries are Credit
+            entry_type=KHATABOOK_ENTRY_TYPE_CREDIT,  # Self payment entries are Credit
         )
 
         db.add(khatabook_entry)
         db.flush()
 
-        logger.info(f"Created khatabook entry {khatabook_entry.uuid} for self payment {payment.uuid}")
+        logger.info(
+            f"Created khatabook entry {khatabook_entry.uuid} for self payment {payment.uuid}"
+        )
         return True
 
     except Exception as e:
-        logger.error(f"Error creating khatabook entry for self payment {payment.uuid}: {str(e)}")
+        logger.error(
+            f"Error creating khatabook entry for self payment {payment.uuid}: {str(e)}"
+        )
         return False
 
 
 # ========================== Payments API Started =======================================================================
 # region Payments API
+
 
 def build_recent_subquery(db: Session, current_user: User, recent: bool):
     """
@@ -387,12 +391,14 @@ def build_recent_subquery(db: Session, current_user: User, recent: bool):
     recent_status = [PaymentStatus.DECLINED.value, PaymentStatus.TRANSFERRED.value]
 
     base_q = db.query(Payment.uuid).filter(
-        Payment.is_deleted.is_(False),
-        Payment.status.not_in(recent_status)
+        Payment.is_deleted.is_(False), Payment.status.not_in(recent_status)
     )
 
     # Restrict to own payments if site eng / sub con
-    if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
+    if current_user.role in [
+        UserRole.SITE_ENGINEER.value,
+        UserRole.SUB_CONTRACTOR.value,
+    ]:
         base_q = base_q.filter(Payment.created_by == current_user.uuid)
 
     if recent:
@@ -471,10 +477,7 @@ def build_main_payments_query(db: Session, pending_request: bool):
         .outerjoin(EditUser, EditUser.uuid == PaymentEditHistory.updated_by)
         .outerjoin(
             Priority,
-            and_(
-                Payment.priority_id == Priority.uuid,
-                Priority.is_deleted.is_(False)
-            ),
+            and_(Payment.priority_id == Priority.uuid, Priority.is_deleted.is_(False)),
         )
         .filter(Payment.is_deleted.is_(False))
     )
@@ -498,6 +501,7 @@ def get_user_project_ids(db: Session, user_uuid: UUID):
     )
     return [mapping[0] for mapping in project_mappings]
 
+
 def apply_role_restrictions(query, current_user: User, db: Session = None):
     """
     Apply role-based restrictions to the query:
@@ -505,7 +509,10 @@ def apply_role_restrictions(query, current_user: User, db: Session = None):
     - Site Engineer, Sub Contractor: see only payments they created
     - Project Manager: see only payments from projects they're assigned to
     """
-    if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
+    if current_user.role in [
+        UserRole.SITE_ENGINEER.value,
+        UserRole.SUB_CONTRACTOR.value,
+    ]:
         query = query.filter(Payment.created_by == current_user.uuid)
     elif current_user.role == UserRole.PROJECT_MANAGER.value and db is not None:
         # Project Managers can only see payments from projects they're assigned to
@@ -554,16 +561,13 @@ def apply_pending_request_logic(query, pending_request: bool, current_user: User
         UserRole.PROJECT_MANAGER.value,
     ]:
         statuses = ["requested"]
-        status_order = case(
-            (Payment.status == "requested", 0),
-            else_=9999
-        )
+        status_order = case((Payment.status == "requested", 0), else_=9999)
     elif role == UserRole.ADMIN.value:
         statuses = ["verified", "requested"]
         status_order = case(
             (Payment.status == "verified", 0),
             (Payment.status == "requested", 1),
-            else_=9999
+            else_=9999,
         )
     elif role in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
         statuses = ["approved", "verified", "requested"]
@@ -571,7 +575,7 @@ def apply_pending_request_logic(query, pending_request: bool, current_user: User
             (Payment.status == "approved", 0),
             (Payment.status == "verified", 1),
             (Payment.status == "requested", 2),
-            else_=9999
+            else_=9999,
         )
     else:
         return query  # Unrecognized role => do nothing special
@@ -613,7 +617,9 @@ def apply_filters(
         if start_date is not None:
             query = query.filter(Payment.created_at >= start_date)
         if end_date is not None:
-            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            end_date = end_date.replace(
+                hour=23, minute=59, second=59, microsecond=999999
+            )
             query = query.filter(Payment.created_at <= end_date)
 
     if person_id is not None:
@@ -629,7 +635,9 @@ def apply_filters(
     return query
 
 
-def apply_accountant_amount_restriction(query, current_user: User, pending_request: bool, recent: bool):
+def apply_accountant_amount_restriction(
+    query, current_user: User, pending_request: bool, recent: bool
+):
     """
     If user is accountant and (pending_request == True OR recent == True),
     only show payments where Payment.amount <= 10000.
@@ -668,15 +676,22 @@ def group_query_results(results):
 
         if history_status and history_created_at:
             date_str = history_created_at.strftime("%Y-%m-%d %H:%M:%S")
-            status_key = (history_status, date_str, status_created_by_name, status_created_by_role)
+            status_key = (
+                history_status,
+                date_str,
+                status_created_by_name,
+                status_created_by_role,
+            )
             if status_key not in grouped_data[payment_obj.uuid]["status_seen"]:
                 grouped_data[payment_obj.uuid]["status_seen"].add(status_key)
-                grouped_data[payment_obj.uuid]["statuses"].append({
-                    "status": history_status,
-                    "date": date_str,
-                    "created_by": status_created_by_name,
-                    "role": status_created_by_role
-                })
+                grouped_data[payment_obj.uuid]["statuses"].append(
+                    {
+                        "status": history_status,
+                        "date": date_str,
+                        "created_by": status_created_by_name,
+                        "role": status_created_by_role,
+                    }
+                )
 
         # Collect edit histories
         if row.edit_old_amount is not None and row.edit_new_amount is not None:
@@ -690,19 +705,22 @@ def group_query_results(results):
             )
             if edit_key not in grouped_data[payment_obj.uuid]["edits_seen"]:
                 grouped_data[payment_obj.uuid]["edits_seen"].add(edit_key)
-                grouped_data[payment_obj.uuid]["edits"].append({
-                    "old_amount": row.edit_old_amount,
-                    "new_amount": row.edit_new_amount,
-                    "remarks": row.edit_remarks,
-                    "updated_at": (
-                        row.edit_updated_at.strftime("%Y-%m-%d %H:%M:%S")
-                        if row.edit_updated_at else None
-                    ),
-                    "updated_by": {
-                        "name": row.edit_updated_by_name,
-                        "role": row.edit_updated_by_role
+                grouped_data[payment_obj.uuid]["edits"].append(
+                    {
+                        "old_amount": row.edit_old_amount,
+                        "new_amount": row.edit_new_amount,
+                        "remarks": row.edit_remarks,
+                        "updated_at": (
+                            row.edit_updated_at.strftime("%Y-%m-%d %H:%M:%S")
+                            if row.edit_updated_at
+                            else None
+                        ),
+                        "updated_by": {
+                            "name": row.edit_updated_by_name,
+                            "role": row.edit_updated_by_role,
+                        },
                     }
-                })
+                )
 
     return grouped_data
 
@@ -735,10 +753,15 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
 
         # ----------------------------------------------------------- items
         # Create a list of dictionaries with item name and UUID
-        items_data = [
-            {"name": p_item.item.name, "uuid": str(p_item.item.uuid)}
-            for p_item in payment.payment_items if p_item.item
-        ] if payment.payment_items else []
+        items_data = (
+            [
+                {"name": p_item.item.name, "uuid": str(p_item.item.uuid)}
+                for p_item in payment.payment_items
+                if p_item.item
+            ]
+            if payment.payment_items
+            else []
+        )
 
         # Keep the original item_names list for backward compatibility
         item_names = [item["name"] for item in items_data]
@@ -754,56 +777,67 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
         )
 
         # ----------------------------------------------------------- build response
-        payments_data.append({
-            **PaymentsResponse(
-                uuid=payment.uuid,
-                amount=payment.amount,
-                description=payment.description,
-                project={
-                    "uuid": str(payment.project_id),
-                    "name": project_name
-                } if payment.project_id else None,
-                person={
-                    "uuid": str(parent_data.uuid),
-                    "name": parent_data.name
-                } if parent_data else None,
-                payment_details={
-                    "person_uuid": str(payment.person) if payment.person else None,
-                    "name": person_name,
-                    "account_number": str(row.account_number) if row.account_number else None,
-                    "ifsc_code": row.ifsc_code if row.ifsc_code else None,
-                    "upi_number": row.upi_number if row.upi_number else None
-                },
-                created_by={
-                    "uuid": str(payment.created_by),
-                    "name": user_name
-                } if payment.created_by else None,
-                files=file_urls,
-                # items=[ItemDetail(uuid=item["uuid"], name=item["name"]) for item in items_data],
-                items=item_names,
-                remarks=payment.remarks,
-                status_history=[StatusDatePair(**h) for h in data["statuses"]],
-                current_status=payment.status,
-                created_at=payment.created_at.strftime("%Y-%m-%d"),
-                update_remarks=payment.update_remarks,
-                latitude=payment.latitude,
-                longitude=payment.longitude,
-                transferred_date=(
-                    payment.transferred_date.strftime("%Y-%m-%d")
-                    if payment.transferred_date else None
+        payments_data.append(
+            {
+                **PaymentsResponse(
+                    uuid=payment.uuid,
+                    amount=payment.amount,
+                    description=payment.description,
+                    project=(
+                        {"uuid": str(payment.project_id), "name": project_name}
+                        if payment.project_id
+                        else None
+                    ),
+                    person=(
+                        {"uuid": str(parent_data.uuid), "name": parent_data.name}
+                        if parent_data
+                        else None
+                    ),
+                    payment_details={
+                        "person_uuid": str(payment.person) if payment.person else None,
+                        "name": person_name,
+                        "account_number": (
+                            str(row.account_number) if row.account_number else None
+                        ),
+                        "ifsc_code": row.ifsc_code if row.ifsc_code else None,
+                        "upi_number": row.upi_number if row.upi_number else None,
+                    },
+                    created_by=(
+                        {"uuid": str(payment.created_by), "name": user_name}
+                        if payment.created_by
+                        else None
+                    ),
+                    files=file_urls,
+                    # items=[ItemDetail(uuid=item["uuid"], name=item["name"]) for item in items_data],
+                    items=item_names,
+                    remarks=payment.remarks,
+                    status_history=[StatusDatePair(**h) for h in data["statuses"]],
+                    current_status=payment.status,
+                    created_at=payment.created_at.strftime("%Y-%m-%d"),
+                    update_remarks=payment.update_remarks,
+                    latitude=payment.latitude,
+                    longitude=payment.longitude,
+                    transferred_date=(
+                        payment.transferred_date.strftime("%Y-%m-%d")
+                        if payment.transferred_date
+                        else None
+                    ),
+                    payment_history=data["edits"],
+                ).model_dump(),
+                "priority_name": priority_name,
+                "edit": can_edit_payment(status_list, current_user.role),
+                "decline_remark": payment.decline_remark,
+                "approval_files": approval_files,
+                # ---------- NEW KEYS ----------
+                "transferred_from_bank": bank_name,
+                "payment_type": (
+                    KHATABOOK_PAYMENT_TYPE if payment.self_payment else None
                 ),
-                payment_history=data["edits"]
-            ).model_dump(),
-            "priority_name": priority_name,
-            "edit": can_edit_payment(status_list, current_user.role),
-            "decline_remark": payment.decline_remark,
-            "approval_files": approval_files,
-            # ---------- NEW KEYS ----------
-            "transferred_from_bank": bank_name,
-            "payment_type": KHATABOOK_PAYMENT_TYPE if payment.self_payment else None
-        })
+            }
+        )
 
     return payments_data
+
 
 @payment_router.get("", tags=["Payments"], status_code=200)
 def get_all_payments(
@@ -817,10 +851,18 @@ def get_all_payments(
     person_id: Optional[UUID] = Query(None),
     item_id: Optional[UUID] = Query(None),
     current_user: User = Depends(get_current_user),
-    from_uuid: Optional[UUID] = Query(None, description="UUID of the user who created the payment"),
-    to_uuid: Optional[UUID] = Query(None, description="UUID of the person receiving the payment"),
-    pending_request: Optional[bool] = Query(False, description="If true, show only role‑specific pending payments."),
-    page: Optional[int] = Query(None, ge=1, description="Page number (10 rows per page, omit/null = all)"),
+    from_uuid: Optional[UUID] = Query(
+        None, description="UUID of the user who created the payment"
+    ),
+    to_uuid: Optional[UUID] = Query(
+        None, description="UUID of the person receiving the payment"
+    ),
+    pending_request: Optional[bool] = Query(
+        False, description="If true, show only role‑specific pending payments."
+    ),
+    page: Optional[int] = Query(
+        None, ge=1, description="Page number (10 rows per page, omit/null = all)"
+    ),
 ):
     """
     Three modes:
@@ -852,12 +894,14 @@ def get_all_payments(
         # Get all payments with the specified statuses, regardless of pagination
         query = db.query(func.sum(Payment.amount)).filter(
             Payment.is_deleted.is_(False),
-            Payment.status.in_([
-                PaymentStatus.REQUESTED.value,
-                PaymentStatus.APPROVED.value,
-                PaymentStatus.VERIFIED.value,
-                PaymentStatus.TRANSFERRED.value
-            ])
+            Payment.status.in_(
+                [
+                    PaymentStatus.REQUESTED.value,
+                    PaymentStatus.APPROVED.value,
+                    PaymentStatus.VERIFIED.value,
+                    PaymentStatus.TRANSFERRED.value,
+                ]
+            ),
         )
 
         # Apply the same role-based restrictions as the main query
@@ -868,61 +912,19 @@ def get_all_payments(
             query = query.filter(Payment.status.in_(status))
             # query = query.filter(Payment.status != PaymentStatus.DECLINED.value)
         if start_date and end_date:
-            end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-            query = query.filter(Payment.created_at.between(start_date, end_date_with_time))
-        else:
-            if start_date:
-                query = query.filter(Payment.created_at >= start_date)
-            if end_date:
-                end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-                query = query.filter(Payment.created_at <= end_date_with_time)
-        if from_uuid:
-            query = query.filter(Payment.created_by == from_uuid)
-        if person_id or to_uuid:
-            query = query.join(Person, Payment.person ==
-                               Person.uuid, isouter=True)
-            if person_id:
-                query = query.filter(Payment.person == person_id)
-            if to_uuid:
-                query = query.filter(Person.uuid == to_uuid)
-        if item_id:
-            query = query.join(
-                PaymentItem,
-                PaymentItem.payment_id == Payment.uuid, isouter=True
-            ).filter(
-                PaymentItem.is_deleted.is_(False),
-                PaymentItem.item_id == item_id
+            end_date_with_time = end_date.replace(
+                hour=23, minute=59, second=59, microsecond=999999
             )
-
-        return query.scalar() or 0.0
-
-    def calculate_total_pending_amount(db):
-        """Calculate total amount of all payments with status requested, approved, or verified (excluding transferred)"""
-        # Get all payments with the specified statuses, regardless of pagination
-        query = db.query(func.sum(Payment.amount)).filter(
-            Payment.is_deleted.is_(False),
-            Payment.status.in_([
-                PaymentStatus.REQUESTED.value,
-                PaymentStatus.APPROVED.value,
-                PaymentStatus.VERIFIED.value
-            ]),
-            # Payment.status != PaymentStatus.DECLINED.value  # Exclude declined
-        )
-
-        # Apply the same role-based restrictions as the main query
-        query = apply_role_restrictions(query, current_user, db)
-        if project_id is not None:
-            query = query.filter(Payment.project_id == project_id)
-        if status is not None:
-            query = query.filter(Payment.status.in_(status))
-        if start_date and end_date:
-            end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-            query = query.filter(Payment.created_at.between(start_date, end_date_with_time))
+            query = query.filter(
+                Payment.created_at.between(start_date, end_date_with_time)
+            )
         else:
             if start_date:
                 query = query.filter(Payment.created_at >= start_date)
             if end_date:
-                end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                end_date_with_time = end_date.replace(
+                    hour=23, minute=59, second=59, microsecond=999999
+                )
                 query = query.filter(Payment.created_at <= end_date_with_time)
         if from_uuid:
             query = query.filter(Payment.created_by == from_uuid)
@@ -934,12 +936,59 @@ def get_all_payments(
                 query = query.filter(Person.uuid == to_uuid)
         if item_id:
             query = query.join(
-                PaymentItem,
-                PaymentItem.payment_id == Payment.uuid, isouter=True
-            ).filter(
-                PaymentItem.is_deleted.is_(False),
-                PaymentItem.item_id == item_id
+                PaymentItem, PaymentItem.payment_id == Payment.uuid, isouter=True
+            ).filter(PaymentItem.is_deleted.is_(False), PaymentItem.item_id == item_id)
+
+        return query.scalar() or 0.0
+
+    def calculate_total_pending_amount(db):
+        """Calculate total amount of all payments with status requested, approved, or verified (excluding transferred)"""
+        # Get all payments with the specified statuses, regardless of pagination
+        query = db.query(func.sum(Payment.amount)).filter(
+            Payment.is_deleted.is_(False),
+            Payment.status.in_(
+                [
+                    PaymentStatus.REQUESTED.value,
+                    PaymentStatus.APPROVED.value,
+                    PaymentStatus.VERIFIED.value,
+                ]
+            ),
+            # Payment.status != PaymentStatus.DECLINED.value  # Exclude declined
+        )
+
+        # Apply the same role-based restrictions as the main query
+        query = apply_role_restrictions(query, current_user, db)
+        if project_id is not None:
+            query = query.filter(Payment.project_id == project_id)
+        if status is not None:
+            query = query.filter(Payment.status.in_(status))
+        if start_date and end_date:
+            end_date_with_time = end_date.replace(
+                hour=23, minute=59, second=59, microsecond=999999
             )
+            query = query.filter(
+                Payment.created_at.between(start_date, end_date_with_time)
+            )
+        else:
+            if start_date:
+                query = query.filter(Payment.created_at >= start_date)
+            if end_date:
+                end_date_with_time = end_date.replace(
+                    hour=23, minute=59, second=59, microsecond=999999
+                )
+                query = query.filter(Payment.created_at <= end_date_with_time)
+        if from_uuid:
+            query = query.filter(Payment.created_by == from_uuid)
+        if person_id or to_uuid:
+            query = query.join(Person, Payment.person == Person.uuid, isouter=True)
+            if person_id:
+                query = query.filter(Payment.person == person_id)
+            if to_uuid:
+                query = query.filter(Person.uuid == to_uuid)
+        if item_id:
+            query = query.join(
+                PaymentItem, PaymentItem.payment_id == Payment.uuid, isouter=True
+            ).filter(PaymentItem.is_deleted.is_(False), PaymentItem.item_id == item_id)
 
         return query.scalar() or 0.0
 
@@ -947,10 +996,9 @@ def get_all_payments(
     if recent:
         base = (
             db.query(Payment.uuid)
-              .filter(
-                  Payment.is_deleted.is_(False),
-                  Payment.status.notin_(
-                      ["transferred", "declined"])  # exclude first!
+            .filter(
+                Payment.is_deleted.is_(False),
+                Payment.status.notin_(["transferred", "declined"]),  # exclude first!
             )
             .order_by(Payment.created_at.desc())
         )
@@ -970,13 +1018,17 @@ def get_all_payments(
         if status is not None:
             base = base.filter(Payment.status.in_(status))
         if start_date and end_date:
-            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            end_date = end_date.replace(
+                hour=23, minute=59, second=59, microsecond=999999
+            )
             base = base.filter(Payment.created_at.between(start_date, end_date))
         else:
             if start_date:
                 base = base.filter(Payment.created_at >= start_date)
             if end_date:
-                end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                end_date = end_date.replace(
+                    hour=23, minute=59, second=59, microsecond=999999
+                )
                 base = base.filter(Payment.created_at <= end_date)
         if from_uuid:
             base = base.filter(Payment.created_by == from_uuid)
@@ -987,10 +1039,9 @@ def get_all_payments(
             if to_uuid:
                 base = base.filter(Person.uuid == to_uuid)
         if item_id:
-            base = base.join(PaymentItem,
-                             PaymentItem.payment_id == Payment.uuid, isouter=True)\
-                       .filter(PaymentItem.is_deleted.is_(False),
-                               PaymentItem.item_id == item_id)
+            base = base.join(
+                PaymentItem, PaymentItem.payment_id == Payment.uuid, isouter=True
+            ).filter(PaymentItem.is_deleted.is_(False), PaymentItem.item_id == item_id)
 
         # Apply ordering and limit AFTER all filters
         base = base.order_by(Payment.created_at.desc()).limit(5)
@@ -1007,24 +1058,26 @@ def get_all_payments(
                     "records": [],
                     "total_count": 0,
                     "total_request_amount": total_request_amount,
-                    "total_pending_amount": total_pending_amount
+                    "total_pending_amount": total_pending_amount,
                 },
                 message="No recent payments found.",
-                status_code=200
+                status_code=200,
             ).model_dump()
 
-        main_q = build_main_payments_query(db, pending_request=False)\
-            .filter(Payment.uuid.in_(uuids))
+        main_q = build_main_payments_query(db, pending_request=False).filter(
+            Payment.uuid.in_(uuids)
+        )
         results = main_q.all()
         grouped = assemble_payments_response(
-            group_query_results(results), db, current_user)
+            group_query_results(results), db, current_user
+        )
         records_out = order_records(uuids, grouped)
 
         payload = {
             "records": records_out,
             "total_count": total,
             "total_request_amount": total_request_amount,
-            "total_pending_amount": total_pending_amount
+            "total_pending_amount": total_pending_amount,
         }
         if page:
             payload.update({"page": page, "limit": 10})
@@ -1032,28 +1085,25 @@ def get_all_payments(
         return PaymentServiceResponse(
             data=payload,
             message="Recent payments fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     # ------------------------------------------------------------------ 2) PENDING‑REQUEST MODE
     if pending_request:
         role_status_map = {
-            UserRole.ACCOUNTANT.value:  ["approved", "verified", "requested"],
+            UserRole.ACCOUNTANT.value: ["approved", "verified", "requested"],
             UserRole.SUPER_ADMIN.value: ["approved", "verified", "requested"],
-            UserRole.ADMIN.value:       ["verified",  "requested"],
+            UserRole.ADMIN.value: ["verified", "requested"],
         }
         wanted_statuses = role_status_map.get(current_user.role, ["requested"])
 
         status_rank = {s: i for i, s in enumerate(wanted_statuses)}
-        rank_expr = case(*[(Payment.status == s, r) for s, r in status_rank.items()],
-                         else_=99)
+        rank_expr = case(
+            *[(Payment.status == s, r) for s, r in status_rank.items()], else_=99
+        )
 
-        base = (
-            db.query(Payment.uuid)
-              .filter(
-                  Payment.is_deleted.is_(False),
-                  Payment.status.in_(wanted_statuses)
-            )
+        base = db.query(Payment.uuid).filter(
+            Payment.is_deleted.is_(False), Payment.status.in_(wanted_statuses)
         )
 
         # Apply role-based restrictions
@@ -1071,13 +1121,17 @@ def get_all_payments(
         if status is not None:
             base = base.filter(Payment.status.in_(status))
         if start_date and end_date:
-            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            end_date = end_date.replace(
+                hour=23, minute=59, second=59, microsecond=999999
+            )
             base = base.filter(Payment.created_at.between(start_date, end_date))
         else:
             if start_date:
                 base = base.filter(Payment.created_at >= start_date)
             if end_date:
-                end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+                end_date = end_date.replace(
+                    hour=23, minute=59, second=59, microsecond=999999
+                )
                 base = base.filter(Payment.created_at <= end_date)
         if from_uuid:
             base = base.filter(Payment.created_by == from_uuid)
@@ -1088,10 +1142,9 @@ def get_all_payments(
             if to_uuid:
                 base = base.filter(Person.uuid == to_uuid)
         if item_id:
-            base = base.join(PaymentItem,
-                             PaymentItem.payment_id == Payment.uuid, isouter=True)\
-                       .filter(PaymentItem.is_deleted.is_(False),
-                               PaymentItem.item_id == item_id)
+            base = base.join(
+                PaymentItem, PaymentItem.payment_id == Payment.uuid, isouter=True
+            ).filter(PaymentItem.is_deleted.is_(False), PaymentItem.item_id == item_id)
 
         # ORDER: status_rank asc, then created_at desc
         base = base.order_by(rank_expr, Payment.created_at.desc())
@@ -1108,24 +1161,26 @@ def get_all_payments(
                     "records": [],
                     "total_count": 0,
                     "total_request_amount": total_request_amount,
-                    "total_pending_amount": total_pending_amount
+                    "total_pending_amount": total_pending_amount,
                 },
                 message="No pending payments.",
-                status_code=200
+                status_code=200,
             ).model_dump()
 
-        main_q = build_main_payments_query(db, pending_request=True)\
-            .filter(Payment.uuid.in_(uuids))
+        main_q = build_main_payments_query(db, pending_request=True).filter(
+            Payment.uuid.in_(uuids)
+        )
         results = main_q.all()
         grouped = assemble_payments_response(
-            group_query_results(results), db, current_user)
+            group_query_results(results), db, current_user
+        )
         records_out = order_records(uuids, grouped)
 
         payload = {
             "records": records_out,
             "total_count": total,
             "total_request_amount": total_request_amount,
-            "total_pending_amount": total_pending_amount
+            "total_pending_amount": total_pending_amount,
         }
         if page:
             payload.update({"page": page, "limit": 10})
@@ -1133,14 +1188,14 @@ def get_all_payments(
         return PaymentServiceResponse(
             data=payload,
             message="Pending payments fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     # ------------------------------------------------------------------ 3) NORMAL LIST
     base = (
         db.query(Payment.uuid)
-          .filter(Payment.is_deleted.is_(False))
-          .order_by(Payment.created_at.desc())
+        .filter(Payment.is_deleted.is_(False))
+        .order_by(Payment.created_at.desc())
     )
 
     # Apply role-based restrictions
@@ -1160,7 +1215,9 @@ def get_all_payments(
         if start_date:
             base = base.filter(Payment.created_at >= start_date)
         if end_date:
-            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            end_date = end_date.replace(
+                hour=23, minute=59, second=59, microsecond=999999
+            )
             base = base.filter(Payment.created_at <= end_date)
     if from_uuid:
         base = base.filter(Payment.created_by == from_uuid)
@@ -1171,10 +1228,9 @@ def get_all_payments(
         if to_uuid:
             base = base.filter(Person.uuid == to_uuid)
     if item_id:
-        base = base.join(PaymentItem,
-                         PaymentItem.payment_id == Payment.uuid, isouter=True)\
-            .filter(PaymentItem.is_deleted.is_(False),
-                    PaymentItem.item_id == item_id)
+        base = base.join(
+            PaymentItem, PaymentItem.payment_id == Payment.uuid, isouter=True
+        ).filter(PaymentItem.is_deleted.is_(False), PaymentItem.item_id == item_id)
 
     # Calculate total amounts using the helper functions
     total_request_amount = calculate_total_request_amount(db)
@@ -1188,35 +1244,37 @@ def get_all_payments(
                 "records": [],
                 "total_count": 0,
                 "total_request_amount": total_request_amount,
-                "total_pending_amount": total_pending_amount
+                "total_pending_amount": total_pending_amount,
             },
             message="No payments found.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
-    main_q = build_main_payments_query(db, pending_request=False)\
-        .filter(Payment.uuid.in_(uuids))
+    main_q = build_main_payments_query(db, pending_request=False).filter(
+        Payment.uuid.in_(uuids)
+    )
     grouped = assemble_payments_response(
-        group_query_results(main_q.all()), db, current_user)
+        group_query_results(main_q.all()), db, current_user
+    )
     records_out = order_records(uuids, grouped)
 
     payload = {
         "records": records_out,
         "total_count": total,
         "total_request_amount": total_request_amount,
-        "total_pending_amount": total_pending_amount
+        "total_pending_amount": total_pending_amount,
     }
     if page:
         payload.update({"page": page, "limit": 10})
 
     return PaymentServiceResponse(
-        data=payload,
-        message="All payments fetched successfully.",
-        status_code=200
+        data=payload, message="All payments fetched successfully.", status_code=200
     ).model_dump()
+
 
 # endregion
 # ========================== Payments API Finished =======================================================================
+
 
 @payment_router.delete("")
 def delete_payment(
@@ -1228,9 +1286,7 @@ def delete_payment(
         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
         if not payment:
             return PaymentServiceResponse(
-                data=None,
-                status_code=404,
-                message="Payment not found."
+                data=None, status_code=404, message="Payment not found."
             ).model_dump()
 
         # Soft-delete the Payment
@@ -1259,41 +1315,30 @@ def delete_payment(
         db.commit()
 
         return PaymentServiceResponse(
-            data=None,
-            message="Payment deleted successfully",
-            status_code=200
+            data=None, message="Payment deleted successfully", status_code=200
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"An Error Occurred: {str(e)}",
-            status_code=500
+            data=None, message=f"An Error Occurred: {str(e)}", status_code=500
         ).model_dump()
 
 
 def notify_payment_status_update(
-        amount: int,
-        status: str,
-        user: User,
-        payment_user: UUID,
-        db: Session
+    amount: int, status: str, user: User, payment_user: UUID, db: Session
 ):
     roles_to_notify = [
         UserRole.ACCOUNTANT.value,
         UserRole.ADMIN.value,
         UserRole.SUPER_ADMIN.value,
-        UserRole.PROJECT_MANAGER.value
+        UserRole.PROJECT_MANAGER.value,
     ]
 
     # 1) Base query: roles_to_notify OR payment_user
     people_to_notify = db.query(User).filter(
-        or_(
-            User.role.in_(roles_to_notify),
-            User.uuid == payment_user
-        ),
-        User.is_deleted.is_(False)
+        or_(User.role.in_(roles_to_notify), User.uuid == payment_user),
+        User.is_deleted.is_(False),
     )
 
     # 2) Exclude current user if they're in that set
@@ -1301,26 +1346,28 @@ def notify_payment_status_update(
         people_to_notify = people_to_notify.filter(User.uuid != user.uuid)
 
     # 3) If status is APPROVED or VERIFIED, exclude ALL Site Engineers & Sub-contractors
-    if status in [PaymentStatus.APPROVED.value, PaymentStatus.VERIFIED.value, "approved", "verified"]:
+    if status in [
+        PaymentStatus.APPROVED.value,
+        PaymentStatus.VERIFIED.value,
+        "approved",
+        "verified",
+    ]:
         people_to_notify = people_to_notify.filter(
-            ~User.role.in_([
-                UserRole.SITE_ENGINEER.value,
-                UserRole.SUB_CONTRACTOR.value
-            ])
+            ~User.role.in_(
+                [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]
+            )
         )
 
     # 4) Now fetch and notify
     people = people_to_notify.all()
     notification = NotificationMessage(
         title="Payment Status Updated",
-        body=f"Payment of {amount} {status} by {user.name}"
+        body=f"Payment of {amount} {status} by {user.name}",
     )
 
     for person in people:
         send_push_notification(
-            topic=str(person.uuid),
-            title=notification.title,
-            body=notification.body
+            topic=str(person.uuid), title=notification.title, body=notification.body
         )
     logger.info(f"{len(people)} Users were notified for this payment request")
     return True
@@ -1411,6 +1458,7 @@ def cancel_payment_status(
             status_code=500,
         ).model_dump()
 
+
 @payment_router.put("/approve")
 def approve_payment(
     payment_id: UUID,
@@ -1436,21 +1484,17 @@ def approve_payment(
             UserRole.ADMIN.value,
             UserRole.PROJECT_MANAGER.value,
             UserRole.SITE_ENGINEER.value,
-            UserRole.ACCOUNTANT.value
+            UserRole.ACCOUNTANT.value,
         ]:
             return PaymentServiceResponse(
-                data=None,
-                message=constants.CANT_APPROVE_PAYMENT,
-                status_code=403
+                data=None, message=constants.CANT_APPROVE_PAYMENT, status_code=403
             ).model_dump()
 
         # 2) Find the payment
         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
         if not payment:
             return PaymentServiceResponse(
-                data=None,
-                message=constants.PAYMENT_NOT_FOUND,
-                status_code=404
+                data=None, message=constants.PAYMENT_NOT_FOUND, status_code=404
             ).model_dump()
 
         # 3) Get the next status from the role -> status mapping
@@ -1460,14 +1504,12 @@ def approve_payment(
             return PaymentServiceResponse(
                 data=None,
                 message="Invalid role for updating payment status.",
-                status_code=400
+                status_code=400,
             ).model_dump()
 
         # 4) Always create a PaymentStatusHistory record
         payment_status = PaymentStatusHistory(
-            payment_id=payment_id,
-            status=status,
-            created_by=current_user.uuid
+            payment_id=payment_id, status=status, created_by=current_user.uuid
         )
         db.add(payment_status)
 
@@ -1476,7 +1518,7 @@ def approve_payment(
             "requested": 1,
             "verified": 2,
             "approved": 3,
-            "transferred": 4
+            "transferred": 4,
         }
 
         def get_order(s: str) -> int:
@@ -1495,30 +1537,37 @@ def approve_payment(
                 return PaymentServiceResponse(
                     data=None,
                     message="Must provide bank_uuid when transferring payment.",
-                    status_code=400
+                    status_code=400,
                 ).model_dump()
 
             payment.transferred_date = datetime.now()
 
             # For self-payment logic
             if payment.self_payment:
-                logger.info(f"Processing self payment {payment.uuid} for user {payment.created_by}")
+                logger.info(
+                    f"Processing self payment {payment.uuid} for user {payment.created_by}"
+                )
 
-                user_balance = db.query(KhatabookBalance).filter(
-                    KhatabookBalance.user_uuid == payment.created_by
-                ).first()
+                user_balance = (
+                    db.query(KhatabookBalance)
+                    .filter(KhatabookBalance.user_uuid == payment.created_by)
+                    .first()
+                )
 
                 old_balance = 0.0
                 if not user_balance:
-                    logger.info(f"Creating new khatabook balance for user {payment.created_by}")
+                    logger.info(
+                        f"Creating new khatabook balance for user {payment.created_by}"
+                    )
                     user_balance = KhatabookBalance(
-                        user_uuid=payment.created_by,
-                        balance=0.0
+                        user_uuid=payment.created_by, balance=0.0
                     )
                     db.add(user_balance)
                 else:
                     old_balance = user_balance.balance
-                    logger.info(f"User {payment.created_by} current balance: {old_balance}")
+                    logger.info(
+                        f"User {payment.created_by} current balance: {old_balance}"
+                    )
 
                 # Increase the user's khatabook balance
                 user_balance.balance += payment.amount
@@ -1534,10 +1583,15 @@ def approve_payment(
 
                 # Get the last khatabook entry's balance_after_entry to
                 # maintain consistency
-                last_entry = db.query(Khatabook).filter(
-                    Khatabook.created_by == payment.created_by,
-                    Khatabook.is_deleted.is_(False)
-                ).order_by(Khatabook.created_at.desc()).first()
+                last_entry = (
+                    db.query(Khatabook)
+                    .filter(
+                        Khatabook.created_by == payment.created_by,
+                        Khatabook.is_deleted.is_(False),
+                    )
+                    .order_by(Khatabook.created_at.desc())
+                    .first()
+                )
 
                 # Calculate balance_after_entry as last entry's balance +
                 # payment amount
@@ -1569,14 +1623,14 @@ def approve_payment(
                     )
 
             # Deduct from the chosen bank
-            balance_obj = db.query(BalanceDetail).filter(
-                BalanceDetail.uuid == bank_uuid
-            ).first()
+            balance_obj = (
+                db.query(BalanceDetail).filter(BalanceDetail.uuid == bank_uuid).first()
+            )
             if not balance_obj:
                 return PaymentServiceResponse(
                     data=None,
                     message="No bank found for given bank_uuid.",
-                    status_code=404
+                    status_code=404,
                 ).model_dump()
 
             balance_obj.balance -= payment.amount
@@ -1585,7 +1639,9 @@ def approve_payment(
             payment.deducted_from_bank_uuid = bank_uuid
 
             # Add to project's actual balance
-            project = db.query(Project).filter(Project.uuid == payment.project_id).first()
+            project = (
+                db.query(Project).filter(Project.uuid == payment.project_id).first()
+            )
             if project:
                 project.actual_balance += payment.amount
                 # Create project balance entry for actual balance
@@ -1595,20 +1651,28 @@ def approve_payment(
                     adjustment=payment.amount,
                     description=f"Payment deduction for payment {payment.uuid}",
                     current_user=current_user,
-                    balance_type="actual"
+                    balance_type="actual",
                 )
 
             # Deduct from item balances if items are associated with this payment
-            payment_items = db.query(PaymentItem).filter(
-                PaymentItem.payment_id == payment.uuid,
-                PaymentItem.is_deleted.is_(False)
-            ).all()
+            payment_items = (
+                db.query(PaymentItem)
+                .filter(
+                    PaymentItem.payment_id == payment.uuid,
+                    PaymentItem.is_deleted.is_(False),
+                )
+                .all()
+            )
 
             for payment_item in payment_items:
-                item = db.query(ProjectItemMap).filter(
-                    ProjectItemMap.project_id == payment.project_id,
-                    ProjectItemMap.item_id == payment_item.item_id
-                ).first()
+                item = (
+                    db.query(ProjectItemMap)
+                    .filter(
+                        ProjectItemMap.project_id == payment.project_id,
+                        ProjectItemMap.item_id == payment_item.item_id,
+                    )
+                    .first()
+                )
 
                 if item:
                     # Deduct the full payment amount from each item's balance
@@ -1648,7 +1712,7 @@ def approve_payment(
                     PaymentFile(
                         payment_id=payment.uuid,
                         file_path=file_path,
-                        is_approval_upload=True
+                        is_approval_upload=True,
                     )
                 )
 
@@ -1671,21 +1735,17 @@ def approve_payment(
             status=status,
             user=current_user,
             payment_user=payment.created_by,
-            db=db
+            db=db,
         )
 
         return PaymentServiceResponse(
-            data=None,
-            message="Payment status updated successfully",
-            status_code=200
+            data=None, message="Payment status updated successfully", status_code=200
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"An Error Occurred: {str(e)}",
-            status_code=500
+            data=None, message=f"An Error Occurred: {str(e)}", status_code=500
         ).model_dump()
 
 
@@ -1705,20 +1765,16 @@ def decline_payment(
             UserRole.ADMIN.value,
             UserRole.PROJECT_MANAGER.value,
             UserRole.SITE_ENGINEER.value,
-            UserRole.ACCOUNTANT.value
+            UserRole.ACCOUNTANT.value,
         ]:
             return PaymentServiceResponse(
-                data=None,
-                message=constants.CANT_DECLINE_PAYMENTS,
-                status_code=403
+                data=None, message=constants.CANT_DECLINE_PAYMENTS, status_code=403
             ).model_dump()
         # 2) Find the payment
         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
         if not payment:
             return PaymentServiceResponse(
-                data=None,
-                message=constants.PAYMENT_NOT_FOUND,
-                status_code=404
+                data=None, message=constants.PAYMENT_NOT_FOUND, status_code=404
             ).model_dump()
 
         # 3) Check if already declined
@@ -1726,22 +1782,20 @@ def decline_payment(
             db.query(PaymentStatusHistory)
             .filter(
                 PaymentStatusHistory.payment_id == payment.uuid,
-                PaymentStatusHistory.status == PaymentStatus.DECLINED.value
+                PaymentStatusHistory.status == PaymentStatus.DECLINED.value,
             )
             .first()
         )
         if existing_status_entry:
             return PaymentServiceResponse(
-                data=None,
-                message="Payment has already been declined.",
-                status_code=400
+                data=None, message="Payment has already been declined.", status_code=400
             ).model_dump()
 
         # 4) Create a status history entry
         payment_status = PaymentStatusHistory(
             payment_id=payment_id,
             status=PaymentStatus.DECLINED.value,
-            created_by=current_user.uuid
+            created_by=current_user.uuid,
         )
         db.add(payment_status)
         db.flush()
@@ -1769,22 +1823,19 @@ def decline_payment(
             status=PaymentStatus.DECLINED.value,
             user=current_user,
             payment_user=payment.created_by,
-            db=db
+            db=db,
         )
 
         return PaymentServiceResponse(
-            data=None,
-            message="Payment declined successfully",
-            status_code=200
+            data=None, message="Payment declined successfully", status_code=200
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"An Error Occurred: {str(e)}",
-            status_code=500
+            data=None, message=f"An Error Occurred: {str(e)}", status_code=500
         ).model_dump()
+
 
 @payment_router.post(
     "/person", status_code=h_status.HTTP_201_CREATED, tags=["Payments"]
@@ -1795,52 +1846,69 @@ def create_person(
 ):
     try:
         if request_data.account_number:
-            existing_person = db.query(Person).filter(
-                (Person.account_number == request_data.account_number),
-                (Person.is_deleted.is_(False))
-            ).first()
+            existing_person = (
+                db.query(Person)
+                .filter(
+                    (Person.account_number == request_data.account_number),
+                    (Person.is_deleted.is_(False)),
+                )
+                .first()
+            )
             reason = "A person with the same account number already exists."
         else:
             if request_data.upi_number:
-                existing_person = db.query(Person).filter(
-                    (Person.phone_number == request_data.phone_number) |
-                    (Person.upi_number == request_data.upi_number)
-                ).first()
+                existing_person = (
+                    db.query(Person)
+                    .filter(
+                        (Person.phone_number == request_data.phone_number)
+                        | (Person.upi_number == request_data.upi_number)
+                    )
+                    .first()
+                )
                 reason = "Person with same phone number ot account number exists"
             else:
-                existing_person = db.query(Person).filter(
-                    (Person.phone_number == request_data.phone_number)
-                ).first()
+                existing_person = (
+                    db.query(Person)
+                    .filter((Person.phone_number == request_data.phone_number))
+                    .first()
+                )
                 reason = "Person with same phone number exists"
             if request_data.upi_number:
-                existing_person = db.query(Person).filter(
-                    (Person.phone_number == request_data.phone_number) |
-                    (Person.upi_number == request_data.upi_number)
-                ).first()
+                existing_person = (
+                    db.query(Person)
+                    .filter(
+                        (Person.phone_number == request_data.phone_number)
+                        | (Person.upi_number == request_data.upi_number)
+                    )
+                    .first()
+                )
                 reason = "Person with same phone number ot account number exists"
             else:
-                existing_person = db.query(Person).filter(
-                    (Person.phone_number == request_data.phone_number)
-                ).first()
+                existing_person = (
+                    db.query(Person)
+                    .filter((Person.phone_number == request_data.phone_number))
+                    .first()
+                )
                 reason = "Person with same phone number exists"
 
         if existing_person:
             return PaymentServiceResponse(
-                data=None,
-                status_code=400,
-                message=reason
+                data=None, status_code=400, message=reason
             ).model_dump()
 
         # Validate parent_id if provided
         parent = None
         if request_data.parent_id:
-            parent = db.query(Person).filter(
-                Person.uuid == request_data.parent_id, Person.is_deleted.is_(False)).first()
+            parent = (
+                db.query(Person)
+                .filter(
+                    Person.uuid == request_data.parent_id, Person.is_deleted.is_(False)
+                )
+                .first()
+            )
             if not parent:
                 return PaymentServiceResponse(
-                    data=None,
-                    status_code=400,
-                    message="Parent account not found."
+                    data=None, status_code=400, message="Parent account not found."
                 ).model_dump()
 
         new_person = Person(
@@ -1849,7 +1917,7 @@ def create_person(
             ifsc_code=request_data.ifsc_code,
             phone_number=request_data.phone_number,
             parent_id=request_data.parent_id,  # Link to parent account
-            upi_number=request_data.upi_number
+            upi_number=request_data.upi_number,
         )
 
         db.add(new_person)
@@ -1861,7 +1929,7 @@ def create_person(
         return PaymentServiceResponse(
             data=str(generated_uuid),
             message="Person created successfully.",
-            status_code=201
+            status_code=201,
         ).model_dump()
 
     except HTTPException as e:
@@ -1870,15 +1938,13 @@ def create_person(
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"An Error Occurred: {str(e)}",
-            status_code=500
+            data=None, message=f"An Error Occurred: {str(e)}", status_code=500
         ).model_dump()
 
+
 @payment_router.put(
-        "/person/{person_id}", tags=["Payments"],
-        status_code=h_status.HTTP_200_OK
-    )
+    "/person/{person_id}", tags=["Payments"], status_code=h_status.HTTP_200_OK
+)
 def update_person(
     person_id: UUID,
     request_data: UpdatePerson,
@@ -1890,16 +1956,15 @@ def update_person(
     """
     try:
         # 1) Find the existing person
-        person_record = db.query(Person).filter(
-            Person.uuid == person_id,
-            Person.is_deleted.is_(False)
-        ).first()
+        person_record = (
+            db.query(Person)
+            .filter(Person.uuid == person_id, Person.is_deleted.is_(False))
+            .first()
+        )
 
         if not person_record:
             return PaymentServiceResponse(
-                data=None,
-                message="Person not found.",
-                status_code=404
+                data=None, message="Person not found.", status_code=404
             ).model_dump()
 
         # 2) If a new parent_id is provided, check that it exists
@@ -1909,64 +1974,83 @@ def update_person(
                 return PaymentServiceResponse(
                     data=None,
                     message="A person cannot be their own parent.",
-                    status_code=400
+                    status_code=400,
                 ).model_dump()
 
-            parent_person = db.query(Person).filter(
-                Person.uuid == request_data.parent_id,
-                Person.is_deleted.is_(False)
-            ).first()
+            parent_person = (
+                db.query(Person)
+                .filter(
+                    Person.uuid == request_data.parent_id, Person.is_deleted.is_(False)
+                )
+                .first()
+            )
             if not parent_person:
                 return PaymentServiceResponse(
-                    data=None,
-                    message="Parent account not found.",
-                    status_code=400
+                    data=None, message="Parent account not found.", status_code=400
                 ).model_dump()
 
         # 3) Check uniqueness constraints only if values are changing
         # 3a) Check account_number uniqueness if being updated and different
-        if (request_data.account_number is not None and
-                request_data.account_number != person_record.account_number):
-            conflict = db.query(Person).filter(
-                Person.account_number == request_data.account_number,
-                Person.uuid != person_id,  # exclude self
-                Person.is_deleted.is_(False)
-            ).first()
+        if (
+            request_data.account_number is not None
+            and request_data.account_number != person_record.account_number
+        ):
+            conflict = (
+                db.query(Person)
+                .filter(
+                    Person.account_number == request_data.account_number,
+                    Person.uuid != person_id,  # exclude self
+                    Person.is_deleted.is_(False),
+                )
+                .first()
+            )
             if conflict:
                 return PaymentServiceResponse(
                     data=None,
                     status_code=400,
-                    message="A person with the same account number exists."
+                    message="A person with the same account number exists.",
                 ).model_dump()
 
         # 3b) Check phone_number uniqueness if being updated and different
-        if (request_data.phone_number is not None and
-                request_data.phone_number != person_record.phone_number):
-            conflict = db.query(Person).filter(
-                Person.phone_number == request_data.phone_number,
-                Person.uuid != person_id,
-                Person.is_deleted.is_(False)
-            ).first()
+        if (
+            request_data.phone_number is not None
+            and request_data.phone_number != person_record.phone_number
+        ):
+            conflict = (
+                db.query(Person)
+                .filter(
+                    Person.phone_number == request_data.phone_number,
+                    Person.uuid != person_id,
+                    Person.is_deleted.is_(False),
+                )
+                .first()
+            )
             if conflict:
                 return PaymentServiceResponse(
                     data=None,
                     status_code=400,
-                    message="A person with the same phone number exists."
+                    message="A person with the same phone number exists.",
                 ).model_dump()
 
         # 3c) Check upi_number uniqueness if being updated and different
-        if (request_data.upi_number is not None and
-                request_data.upi_number != person_record.upi_number):
-            conflict = db.query(Person).filter(
-                Person.upi_number == request_data.upi_number,
-                Person.uuid != person_id,
-                Person.is_deleted.is_(False)
-            ).first()
+        if (
+            request_data.upi_number is not None
+            and request_data.upi_number != person_record.upi_number
+        ):
+            conflict = (
+                db.query(Person)
+                .filter(
+                    Person.upi_number == request_data.upi_number,
+                    Person.uuid != person_id,
+                    Person.is_deleted.is_(False),
+                )
+                .first()
+            )
             if conflict:
                 return PaymentServiceResponse(
                     data=None,
                     status_code=400,
-                    message="A person with the same UPI number exists."
+                    message="A person with the same UPI number exists.",
                 ).model_dump()
 
         # 4) Update the fields that were provided
@@ -1987,15 +2071,13 @@ def update_person(
         return PaymentServiceResponse(
             data=str(person_record.uuid),
             message="Person updated successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"An Error Occurred: {str(e)}",
-            status_code=500
+            data=None, message=f"An Error Occurred: {str(e)}", status_code=500
         ).model_dump()
 
 
@@ -2073,9 +2155,7 @@ def update_person(
 #         ).model_dump()
 
 
-@payment_router.get(
-    "/persons", status_code=h_status.HTTP_200_OK, tags=["Payments"]
-)
+@payment_router.get("/persons", status_code=h_status.HTTP_200_OK, tags=["Payments"])
 def get_all_persons(
     name: str = Query(None),
     phone_number: str = Query(None),
@@ -2086,23 +2166,29 @@ def get_all_persons(
 ):
     try:
         # Fetch all parent persons with children eagerly loaded
-        persons = db.query(Person).options(
-            joinedload(Person.children)
-        ).filter(
-            Person.is_deleted.is_(False),
-            Person.parent_id.is_(None),
-            or_(Person.user_id.is_(None), Person.user_id != current_user.uuid)
-        ).all()
+        persons = (
+            db.query(Person)
+            .options(joinedload(Person.children))
+            .filter(
+                Person.is_deleted.is_(False),
+                Person.parent_id.is_(None),
+                or_(Person.user_id.is_(None), Person.user_id != current_user.uuid),
+            )
+            .all()
+        )
 
         def matches(person: Person) -> bool:
             """Returns True if this person or any child matches the filter."""
+
             def match(p: Person):
-                return all([
-                    (not name or name.lower() in (p.name or "").lower()),
-                    (not phone_number or p.phone_number == phone_number),
-                    (not account_number or p.account_number == account_number),
-                    (not ifsc_code or p.ifsc_code == ifsc_code)
-                ])
+                return all(
+                    [
+                        (not name or name.lower() in (p.name or "").lower()),
+                        (not phone_number or p.phone_number == phone_number),
+                        (not account_number or p.account_number == account_number),
+                        (not ifsc_code or p.ifsc_code == ifsc_code),
+                    ]
+                )
 
             if match(person):
                 return True
@@ -2117,39 +2203,40 @@ def get_all_persons(
         # Format result
         persons_data = []
         for person in filtered_persons:
-            persons_data.append({
-                "uuid": person.uuid,
-                "name": person.name,
-                "account_number": person.account_number,
-                "ifsc_code": person.ifsc_code,
-                "phone_number": person.phone_number,
-                "parent_id": person.parent_id,
-                "upi_number": person.upi_number,
-                "secondary_accounts": [
-                    {
-                        "uuid": child.uuid,
-                        "name": child.name,
-                        "account_number": child.account_number,
-                        "ifsc_code": child.ifsc_code,
-                        "phone_number": child.phone_number,
-                        "upi_number": child.upi_number
-                    }
-                    for child in person.children if not child.is_deleted
-                ]
-            })
+            persons_data.append(
+                {
+                    "uuid": person.uuid,
+                    "name": person.name,
+                    "account_number": person.account_number,
+                    "ifsc_code": person.ifsc_code,
+                    "phone_number": person.phone_number,
+                    "parent_id": person.parent_id,
+                    "upi_number": person.upi_number,
+                    "secondary_accounts": [
+                        {
+                            "uuid": child.uuid,
+                            "name": child.name,
+                            "account_number": child.account_number,
+                            "ifsc_code": child.ifsc_code,
+                            "phone_number": child.phone_number,
+                            "upi_number": child.upi_number,
+                        }
+                        for child in person.children
+                        if not child.is_deleted
+                    ],
+                }
+            )
 
         return PaymentServiceResponse(
             data=persons_data,
             message="All persons info fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
         traceback.print_exc()
         return PaymentServiceResponse(
-            data=None,
-            message=f"An Error Occurred: {str(e)}",
-            status_code=500
+            data=None, message=f"An Error Occurred: {str(e)}", status_code=500
         ).model_dump()
 
 
@@ -2161,7 +2248,7 @@ def get_all_persons(
 def delete_person(
     person_uuid: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
         person = db.query(Person).filter(Person.uuid == person_uuid).first()
@@ -2182,17 +2269,13 @@ def delete_person(
         db.add(log_entry)
         db.commit()
         return PaymentServiceResponse(
-            data=None,
-            message="Person deleted successfully.",
-            status_code=200
+            data=None, message="Person deleted successfully.", status_code=200
         ).model_dump()
     except Exception as e:
         traceback.print_exc()
         print(f"Error in delete_person API: {str(e)}")
         return PaymentServiceResponse(
-            data=None,
-            message=f"An Error Occurred: {str(e)}",
-            status_code=500
+            data=None, message=f"An Error Occurred: {str(e)}", status_code=500
         ).model_dump()
 
 
@@ -2202,14 +2285,14 @@ def create_item(
     has_additional_info: bool,
     list_tag: Optional[ItemListTag] = None,
     category: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     try:
         new_item = Item(
             name=name,
             category=category,
             list_tag=list_tag,
-            has_additional_info=has_additional_info
+            has_additional_info=has_additional_info,
         )
         db.add(new_item)
         db.commit()
@@ -2218,14 +2301,12 @@ def create_item(
         return PaymentServiceResponse(
             data={"item_uuid": str(new_item.uuid)},
             message="Item created successfully.",
-            status_code=201
+            status_code=201,
         ).model_dump()
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error creating item: {str(e)}",
-            status_code=500
+            data=None, message=f"Error creating item: {str(e)}", status_code=500
         ).model_dump()
 
 
@@ -2286,27 +2367,30 @@ def create_item(
 #         ).model_dump()
 
 
-
 @payment_router.get("/items", tags=["Items"], status_code=200)
 def list_items(
     list_tag: Optional[str] = None,
     category: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     try:
         query = db.query(Item).order_by(desc(Item.id))
 
         # Filter by list_tag
         if list_tag == "khatabook":
-            query = query.filter(or_(Item.list_tag == 'khatabook', Item.list_tag.is_(None)))
+            query = query.filter(
+                or_(Item.list_tag == "khatabook", Item.list_tag.is_(None))
+            )
         elif list_tag == "payment":
-            query = query.filter(or_(Item.list_tag == 'payment', Item.list_tag.is_(None)))
+            query = query.filter(
+                or_(Item.list_tag == "payment", Item.list_tag.is_(None))
+            )
         elif list_tag not in (None, "payment", "khatabook"):
             return PaymentServiceResponse(
                 data=None,
                 message="Undefined value of list_tag. Allowed values: ['payment', 'khatabook', null]",
-                status_code=400
+                status_code=400,
             ).model_dump()
 
         # Filter by category
@@ -2322,43 +2406,48 @@ def list_items(
 
         for item in items:
             # Get associated item groups
-            mappings = db.query(ItemGroupMap, ItemGroups).join(ItemGroups, ItemGroupMap.item_group_id == ItemGroups.uuid)\
+            mappings = (
+                db.query(ItemGroupMap, ItemGroups)
+                .join(ItemGroups, ItemGroupMap.item_group_id == ItemGroups.uuid)
                 .filter(
                     ItemGroupMap.item_id == item.uuid,
-                    ItemGroupMap.is_deleted == False,
-                    ItemGroups.is_deleted == False
-                ).all()
+                    ItemGroupMap.is_deleted.is_(False),
+                    ItemGroups.is_deleted.is_(False),
+                )
+                .all()
+            )
 
-            associated_groups = [
+            associated_groups = (
+                [
+                    {"group_id": str(group.uuid), "group_name": group.item_groups}
+                    for _, group in mappings
+                ]
+                if mappings
+                else None
+            )
+
+            items_data.append(
                 {
-                    "group_id": str(group.uuid),
-                    "group_name": group.item_groups
-                } for _, group in mappings
-            ] if mappings else None
-
-            items_data.append({
-                "uuid": str(item.uuid),
-                "name": item.name,
-                "category": item.category,
-                "list_tag": item.list_tag,
-                "has_additional_info": item.has_additional_info,
-                "created_at": item.created_at,
-                "associated_groups": associated_groups
-            })
+                    "uuid": str(item.uuid),
+                    "name": item.name,
+                    "category": item.category,
+                    "list_tag": item.list_tag,
+                    "has_additional_info": item.has_additional_info,
+                    "created_at": item.created_at,
+                    "associated_groups": associated_groups,
+                }
+            )
 
         return PaymentServiceResponse(
             data=items_data,
             message="Filtered items fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error fetching items: {str(e)}",
-            status_code=500
+            data=None, message=f"Error fetching items: {str(e)}", status_code=500
         ).model_dump()
-
 
 
 @payment_router.put("/items/{item_uuid}", tags=["Items"], status_code=200)
@@ -2381,9 +2470,7 @@ def update_item(
         item_record = db.query(Item).filter(Item.uuid == item_uuid).first()
         if not item_record:
             return PaymentServiceResponse(
-                data=None,
-                message="Item not found.",
-                status_code=404
+                data=None, message="Item not found.", status_code=404
             ).model_dump()
 
         # Example: Only certain roles can update item (adjust as needed)
@@ -2394,7 +2481,7 @@ def update_item(
             return PaymentServiceResponse(
                 data=None,
                 status_code=403,
-                message="You are not authorized to update this item."
+                message="You are not authorized to update this item.",
             ).model_dump()
 
         # Update each field if given
@@ -2416,18 +2503,16 @@ def update_item(
                 "name": item_record.name,
                 "category": item_record.category,
                 "list_tag": item_record.list_tag,
-                "has_additional_info": item_record.has_additional_info
+                "has_additional_info": item_record.has_additional_info,
             },
             message="Item updated successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error updating item: {str(e)}",
-            status_code=500
+            data=None, message=f"Error updating item: {str(e)}", status_code=500
         ).model_dump()
 
 
@@ -2438,9 +2523,7 @@ def delete_item(item_uuid: UUID, db: Session = Depends(get_db)):
 
         if not item:
             return PaymentServiceResponse(
-                data=None,
-                message="Item not found.",
-                status_code=404
+                data=None, message="Item not found.", status_code=404
             ).model_dump()
 
         db.delete(item)
@@ -2449,15 +2532,13 @@ def delete_item(item_uuid: UUID, db: Session = Depends(get_db)):
         return PaymentServiceResponse(
             data={"deleted_item_uuid": str(item_uuid)},
             message="Item deleted successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error deleting item: {str(e)}",
-            status_code=500
+            data=None, message=f"Error deleting item: {str(e)}", status_code=500
         ).model_dump()
 
 
@@ -2467,44 +2548,38 @@ def create_priority(priority_name: str, db: Session = Depends(get_db)):
     db.add(new_priority)
     db.commit()
     db.refresh(new_priority)
-    response = {"priority_uuid": str(
-        new_priority.uuid), "priority": new_priority.priority}
+    response = {
+        "priority_uuid": str(new_priority.uuid),
+        "priority": new_priority.priority,
+    }
     return PaymentServiceResponse(
-        data=response,
-        message="priority created successfully",
-        status_code=201
+        data=response, message="priority created successfully", status_code=201
     ).model_dump()
 
 
 @payment_router.get("/priority", status_code=200)
 def list_priorities(db: Session = Depends(get_db)):
-    priorities = db.query(Priority).filter(
-        Priority.is_deleted.is_(False)).all()
-    response = [{"uuid": str(p.uuid), "priority": p.priority}
-                for p in priorities]
+    priorities = db.query(Priority).filter(Priority.is_deleted.is_(False)).all()
+    response = [{"uuid": str(p.uuid), "priority": p.priority} for p in priorities]
     return PaymentServiceResponse(
-        data=response,
-        message="priorities fetched successfully.",
-        status_code=200
+        data=response, message="priorities fetched successfully.", status_code=200
     ).model_dump()
 
 
-@payment_router.post(
-    "/item-categories", 
-    tags=["Item Categories"], 
-    status_code=201
-)
+@payment_router.post("/item-categories", tags=["Item Categories"], status_code=201)
 def create_item_category(
     category: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
         category_clean = category.strip()
 
-        existing = db.query(ItemCategories).filter(
-            ItemCategories.category.ilike(category_clean)
-        ).first()
+        existing = (
+            db.query(ItemCategories)
+            .filter(ItemCategories.category.ilike(category_clean))
+            .first()
+        )
 
         if existing:
             if existing.is_deleted:
@@ -2517,24 +2592,20 @@ def create_item_category(
                 return PaymentServiceResponse(
                     data={
                         "category_uuid": str(existing.uuid),
-                        "category": existing.category
+                        "category": existing.category,
                     },
                     message="Soft-deleted category restored successfully.",
-                    status_code=200
+                    status_code=200,
                 ).model_dump()
 
             else:
                 return PaymentServiceResponse(
-                    data=None,
-                    message="Category already exists.",
-                    status_code=400
+                    data=None, message="Category already exists.", status_code=400
                 ).model_dump()
 
         # Create new category
         new_category = ItemCategories(
-            uuid=uuid.uuid4(),
-            category=category_clean,
-            created_by=current_user.uuid
+            uuid=uuid.uuid4(), category=category_clean, created_by=current_user.uuid
         )
         db.add(new_category)
         db.commit()
@@ -2543,93 +2614,88 @@ def create_item_category(
         return PaymentServiceResponse(
             data={
                 "category_uuid": str(new_category.uuid),
-                "category": new_category.category
+                "category": new_category.category,
             },
             message="Item category created successfully.",
-            status_code=201
+            status_code=201,
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error creating category: {str(e)}",
-            status_code=500
+            data=None, message=f"Error creating category: {str(e)}", status_code=500
         ).model_dump()
 
 
-@payment_router.get(
-    "/item-categories",
-    tags=["Item Categories"],
-    status_code=200
-)
+@payment_router.get("/item-categories", tags=["Item Categories"], status_code=200)
 def get_all_item_categories(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     try:
-        categories = db.query(ItemCategories).filter(
-            ItemCategories.is_deleted == False
-        ).order_by(ItemCategories.category.asc()).all()
+        categories = (
+            db.query(ItemCategories)
+            .filter(ItemCategories.is_deleted.is_(False))
+            .order_by(ItemCategories.category.asc())
+            .all()
+        )
 
         result = [
-            {
-                "category_uuid": str(cat.uuid),
-                "category": cat.category
-            }
+            {"category_uuid": str(cat.uuid), "category": cat.category}
             for cat in categories
         ]
 
         return PaymentServiceResponse(
             data=result,
             message="Item categories fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error fetching categories: {str(e)}",
-            status_code=500
+            data=None, message=f"Error fetching categories: {str(e)}", status_code=500
         ).model_dump()
 
 
 @payment_router.put(
-    "/item-categories/{category_uuid}",
-    tags=["Item Categories"],
-    status_code=200
+    "/item-categories/{category_uuid}", tags=["Item Categories"], status_code=200
 )
 def update_item_category(
     category_uuid: UUID,
     new_category: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
-        category = db.query(ItemCategories).filter(
-            ItemCategories.uuid == category_uuid,
-            ItemCategories.is_deleted == False
-        ).first()
+        category = (
+            db.query(ItemCategories)
+            .filter(
+                ItemCategories.uuid == category_uuid,
+                ItemCategories.is_deleted.is_(False),
+            )
+            .first()
+        )
 
         if not category:
             return PaymentServiceResponse(
-                data=None,
-                message="Category not found.",
-                status_code=404
+                data=None, message="Category not found.", status_code=404
             ).model_dump()
 
         # Check for duplicate name (optional)
-        duplicate = db.query(ItemCategories).filter(
-            ItemCategories.category.ilike(new_category.strip()),
-            ItemCategories.is_deleted == False,
-            ItemCategories.uuid != category_uuid
-        ).first()
+        duplicate = (
+            db.query(ItemCategories)
+            .filter(
+                ItemCategories.category.ilike(new_category.strip()),
+                ItemCategories.is_deleted.is_(False),
+                ItemCategories.uuid != category_uuid,
+            )
+            .first()
+        )
 
         if duplicate:
             return PaymentServiceResponse(
                 data=None,
                 message="Another category with the same name already exists.",
-                status_code=400
+                status_code=400,
             ).model_dump()
 
         category.category = new_category.strip()
@@ -2637,43 +2703,39 @@ def update_item_category(
         db.refresh(category)
 
         return PaymentServiceResponse(
-            data={
-                "category_uuid": str(category.uuid),
-                "category": category.category
-            },
+            data={"category_uuid": str(category.uuid), "category": category.category},
             message="Item category updated successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error updating category: {str(e)}",
-            status_code=500
+            data=None, message=f"Error updating category: {str(e)}", status_code=500
         ).model_dump()
 
+
 @payment_router.delete(
-    "/item-categories/{category_uuid}",
-    tags=["Item Categories"],
-    status_code=200
+    "/item-categories/{category_uuid}", tags=["Item Categories"], status_code=200
 )
 def delete_item_category(
     category_uuid: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
-        category = db.query(ItemCategories).filter(
-            ItemCategories.uuid == category_uuid,
-            ItemCategories.is_deleted == False
-        ).first()
+        category = (
+            db.query(ItemCategories)
+            .filter(
+                ItemCategories.uuid == category_uuid,
+                ItemCategories.is_deleted.is_(False),
+            )
+            .first()
+        )
 
         if not category:
             return PaymentServiceResponse(
-                data=None,
-                message="Category not found.",
-                status_code=404
+                data=None, message="Category not found.", status_code=404
             ).model_dump()
 
         category.is_deleted = True
@@ -2681,47 +2743,39 @@ def delete_item_category(
         db.commit()
 
         return PaymentServiceResponse(
-            data={
-                "category_uuid": str(category.uuid),
-                "category": category.category
-            },
+            data={"category_uuid": str(category.uuid), "category": category.category},
             message="Item category deleted successfully (soft delete).",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error deleting category: {str(e)}",
-            status_code=500
+            data=None, message=f"Error deleting category: {str(e)}", status_code=500
         ).model_dump()
 
-@payment_router.post(
-    "/items/group/{group_name}",
-    tags=["Item Groups"],
-    status_code=201
-)
+
+@payment_router.post("/items/group/{group_name}", tags=["Item Groups"], status_code=201)
 def create_item_group(
     group_name: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
         # If current_user is None or not authenticated
         if not current_user or not getattr(current_user, "uuid", None):
             return PaymentServiceResponse(
-                data=None,
-                message="Unauthorized: User not found.",
-                status_code=401
+                data=None, message="Unauthorized: User not found.", status_code=401
             ).model_dump()
 
         name_clean = group_name.strip()
 
         # Check if group exists
-        existing = db.query(ItemGroups).filter(
-            ItemGroups.item_groups.ilike(name_clean)
-        ).first()
+        existing = (
+            db.query(ItemGroups)
+            .filter(ItemGroups.item_groups.ilike(name_clean))
+            .first()
+        )
 
         if existing:
             if existing.is_deleted:
@@ -2734,23 +2788,19 @@ def create_item_group(
                         "uuid": str(existing.uuid),
                         "group_name": existing.item_groups,
                         "created_by": current_user.name,
-                        "created_at": existing.created_at.isoformat()
+                        "created_at": existing.created_at.isoformat(),
                     },
                     message="Soft-deleted group restored successfully.",
-                    status_code=200
+                    status_code=200,
                 ).model_dump()
 
             return PaymentServiceResponse(
-                data=None,
-                message="Item group already exists.",
-                status_code=400
+                data=None, message="Item group already exists.", status_code=400
             ).model_dump()
 
         # Create new
         new_group = ItemGroups(
-            uuid=uuid.uuid4(),
-            item_groups=name_clean,
-            created_by=current_user.uuid
+            uuid=uuid.uuid4(), item_groups=name_clean, created_by=current_user.uuid
         )
         db.add(new_group)
         db.commit()
@@ -2761,99 +2811,91 @@ def create_item_group(
                 "uuid": str(new_group.uuid),
                 "group_name": new_group.item_groups,
                 "created_by": current_user.name,
-                "created_at": new_group.created_at.isoformat()
+                "created_at": new_group.created_at.isoformat(),
             },
             message="Item group created successfully.",
-            status_code=201
+            status_code=201,
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error creating item group: {str(e)}",
-            status_code=500
+            data=None, message=f"Error creating item group: {str(e)}", status_code=500
         ).model_dump()
 
-@payment_router.get(
-    "/items/groups",
-    tags=["Item Groups"],
-    status_code=200
-)
+
+@payment_router.get("/items/groups", tags=["Item Groups"], status_code=200)
 def get_all_item_groups(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
     try:
-        groups = db.query(ItemGroups).filter(ItemGroups.is_deleted == False).all()
+        groups = db.query(ItemGroups).filter(ItemGroups.is_deleted.is_(False)).all()
 
         if not groups:
             return PaymentServiceResponse(
-                data=[],
-                message="No item groups found.",
-                status_code=200
+                data=[], message="No item groups found.", status_code=200
             ).model_dump()
 
         group_list = []
         for group in groups:
-            group_list.append({
-                "uuid": str(group.uuid),
-                "group_name": group.item_groups,
-                "created_by": str(group.created_by),
-                "created_at": group.created_at.isoformat()
-            })
+            group_list.append(
+                {
+                    "uuid": str(group.uuid),
+                    "group_name": group.item_groups,
+                    "created_by": str(group.created_by),
+                    "created_at": group.created_at.isoformat(),
+                }
+            )
 
         return PaymentServiceResponse(
             data=group_list,
             message="Item groups fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error fetching item groups: {str(e)}",
-            status_code=500
+            data=None, message=f"Error fetching item groups: {str(e)}", status_code=500
         ).model_dump()
 
-@payment_router.put(
-    "/items/group/{group_uuid}",
-    tags=["Item Groups"],
-    status_code=200
-)
+
+@payment_router.put("/items/group/{group_uuid}", tags=["Item Groups"], status_code=200)
 def update_item_group(
     group_uuid: UUID,
     new_group_name: str = Body(..., embed=True),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
-        group = db.query(ItemGroups).filter(
-            ItemGroups.uuid == group_uuid,
-            ItemGroups.is_deleted == False
-        ).first()
+        group = (
+            db.query(ItemGroups)
+            .filter(ItemGroups.uuid == group_uuid, ItemGroups.is_deleted.is_(False))
+            .first()
+        )
 
         if not group:
             return PaymentServiceResponse(
-                data=None,
-                message="Item group not found.",
-                status_code=404
+                data=None, message="Item group not found.", status_code=404
             ).model_dump()
 
         name_clean = new_group_name.strip()
 
         # Check for duplicate
-        existing = db.query(ItemGroups).filter(
-            ItemGroups.item_groups.ilike(name_clean),
-            ItemGroups.uuid != group_uuid,
-            ItemGroups.is_deleted == False
-        ).first()
+        existing = (
+            db.query(ItemGroups)
+            .filter(
+                ItemGroups.item_groups.ilike(name_clean),
+                ItemGroups.uuid != group_uuid,
+                ItemGroups.is_deleted.is_(False),
+            )
+            .first()
+        )
 
         if existing:
             return PaymentServiceResponse(
                 data=None,
                 message="Another group with the same name already exists.",
-                status_code=400
+                status_code=400,
             ).model_dump()
 
         group.item_groups = name_clean
@@ -2868,41 +2910,37 @@ def update_item_group(
                 "uuid": str(group.uuid),
                 "group_name": group.item_groups,
                 "updated_by": current_user.name,
-                "updated_at": group.created_at.isoformat()  # or updated_at if available
+                "updated_at": group.created_at.isoformat(),  # or updated_at if available
             },
             message="Item group updated successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error updating item group: {str(e)}",
-            status_code=500
+            data=None, message=f"Error updating item group: {str(e)}", status_code=500
         ).model_dump()
 
+
 @payment_router.delete(
-    "/items/group/{group_uuid}",
-    tags=["Item Groups"],
-    status_code=200
+    "/items/group/{group_uuid}", tags=["Item Groups"], status_code=200
 )
 def delete_item_group(
     group_uuid: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
-        group = db.query(ItemGroups).filter(
-            ItemGroups.uuid == group_uuid,
-            ItemGroups.is_deleted == False
-        ).first()
+        group = (
+            db.query(ItemGroups)
+            .filter(ItemGroups.uuid == group_uuid, ItemGroups.is_deleted.is_(False))
+            .first()
+        )
 
         if not group:
             return PaymentServiceResponse(
-                data=None,
-                message="Item group not found.",
-                status_code=404
+                data=None, message="Item group not found.", status_code=404
             ).model_dump()
 
         group.is_deleted = True
@@ -2912,18 +2950,13 @@ def delete_item_group(
         db.commit()
 
         return PaymentServiceResponse(
-            data={
-                "uuid": str(group.uuid),
-                "group_name": group.item_groups
-            },
+            data={"uuid": str(group.uuid), "group_name": group.item_groups},
             message="Item group deleted successfully (soft delete).",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error deleting item group: {str(e)}",
-            status_code=500
+            data=None, message=f"Error deleting item group: {str(e)}", status_code=500
         ).model_dump()

@@ -1,9 +1,10 @@
 from enum import Enum
-from uuid import UUID
 from typing import Any, Optional
+from uuid import UUID
+
 from pydantic import BaseModel, Field, field_validator
+
 from src.app.schemas.payment_service_schemas import CreatePerson, UpdatePerson
-from datetime import datetime, date
 
 
 class UserRole(str, Enum):
@@ -23,7 +24,9 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class UserCreate(BaseModel):
-    name: str = Field(..., max_length=50, description="Name must be at most 50 characters")
+    name: str = Field(
+        ..., max_length=50, description="Name must be at most 50 characters"
+    )
     phone: int
     password: str
     role: UserRole
@@ -37,7 +40,9 @@ class UserCreate(BaseModel):
 
 
 class UserEdit(BaseModel):
-    name: Optional[str] = Field(None, max_length=50, description="Name must be at most 50 characters")
+    name: Optional[str] = Field(
+        None, max_length=50, description="Name must be at most 50 characters"
+    )
     phone: Optional[int] = None
     role: Optional[UserRole] = None
     person: Optional[UpdatePerson] = None
@@ -82,7 +87,7 @@ class UserResponse(BaseModel):
             "name": self.name,
             "phone": self.phone,
             "role": self.role,
-            "photo_path": self.photo_path
+            "photo_path": self.photo_path,
         }
 
 
@@ -95,12 +100,16 @@ class AuthServiceResponse(BaseModel):
         return {
             "data": self.data,
             "message": self.message,
-            "status_code": self.status_code
+            "status_code": self.status_code,
         }
-    
+
 
 class OutsideUserLogin(BaseModel):
-    name: str = Field(..., max_length=50, description="Name must be at most 50 characters")
-    email: str = Field(..., max_length=50, description="Email must be at most 50 characters")
+    name: str = Field(
+        ..., max_length=50, description="Name must be at most 50 characters"
+    )
+    email: str = Field(
+        ..., max_length=50, description="Email must be at most 50 characters"
+    )
     phone_number: int
     password: str

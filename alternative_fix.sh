@@ -51,13 +51,13 @@ if [ $? -eq 0 ]; then
   echo "Configuration test successful. Reloading nginx..."
   systemctl reload nginx
   echo "Nginx reloaded successfully."
-  
+
   # Create a test file to verify uploads are working
   TEST_FILE="$UPLOADS_DIR/test.txt"
   echo "This is a test file to verify nginx configuration" > "$TEST_FILE"
   chown www-data:www-data "$TEST_FILE"
   chmod 644 "$TEST_FILE"
-  
+
   echo "Test file created at $TEST_FILE"
   echo "You can verify it's accessible at https://dev.inqilabgroup.com/uploads/test.txt"
 else

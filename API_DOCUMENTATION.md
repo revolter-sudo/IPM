@@ -26,7 +26,7 @@ All APIs require proper authentication. Include the authentication token in the 
 {
     "name": "Project Name",
     "description": "Project Description",
-    "location": "Project Location", 
+    "location": "Project Location",
     "start_date": "2025-01-01",
     "end_date": "2025-12-31",
     "po_balance": 2000.0,

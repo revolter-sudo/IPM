@@ -37,13 +37,13 @@
 <body>
     <h1>CORS Test for IPM API</h1>
     <p>This page tests CORS connectivity to the IPM API server.</p>
-    
+
     <button id="testLogin">Test Login API</button>
     <div id="response"></div>
 
     <h2>Instructions for Frontend Developers</h2>
     <p>If you're experiencing CORS issues with the IPM API, try the following approaches:</p>
-    
+
     <h3>1. Use the fetch API with credentials</h3>
     <pre>
 fetch('http://69.62.77.22:8000/auth/login', {
@@ -105,7 +105,7 @@ fetch('https://cors-anywhere.herokuapp.com/http://69.62.77.22:8000/auth/login', 
         document.getElementById('testLogin').addEventListener('click', function() {
             const responseDiv = document.getElementById('response');
             responseDiv.innerHTML = '<p>Testing connection to API...</p>';
-            
+
             fetch('http://69.62.77.22:8000/auth/login', {
                 method: 'POST',
                 headers: {

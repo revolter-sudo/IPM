@@ -1,5 +1,7 @@
 import os
+
 from dotenv import load_dotenv
+
 load_dotenv()
 
 
@@ -12,16 +14,14 @@ UPLOAD_DIR = "uploads/payments"
 UPLOAD_DIR_ADMIN = "uploads/admin"
 KHATABOOK_FOLDER = "uploads/khatabook_files"
 CANT_DECLINE_PAYMENTS = "Not authorized to decline payments"
-PERSON_EXISTS = (
-    "A person with the same account number or ifsc code already exists."
-)
+PERSON_EXISTS = "A person with the same account number or ifsc code already exists."
 
 RoleStatusMapping = {
     "SiteEngineer": "requested",
     "ProjectManager": "verified",
     "Admin": "approved",
     "Accountant": "transferred",
-    "SuperAdmin": "transferred"
+    "SuperAdmin": "transferred",
 }
 
 # Payment type constants

@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import Optional, Any, List, Dict
+from typing import Any, Dict, List, Optional
 from uuid import UUID
-from datetime import date
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -33,12 +33,14 @@ class PaymentRequest(BaseModel):
 
 
 class CreatePerson(BaseModel):
-    name: str = Field(..., max_length=50, description="Name must be at most 50 characters")
+    name: str = Field(
+        ..., max_length=50, description="Name must be at most 50 characters"
+    )
     account_number: Optional[str] = Field(
         None,
         min_length=8,
         max_length=18,
-        pattern=r'^\d+$',
+        pattern=r"^\d+$",
         description="Account number must be 8 to 16 digits long and contain only numbers",
     )
     ifsc_code: Optional[str] = Field(
@@ -61,7 +63,7 @@ class CreatePerson(BaseModel):
     )
     parent_id: Optional[UUID] = None
 
-    @field_validator('account_number')
+    @field_validator("account_number")
     def validate_account_number(cls, v):
         if v is None:
             return v
@@ -74,12 +76,14 @@ class CreatePerson(BaseModel):
 
 
 class UpdatePerson(BaseModel):
-    name: Optional[str] = Field(None, max_length=50, description="Name must be at most 50 characters")
+    name: Optional[str] = Field(
+        None, max_length=50, description="Name must be at most 50 characters"
+    )
     account_number: Optional[str] = Field(
         None,
         min_length=8,
         max_length=18,
-        pattern=r'^\d+$',
+        pattern=r"^\d+$",
         description="Account number must be 08 to 11 digits long and contain only numbers",
     )
     ifsc_code: Optional[str] = Field(
@@ -102,7 +106,7 @@ class UpdatePerson(BaseModel):
     )
     parent_id: Optional[UUID] = None
 
-    @field_validator('account_number')
+    @field_validator("account_number")
     def validate_account_number(cls, v):
         if v is None:
             return v
@@ -145,7 +149,7 @@ class CreatePaymentRequest(BaseModel):
                 "self_payment": True,  # Self-payment flag
                 "latitude": 22.5726,
                 "longitude": 88.3639,
-                "priority_id": "9c4f2ae4-a046-421f-b52f-a50c169165c3"
+                "priority_id": "9c4f2ae4-a046-421f-b52f-a50c169165c3",
             }
         }
 
@@ -205,12 +209,14 @@ class PaymentServiceResponse(BaseModel):
         return {
             "data": self.data,
             "message": self.message,
-            "status_code": self.status_code
+            "status_code": self.status_code,
         }
+
 
 class ItemCategoryCreate(BaseModel):
     category: str
     created_by: UUID
+
 
 class ItemCategoryResponse(BaseModel):
     uuid: UUID

@@ -9,7 +9,7 @@ This document provides a comprehensive summary of the implementation for the enh
 ```python
 class ProjectPO(Base):
     __tablename__ = "project_pos"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
@@ -21,7 +21,7 @@ class ProjectPO(Base):
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
-    
+
     # Relationships
     project = relationship("Project", back_populates="project_pos")
     invoices = relationship("Invoice", back_populates="project_po", cascade="all, delete-orphan")
@@ -31,12 +31,12 @@ class ProjectPO(Base):
 ```python
 class Invoice(Base):
     __tablename__ = "invoices"
-    
+
     # ... existing fields ...
     project_po_id = Column(UUID(as_uuid=True), ForeignKey("project_pos.uuid"), nullable=True)
     payment_status = Column(String(20), nullable=False, default="not_paid")  # not_paid, partially_paid, fully_paid
     total_paid_amount = Column(Float, nullable=False, default=0.0)
-    
+
     # Relationships
     project_po = relationship("ProjectPO", back_populates="invoices")
     invoice_payments = relationship("InvoicePayment", back_populates="invoice", cascade="all, delete-orphan")
@@ -46,7 +46,7 @@ class Invoice(Base):
 ```python
 class InvoicePayment(Base):
     __tablename__ = "invoice_payments"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     invoice_id = Column(UUID(as_uuid=True), ForeignKey("invoices.uuid"), nullable=False)
@@ -59,7 +59,7 @@ class InvoicePayment(Base):
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
-    
+
     # Relationships
     invoice = relationship("Invoice", back_populates="invoice_payments")
 ```
@@ -102,7 +102,7 @@ class InvoicePayment(Base):
             "description": "First PO"
         },
         {
-            "po_number": "PO002", 
+            "po_number": "PO002",
             "amount": 500.0,
             "description": "Second PO"
         }
@@ -300,13 +300,13 @@ alembic upgrade head
 ### 9.2 Verify Tables
 ```sql
 -- Check if tables exist
-SELECT table_name FROM information_schema.tables 
-WHERE table_schema = 'public' 
+SELECT table_name FROM information_schema.tables
+WHERE table_schema = 'public'
 AND table_name IN ('project_pos', 'invoice_payments');
 
 -- Check invoice table columns
-SELECT column_name FROM information_schema.columns 
-WHERE table_name = 'invoices' 
+SELECT column_name FROM information_schema.columns
+WHERE table_name = 'invoices'
 AND column_name IN ('project_po_id', 'payment_status', 'total_paid_amount');
 ```
 

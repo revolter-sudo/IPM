@@ -1,6 +1,7 @@
-from typing import Optional, Any, List, Dict
-from uuid import UUID
 from datetime import datetime
+from typing import Any, List, Optional
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 
@@ -13,7 +14,7 @@ class AdminPanelResponse(BaseModel):
         return {
             "data": self.data,
             "message": self.message,
-            "status_code": self.status_code
+            "status_code": self.status_code,
         }
 
 
@@ -68,10 +69,12 @@ class ProjectUserMap(BaseModel):
     user_id: UUID
     project_id: UUID
 
+
 class ProjectItemMap(BaseModel):
     uuid: UUID
     project_id: UUID
     item_id: UUID
+
 
 class ProjectUserItemMapResponse(BaseModel):
     uuid: UUID
@@ -79,10 +82,12 @@ class ProjectUserItemMapResponse(BaseModel):
     user_id: UUID
     item_id: UUID
 
+
 class ProjectUserItemMapCreate(BaseModel):
     project_id: UUID
     user_id: UUID
     item_ids: List[UUID]
+
 
 class ProjectItemResponse(BaseModel):
     uuid: UUID
@@ -90,6 +95,7 @@ class ProjectItemResponse(BaseModel):
     category: Optional[str] = None
     list_tag: Optional[str] = None
     has_additional_info: Optional[bool] = None
+
 
 class UserItemMapResponse(BaseModel):
     uuid: UUID
@@ -111,6 +117,7 @@ class LogResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+
 class UserProjectItemResponse(BaseModel):
     item_id: UUID
     name: Optional[str]
@@ -118,17 +125,20 @@ class UserProjectItemResponse(BaseModel):
     list_tag: Optional[str]
     has_additional_info: Optional[bool]
 
+
 class SalaryCreateRequest(BaseModel):
     user_id: UUID
     project_id: UUID
     month: str
     amount: float = Field(default=0.0, ge=0.0)
 
+
 class SalaryUpdateRequest(BaseModel):
     user_id: UUID
     project_id: UUID
     month: str
     amount: float = Field(default=0.0, ge=0.0)
+
 
 class SalaryResponse(BaseModel):
     uuid: UUID
@@ -138,4 +148,3 @@ class SalaryResponse(BaseModel):
     amount: float = Field(default=0.0, ge=0.0)
 
     model_config = {"from_attributes": True}
-

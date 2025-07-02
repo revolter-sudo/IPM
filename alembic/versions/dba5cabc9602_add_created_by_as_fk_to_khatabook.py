@@ -5,30 +5,32 @@ Revises: f590bba3f9aa
 Create Date: 2025-03-06 23:37:46.012660
 
 """
-from typing import Sequence, Union
-from sqlalchemy.dialects.postgresql import UUID
-from alembic import op
-import sqlalchemy as sa
 
+from typing import Sequence, Union
+
+import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import UUID
+
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = 'dba5cabc9602'
-down_revision: Union[str, None] = 'f590bba3f9aa'
+revision: str = "dba5cabc9602"
+down_revision: Union[str, None] = "f590bba3f9aa"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():
     op.add_column(
-        'khatabook_entries',
+        "khatabook_entries",
         sa.Column(
-            'created_by',
+            "created_by",
             UUID(as_uuid=True),
-            sa.ForeignKey('users.uuid', ondelete="CASCADE"),
+            sa.ForeignKey("users.uuid", ondelete="CASCADE"),
             nullable=False,
         ),
     )
 
 
 def downgrade():
-    op.drop_column('khatabook_entries', 'created_by')
+    op.drop_column("khatabook_entries", "created_by")

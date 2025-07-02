@@ -1,36 +1,41 @@
-import firebase_admin
-from firebase_admin import credentials
-from fastapi import FastAPI, Request
-from fastapi_sqlalchemy import DBSessionMiddleware
 import os
-import uvicorn
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware  # Add CORS import
-from fastapi.templating import Jinja2Templates
-from src.app.database.database import settings
-from src.app.services.auth_service import auth_router
-from src.app.services.payment_service import payment_router
-from src.app.services.project_service import project_router, balance_router
-from src.app.services.khatabook_endpoints import khatabook_router
-from src.app.services.inquiry_endpoints import inquiry_router
-from src.app.admin_panel.endpoints import admin_app
-from src.app.sms_service.auth_service import sms_service_router
-
-from dotenv import load_dotenv
-from fastapi_cache import FastAPICache
-from fastapi_cache.backends.redis import RedisBackend
-
-import redis
 import time
 
+import firebase_admin
+import redis
+import uvicorn
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware  # Add CORS import
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+from fastapi_sqlalchemy import DBSessionMiddleware
+from firebase_admin import credentials
+
+from src.app.admin_panel.endpoints import admin_app
+from src.app.database.database import settings
+from src.app.services.auth_service import auth_router
+from src.app.services.inquiry_endpoints import inquiry_router
+from src.app.services.khatabook_endpoints import khatabook_router
+from src.app.services.payment_service import payment_router
+from src.app.services.project_service import balance_router, project_router
+from src.app.sms_service.auth_service import sms_service_router
+
 # Import centralized logging configuration
-from src.app.utils.logging_config import setup_logging, log_startup_info, get_logger, get_api_logger
+from src.app.utils.logging_config import (
+    get_api_logger,
+    get_logger,
+    log_startup_info,
+    setup_logging,
+)
 
 # Initialize logging before any other operations
 setup_logging(
     log_level=os.getenv("LOG_LEVEL", "INFO"),
     log_dir=os.getenv("LOG_DIR", "/app/logs"),
-    app_name="ipm"
+    app_name="ipm",
 )
 
 # Log startup information
@@ -69,7 +74,14 @@ app.add_middleware(
     ],
     allow_origin_regex="https://.*\.netlify\.app",  # Allow all Netlify subdomains
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # Explicitly list all methods
+    allow_methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "OPTIONS",
+        "PATCH",
+    ],  # Explicitly list all methods
     allow_headers=["*"],  # Allow all headers
     expose_headers=["*"],  # Expose all headers to the browser
     max_age=86400,  # Cache preflight requests for 24 hours (in seconds)
@@ -77,26 +89,34 @@ app.add_middleware(
 
 app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 
+
 # Performance middleware to track request timing and log API requests
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     start_time = time.time()
 
     # Log incoming request
-    api_logger.info(f"Request: {request.method} {request.url.path} - Client: {request.client.host if request.client else 'unknown'}")
+    api_logger.info(
+        f"Request: {request.method} {request.url.path} - Client: {request.client.host if request.client else 'unknown'}"
+    )
 
     response = await call_next(request)
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
 
     # Log response with timing
-    api_logger.info(f"Response: {request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.4f}s")
+    api_logger.info(
+        f"Response: {request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.4f}s"
+    )
 
     # Log slow requests as warnings
     if process_time > 1.0:  # Log requests taking more than 1 second
-        logger.warning(f"Slow request detected: {request.method} {request.url.path} took {process_time:.4f}s")
+        logger.warning(
+            f"Slow request detected: {request.method} {request.url.path} took {process_time:.4f}s"
+        )
 
     return response
+
 
 # Local
 # os.makedirs("uploads", exist_ok=True)
@@ -122,9 +142,9 @@ app.include_router(khatabook_router)
 app.include_router(balance_router)
 app.include_router(inquiry_router)
 app.include_router(sms_service_router)
-app.mount(path='/admin', app=admin_app)
+app.mount(path="/admin", app=admin_app)
 
-SERVICE_ACCOUNT_PATH = SERVICE_FILE # noqa
+SERVICE_ACCOUNT_PATH = SERVICE_FILE  # noqa
 
 
 if not firebase_admin._apps:
@@ -143,17 +163,18 @@ async def startup_event():
         redis_host = os.getenv("REDIS_HOST", "localhost")
         redis_port = int(os.getenv("REDIS_PORT", "6379"))
         redis_instance = redis.Redis(
-            host=redis_host,
-            port=redis_port,
-            decode_responses=True
+            host=redis_host, port=redis_port, decode_responses=True
         )
         FastAPICache.init(RedisBackend(redis_instance), prefix="ipm-cache")
-        logger.info(f"Redis cache initialized successfully - Host: {redis_host}:{redis_port}")
+        logger.info(
+            f"Redis cache initialized successfully - Host: {redis_host}:{redis_port}"
+        )
     except Exception as e:
         # Fallback to in-memory cache if Redis is not available
         logger.warning(f"Redis connection failed: {str(e)}. Using in-memory cache.")
         try:
             from fastapi_cache.backends.memory import InMemoryBackend
+
             FastAPICache.init(InMemoryBackend(), prefix="ipm-cache")
             logger.info("In-memory cache initialized as fallback")
         except ImportError:
@@ -163,7 +184,9 @@ async def startup_event():
 @app.get("/")
 async def root():
     from fastapi.responses import RedirectResponse
+
     return RedirectResponse(url="/admin/docs")
+
 
 @app.get("/healthcheck")
 def healthcheck():
@@ -178,10 +201,7 @@ def performance_stats():
     # Get database query statistics
     query_stats = get_query_stats()
 
-    return {
-        "query_stats": query_stats,
-        "cache_status": "active"
-    }
+    return {"query_stats": query_stats, "cache_status": "active"}
 
 
 if __name__ == "__main__":

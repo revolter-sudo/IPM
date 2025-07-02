@@ -1,6 +1,7 @@
-from typing import Optional, Any, List
-from uuid import UUID
 from datetime import date, datetime
+from typing import Any, List, Optional
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 
@@ -39,16 +40,19 @@ class ItemResponse(BaseModel):
     has_additional_info: Optional[bool] = False
     created_at: str
 
+
 class ItemUpdate(BaseModel):
     item_id: UUID
     item_balance: float
 
+
 class ProjectItemUpdateRequest(BaseModel):
     items: List[ItemUpdate]
 
+
 class ProjectItemUpdateResponse(BaseModel):
     status_code: int
-    message : str
+    message: str
 
 
 class ProjectWithItemsResponse(ProjectResponse):
@@ -108,6 +112,7 @@ class InvoiceItemUpdate(BaseModel):
     item_name: str
     basic_value: float
 
+
 class InvoiceUpdateRequest(BaseModel):
     client_name: Optional[str] = None
     amount: Optional[float] = None
@@ -143,6 +148,7 @@ class InvoicePaymentCreateRequest(BaseModel):
     description: Optional[str] = None
     payment_method: Optional[str] = None  # cash, bank, cheque, etc.
     reference_number: Optional[str] = None
+
 
 class MultiInvoicePaymentRequest(BaseModel):
     payments: List[InvoicePaymentCreateRequest]
@@ -188,12 +194,14 @@ class ProjectServiceResponse(BaseModel):
         return {
             "data": self.data,
             "message": self.message,
-            "status_code": self.status_code
+            "status_code": self.status_code,
         }
+
 
 class POItemInput(BaseModel):
     item_name: str
     basic_value: float
+
 
 class ProjectPOUpdateSchema(BaseModel):
     po_number: Optional[str]
@@ -203,12 +211,14 @@ class ProjectPOUpdateSchema(BaseModel):
     po_date: Optional[str]  # "YYYY-MM-DD"
     items: List[POItemInput] = []
 
+
 class CompanyInfoCreate(BaseModel):
     years_of_experience: int = Field(..., ge=0)
     no_of_staff: int = Field(..., ge=0)
     user_construction: str
     successfull_installations: str
     logo_photo_url: Optional[str] = None
+
 
 class CompanyInfoUpdate(BaseModel):
     years_of_experience: Optional[int] = None

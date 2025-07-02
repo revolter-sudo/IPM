@@ -1,13 +1,13 @@
 # src/app/notification/notification_service.py
 
+import logging
+
 import firebase_admin
 from firebase_admin import credentials, messaging
-import logging
-from src.app.notification.notification_schemas import (
-    NotificationServiceResponse
-)
 
-SERVICE_ACCOUNT_PATH = "/app/src/app/utils/firebase/secret_files.json" # noqa
+from src.app.notification.notification_schemas import NotificationServiceResponse
+
+SERVICE_ACCOUNT_PATH = "/app/src/app/utils/firebase/secret_files.json"  # noqa
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,12 +22,7 @@ def check_or_up_firebase_app():
         firebase_admin.initialize_app(cred)
 
 
-def send_push_notification(
-        topic: str,
-        title: str,
-        body: str,
-        data: dict = None
-):
+def send_push_notification(topic: str, title: str, body: str, data: dict = None):
     """
     Send a push notification to a single device via FCM.
     :param registration_token: The device's FCM token
@@ -43,7 +38,7 @@ def send_push_notification(
         topic=topic,
         notification=notification,
         data=data or {},
-        android=messaging.AndroidConfig(priority="high")
+        android=messaging.AndroidConfig(priority="high"),
     )
     try:
         response = messaging.send(message)
@@ -60,15 +55,11 @@ def subscribe_news(tokens, topic):
         response = messaging.subscribe_to_topic(tokens, str(topic))
         if response.failure_count > 0:
             return NotificationServiceResponse(
-                data=None,
-                message="Failed to subscribe to the topic",
-                status_code=200
+                data=None, message="Failed to subscribe to the topic", status_code=200
             ).model_dump()
     except Exception as e:
         return NotificationServiceResponse(
-            data=None,
-            message=f"Error in subscribe_news: {str(e)}",
-            status_code=500
+            data=None, message=f"Error in subscribe_news: {str(e)}", status_code=500
         ).model_dump()
 
 
@@ -76,7 +67,5 @@ def unsubscribe_news(tokens, topic):
     response = messaging.unsubscribe_from_topic(tokens, topic)
     if response.failure_count > 0:
         return NotificationServiceResponse(
-            data=None,
-            message="Failed to Unsubscribe Topic",
-            status_code=200
+            data=None, message="Failed to Unsubscribe Topic", status_code=200
         ).model_dump()

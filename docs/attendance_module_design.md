@@ -8,7 +8,7 @@ The attendance module will have two main functionalities:
 2. **Project Attendance** - Site Engineers mark attendance for project workers/laborers
 
 ### Key Components
-- **Database Models**: `SelfAttendance`, `ProjectAttendance` 
+- **Database Models**: `SelfAttendance`, `ProjectAttendance`
 - **API Service**: `attendance_service.py`
 - **Schemas**: `attendance_schemas.py`
 - **Location Validation**: Enhanced location service
@@ -242,7 +242,7 @@ Response:
             "name": "Project Alpha"
         },
         "sub_contractor": {
-            "uuid": "person-uuid", 
+            "uuid": "person-uuid",
             "name": "Contractor Name"
         },
         "no_of_labours": 15,
@@ -275,7 +275,7 @@ Response:
             "average_daily_labours": 15
         }
     },
-    "message": "Project attendance history retrieved successfully", 
+    "message": "Project attendance history retrieved successfully",
     "status_code": 200
 }
 ```

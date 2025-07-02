@@ -1,0 +1,60 @@
+[tool.black]
+line_length = 88
+target-version = ["py312"]
+skip-string-normalization = false
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | venv
+  | build
+  | dist
+  | __pycache__
+  | \.mypy_cache
+  | \.pytest_cache
+  | migrations
+)/
+'''
+
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+known_first_party = ["app"]
+skip = ["venv", ".venv", "__pycache__", "build", "dist", "migrations"]
+
+
+[tool.mypy]
+python_version = "3.12"  # or "3.11", "3.9" depending on what you use
+ignore_missing_imports = true
+explicit_package_bases = true
+mypy_path = "src"
+
+exclude = '''
+/(
+    \.venv
+  | venv
+  | __pycache__
+  | build
+  | dist
+  | migrations
+)/
+'''
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "I", "B"]
+ignore = ["E501"]  # Optional: to ignore line length if black handles it
+exclude = [
+  ".git",
+  "venv",
+  ".venv",
+  "__pycache__",
+  "build",
+  "dist",
+  "migrations"
+]

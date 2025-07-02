@@ -1,6 +1,7 @@
+import uuid
+
 from src.app.database.database import get_db
 from src.app.database.models import Item
-import uuid
 
 # Define the items to add
 item_list = [
@@ -18,9 +19,7 @@ try:
     # Add items to the database
     for item_data in item_list:
         # Check if item already exists
-        existing_item = db.query(Item).filter(
-            Item.name == item_data["name"]
-        ).first()
+        existing_item = db.query(Item).filter(Item.name == item_data["name"]).first()
 
         if not existing_item:
             # Create a new item
@@ -29,7 +28,7 @@ try:
                 name=item_data["name"],
                 category=item_data["category"],
                 list_tag="Construction",
-                has_additional_info=False
+                has_additional_info=False,
             )
             db.add(new_item)
             print(f"Added item: {item_data['name']}")

@@ -10,7 +10,7 @@ The new PO management APIs have been added to the existing `project_service.py` 
 - **Endpoint:** `POST /projects/{project_id}/pos`
 - **Tag:** Project POs
 - **Description:** Add a new PO to an existing project
-- **Features:** 
+- **Features:**
   - ✅ Unlimited POs per project
   - ✅ File upload support
   - ✅ Validation and error handling

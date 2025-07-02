@@ -1,5 +1,3 @@
-from typing import List, Dict
-
 class LocationService:
     # Comprehensive dictionary of Indian states and their major cities
     # _INDIA_STATES_CITIES: Dict[str, List[str]] = {

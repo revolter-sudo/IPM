@@ -1,8 +1,9 @@
-from enum import Enum
-from typing import Any, Optional
-from uuid import UUID
-from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
+from enum import Enum
+from typing import Any
+from uuid import UUID
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class ProjectType(str, Enum):
@@ -11,22 +12,42 @@ class ProjectType(str, Enum):
 
 
 class InquiryCreateRequest(BaseModel):
-    name: str = Field(..., min_length=2, max_length=100, description="Name must be between 2 and 100 characters")
-    phone_number: str = Field(..., min_length=10, max_length=15, description="Phone number must be between 10 and 15 digits")
+    name: str = Field(
+        ...,
+        min_length=2,
+        max_length=100,
+        description="Name must be between 2 and 100 characters",
+    )
+    phone_number: str = Field(
+        ...,
+        min_length=10,
+        max_length=15,
+        description="Phone number must be between 10 and 15 digits",
+    )
     project_type: ProjectType = Field(..., description="Type of project")
-    state: str = Field(..., min_length=2, max_length=50, description="State must be between 2 and 50 characters")
-    city: str = Field(..., min_length=2, max_length=50, description="City must be between 2 and 50 characters")
+    state: str = Field(
+        ...,
+        min_length=2,
+        max_length=50,
+        description="State must be between 2 and 50 characters",
+    )
+    city: str = Field(
+        ...,
+        min_length=2,
+        max_length=50,
+        description="City must be between 2 and 50 characters",
+    )
 
     @field_validator("phone_number")
     def validate_phone_number(cls, value):
         # Remove any non-digit characters for validation
-        digits_only = ''.join(filter(str.isdigit, value))
-        
+        digits_only = "".join(filter(str.isdigit, value))
+
         if len(digits_only) < 10:
             raise ValueError("Phone number must contain at least 10 digits")
         if len(digits_only) > 15:
             raise ValueError("Phone number must not exceed 15 digits")
-        
+
         # Return the cleaned phone number (digits only)
         return digits_only
 
@@ -55,7 +76,7 @@ class InquiryCreateRequest(BaseModel):
                 "phone_number": "9876543210",
                 "project_type": "ROOFTOP",
                 "state": "Maharashtra",
-                "city": "Mumbai"
+                "city": "Mumbai",
             }
         }
 
@@ -83,14 +104,14 @@ class InquiryServiceResponse(BaseModel):
         return {
             "data": self.data,
             "message": self.message,
-            "status_code": self.status_code
+            "status_code": self.status_code,
         }
 
     def to_dict(self):
         return {
             "data": self.data,
             "message": self.message,
-            "status_code": self.status_code
+            "status_code": self.status_code,
         }
 
 

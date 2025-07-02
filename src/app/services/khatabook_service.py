@@ -1,24 +1,25 @@
 # services/khatabook_service.py
-from typing import Dict, List, Optional
-from uuid import UUID
-from fastapi import UploadFile
-from sqlalchemy.orm import Session
-from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Item, Project
 import os
 import shutil
-from src.app.database.models import KhatabookBalance
-from sqlalchemy import and_
-from sqlalchemy.orm import joinedload
+from typing import Dict, List, Optional
+from uuid import UUID
+
+from fastapi import UploadFile
+from sqlalchemy.orm import Session, joinedload
+
+from src.app.database.models import (
+    Item,
+    Khatabook,
+    KhatabookBalance,
+    KhatabookFile,
+    KhatabookItem,
+)
 from src.app.schemas import constants
 from src.app.schemas.constants import KHATABOOK_ENTRY_TYPE_DEBIT
 
 
 def create_khatabook_entry_service(
-    db: Session,
-    data: Dict,
-    file_paths: List[str],
-    user_id: UUID,
-    current_user: UUID
+    db: Session, data: Dict, file_paths: List[str], user_id: UUID, current_user: UUID
 ) -> Khatabook:
     """
     Creates a new Khatabook entry and updates the user's balance.
@@ -36,27 +37,30 @@ def create_khatabook_entry_service(
         amount = float(data.get("amount", 0.0))
 
         # Get the user's total received amount
-        user_balance_record = db.query(KhatabookBalance).filter(
-            KhatabookBalance.user_uuid == current_user
-        ).first()
+        user_balance_record = (
+            db.query(KhatabookBalance)
+            .filter(KhatabookBalance.user_uuid == current_user)
+            .first()
+        )
 
         if not user_balance_record:
-            user_balance_record = KhatabookBalance(
-                user_uuid=current_user,
-                balance=0.0
-            )
+            user_balance_record = KhatabookBalance(user_uuid=current_user, balance=0.0)
             db.add(user_balance_record)
             db.flush()
 
         # entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
         entries = get_all_khatabook_entries_service(user_id=current_user, db=db)
 
-
         # Calculate total spent (only debit entries - manual expenses)
-        total_spent = sum(
-            entry["amount"] for entry in entries
-            if entry.get("entry_type") == "Debit"
-        ) if entries else 0.0
+        total_spent = (
+            sum(
+                entry["amount"]
+                for entry in entries
+                if entry.get("entry_type") == "Debit"
+            )
+            if entries
+            else 0.0
+        )
 
         # Calculate available balance
         current_available_balance = user_balance_record.balance - total_spent
@@ -75,7 +79,7 @@ def create_khatabook_entry_service(
             balance_after_entry=new_available_balance,  # Available balance after this expense
             project_id=data.get("project_id"),
             payment_mode=data.get("payment_mode"),
-            entry_type=KHATABOOK_ENTRY_TYPE_DEBIT
+            entry_type=KHATABOOK_ENTRY_TYPE_DEBIT,
         )
         db.add(kb_entry)
         db.flush()
@@ -86,8 +90,7 @@ def create_khatabook_entry_service(
                 item_obj = db.query(Item).filter(Item.uuid == item_uuid).first()
                 if item_obj:
                     kb_item = KhatabookItem(
-                        khatabook_id=kb_entry.uuid,
-                        item_id=item_obj.uuid
+                        khatabook_id=kb_entry.uuid, item_id=item_obj.uuid
                     )
                     db.add(kb_item)
 
@@ -110,10 +113,11 @@ def create_khatabook_entry_service(
 def update_khatabook_entry_service(
     db: Session, kb_uuid: UUID, data: Dict, files: List[UploadFile]
 ) -> Optional[Khatabook]:
-    kb_entry = db.query(Khatabook).filter(
-        Khatabook.uuid == kb_uuid,
-        Khatabook.is_deleted.is_(False)
-    ).first()
+    kb_entry = (
+        db.query(Khatabook)
+        .filter(Khatabook.uuid == kb_uuid, Khatabook.is_deleted.is_(False))
+        .first()
+    )
     if not kb_entry:
         return None
 
@@ -125,26 +129,26 @@ def update_khatabook_entry_service(
     # If item_ids key is present, replace items
     if "item_ids" in data:
         item_ids = data["item_ids"]
-        db.query(KhatabookItem).filter(KhatabookItem.khatabook_id == kb_entry.uuid).delete()
+        db.query(KhatabookItem).filter(
+            KhatabookItem.khatabook_id == kb_entry.uuid
+        ).delete()
         db.flush()
         for item_uuid in item_ids:
             item_obj = db.query(Item).filter(Item.uuid == item_uuid).first()
             if item_obj:
                 new_kb_item = KhatabookItem(
-                    khatabook_id=kb_entry.uuid,
-                    item_id=item_obj.uuid
+                    khatabook_id=kb_entry.uuid, item_id=item_obj.uuid
                 )
                 db.add(new_kb_item)
 
     if files:
-        db.query(KhatabookFile).filter(KhatabookFile.khatabook_id == kb_entry.uuid).delete()
+        db.query(KhatabookFile).filter(
+            KhatabookFile.khatabook_id == kb_entry.uuid
+        ).delete()
         db.flush()
         for f in files:
             file_path = save_uploaded_file(f, "khatabook_files")
-            new_file = KhatabookFile(
-                khatabook_id=kb_entry.uuid,
-                file_path=file_path
-            )
+            new_file = KhatabookFile(khatabook_id=kb_entry.uuid, file_path=file_path)
             db.add(new_file)
 
     db.commit()
@@ -163,10 +167,11 @@ def delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     Returns:
         True if the entry was deleted, False if the entry doesn't exist
     """
-    kb_entry = db.query(Khatabook).filter(
-        Khatabook.uuid == kb_uuid,
-        Khatabook.is_deleted.is_(False)
-    ).first()
+    kb_entry = (
+        db.query(Khatabook)
+        .filter(Khatabook.uuid == kb_uuid, Khatabook.is_deleted.is_(False))
+        .first()
+    )
     if not kb_entry:
         return False
 
@@ -199,6 +204,7 @@ def hard_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     db.commit()
     return result > 0
 
+
 # def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
 
 #     """
@@ -222,6 +228,7 @@ def hard_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
 #     db.commit()
 #     return True
 
+
 def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     """
     Soft delete a khatabook entry by setting is_deleted=True.
@@ -235,20 +242,22 @@ def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
         True if the entry was marked as deleted, False if the entry doesn't exist
     """
     # Fetch the khatabook entry
-    khatabook = db.query(Khatabook).filter(Khatabook.uuid == kb_uuid, Khatabook.is_deleted.is_(False)).first()
+    khatabook = (
+        db.query(Khatabook)
+        .filter(Khatabook.uuid == kb_uuid, Khatabook.is_deleted.is_(False))
+        .first()
+    )
     if not khatabook:
         return False
 
     # Mark related files as deleted
     db.query(KhatabookFile).filter(
-        KhatabookFile.khatabook_id == kb_uuid,
-        KhatabookFile.is_deleted.is_(False)
+        KhatabookFile.khatabook_id == kb_uuid, KhatabookFile.is_deleted.is_(False)
     ).update({KhatabookFile.is_deleted: True})
 
     # Mark related item mappings as deleted
     db.query(KhatabookItem).filter(
-        KhatabookItem.khatabook_id == kb_uuid,
-        KhatabookItem.is_deleted.is_(False)
+        KhatabookItem.khatabook_id == kb_uuid, KhatabookItem.is_deleted.is_(False)
     ).update({KhatabookItem.is_deleted: True})
 
     # Mark the main khatabook as deleted
@@ -266,12 +275,9 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
             joinedload(Khatabook.person),
             joinedload(Khatabook.items).joinedload(KhatabookItem.item),
             joinedload(Khatabook.project),
-            joinedload(Khatabook.created_by_user)  # Add created_by_user relationship
+            joinedload(Khatabook.created_by_user),  # Add created_by_user relationship
         )
-        .filter(
-            Khatabook.is_deleted.is_(False),
-            Khatabook.created_by == user_id
-        )
+        .filter(Khatabook.is_deleted.is_(False), Khatabook.created_by == user_id)
         .order_by(Khatabook.expense_date.desc())
         .all()
     )
@@ -289,46 +295,50 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
         if entry.items:
             for khatabook_item in entry.items:
                 if khatabook_item.item:
-                    items_data.append({
-                        "uuid": str(khatabook_item.item.uuid),
-                        "name": khatabook_item.item.name,
-                        "category": khatabook_item.item.category,
-                    })
+                    items_data.append(
+                        {
+                            "uuid": str(khatabook_item.item.uuid),
+                            "name": khatabook_item.item.name,
+                            "category": khatabook_item.item.category,
+                        }
+                    )
 
         project_info = None
         if entry.project:
-            project_info = {
-                "uuid": str(entry.project.uuid),
-                "name": entry.project.name
-            }
+            project_info = {"uuid": str(entry.project.uuid), "name": entry.project.name}
 
         # Add created_by_user information
         user_info = None
         if entry.created_by_user:
             user_info = {
                 "uuid": str(entry.created_by_user.uuid),
-                "name": entry.created_by_user.name
+                "name": entry.created_by_user.name,
             }
 
-        response_data.append({
-            "uuid": str(entry.uuid),
-            "amount": entry.amount,
-            "remarks": entry.remarks,
-            "balance_after_entry": entry.balance_after_entry,  # <-- include the snapshot
-            "person": {
-                "uuid": str(entry.person.uuid),
-                "name": entry.person.name
-            } if entry.person else None,
-            "project_info": project_info,
-            "expense_date": entry.expense_date.isoformat() if entry.expense_date else None,
-            "created_at": entry.created_at.isoformat(),
-            "files": file_urls,
-            "items": items_data,
-            "payment_mode": entry.payment_mode,
-            "entry_type": entry.entry_type,  # Include entry_type in response
-            "is_suspicious": entry.is_suspicious,
-            "created_by_user": user_info  # Include created_by_user info
-        })
+        response_data.append(
+            {
+                "uuid": str(entry.uuid),
+                "amount": entry.amount,
+                "remarks": entry.remarks,
+                "balance_after_entry": entry.balance_after_entry,  # <-- include the snapshot
+                "person": (
+                    {"uuid": str(entry.person.uuid), "name": entry.person.name}
+                    if entry.person
+                    else None
+                ),
+                "project_info": project_info,
+                "expense_date": (
+                    entry.expense_date.isoformat() if entry.expense_date else None
+                ),
+                "created_at": entry.created_at.isoformat(),
+                "files": file_urls,
+                "items": items_data,
+                "payment_mode": entry.payment_mode,
+                "entry_type": entry.entry_type,  # Include entry_type in response
+                "is_suspicious": entry.is_suspicious,
+                "created_by_user": user_info,  # Include created_by_user info
+            }
+        )
 
     return response_data
 
@@ -350,13 +360,17 @@ def get_user_balance(user_uuid: UUID, db: Session) -> float:
     Fetch the user's current Khatabook balance from KhatabookBalance.
     Returns 0.0 if no balance record exists.
     """
-    bal = db.query(KhatabookBalance.balance).filter(
-        KhatabookBalance.user_uuid == user_uuid
-    ).first()
+    bal = (
+        db.query(KhatabookBalance.balance)
+        .filter(KhatabookBalance.user_uuid == user_uuid)
+        .first()
+    )
     return bal[0] if bal else 0.0
 
 
-def mark_khatabook_entry_suspicious(db: Session, kb_uuid: UUID, is_suspicious: bool) -> Optional[Khatabook]:
+def mark_khatabook_entry_suspicious(
+    db: Session, kb_uuid: UUID, is_suspicious: bool
+) -> Optional[Khatabook]:
     """
     Mark a khatabook entry as suspicious or not suspicious.
 
@@ -368,10 +382,11 @@ def mark_khatabook_entry_suspicious(db: Session, kb_uuid: UUID, is_suspicious: b
     Returns:
         The updated khatabook entry, or None if the entry doesn't exist
     """
-    kb_entry = db.query(Khatabook).filter(
-        Khatabook.uuid == kb_uuid,
-        Khatabook.is_deleted.is_(False)
-    ).first()
+    kb_entry = (
+        db.query(Khatabook)
+        .filter(Khatabook.uuid == kb_uuid, Khatabook.is_deleted.is_(False))
+        .first()
+    )
 
     if not kb_entry:
         return None

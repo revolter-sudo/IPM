@@ -2,14 +2,13 @@ from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from src.app.schemas.constants import HOST_URL
 
 
 # Configuration
 class Settings(BaseSettings):
     DB_USERNAME: str
     DB_PASSWORD: str
-    DB_HOST: str 
+    DB_HOST: str
     DB_PORT: int = 5432
     DB_NAME: str
     UPLOADS_DIR: str
@@ -22,7 +21,6 @@ class Settings(BaseSettings):
     HOST_URL: str
     LOG_LEVEL: str = "INFO"
     LOG_DIR: str = "/app/logs"
-
 
     @property
     def DATABASE_URL(self) -> str:
@@ -44,7 +42,7 @@ engine = create_engine(
     max_overflow=10,
     pool_timeout=30,
     pool_recycle=1800,  # Recycle connections after 30 minutes
-    pool_pre_ping=True  # Verify connections before using them
+    pool_pre_ping=True,  # Verify connections before using them
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

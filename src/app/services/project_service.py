@@ -1,50 +1,56 @@
-import os
-from src.app.utils.logging_config import get_logger
 import json
+import os
+from datetime import datetime
+from typing import Optional
 from uuid import UUID, uuid4
-from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Query
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
-from decimal import Decimal
 
 from src.app.database.database import get_db
 from src.app.database.models import (
+    BalanceDetail,
+    CompanyInfo,
+    Invoice,
+    Item,
     Log,
+    Payment,
+    PaymentItem,
     Project,
     ProjectBalance,
-    ProjectUserItemMap,
-    User,
-    BalanceDetail,
-    Payment,
-    ProjectUserMap,
-    Item,
     ProjectItemMap,
-    Invoice,
-    PaymentItem,
     ProjectPO,
     ProjectPOItem,
-    CompanyInfo
+    ProjectUserItemMap,
+    ProjectUserMap,
+    User,
 )
 from src.app.schemas import constants
 from src.app.schemas.auth_service_schamas import UserRole
 from src.app.schemas.project_service_schemas import (
+    BankCreateSchema,
+    BankEditSchema,
+    CompanyInfoCreate,
+    CompanyInfoUpdate,
     ProjectCreateRequest,
+    ProjectPOUpdateSchema,
     ProjectResponse,
     ProjectServiceResponse,
     UpdateProjectSchema,
-    BankCreateSchema,
-    BankEditSchema,
-    InvoiceCreateRequest,
-    InvoiceResponse,
-    InvoiceStatusUpdateRequest,
-    ProjectPOUpdateSchema,
-    CompanyInfoCreate,
-    CompanyInfoUpdate
 )
-from src.app.services.location_service import LocationService
 from src.app.services.auth_service import get_current_user
-from datetime import datetime, timedelta
+from src.app.services.location_service import LocationService
+from src.app.utils.logging_config import get_logger
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -55,14 +61,18 @@ balance_router = APIRouter(prefix="")
 
 
 def create_project_balance_entry(
-    db, current_user, project_id: UUID, adjustment: float,
-    description: str = None, balance_type: str = "actual"
+    db,
+    current_user,
+    project_id: UUID,
+    adjustment: float,
+    description: str = None,
+    balance_type: str = "actual",
 ):
     balance_entry = ProjectBalance(
         project_id=project_id,
         adjustment=adjustment,
         description=description,
-        balance_type=balance_type
+        balance_type=balance_type,
     )
     db.add(balance_entry)
     # log_entry = Log(
@@ -77,11 +87,7 @@ def create_project_balance_entry(
     db.refresh(balance_entry)
 
 
-@project_router.put(
-        "/update-balance",
-        tags=["Projects"],
-        deprecated=True
-    )
+@project_router.put("/update-balance", tags=["Projects"], deprecated=True)
 def update_project_balance(
     project_uuid: UUID,
     new_balance: float,
@@ -97,9 +103,7 @@ def update_project_balance(
         )
         if not project_balance:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project balance not found"
+                data=None, status_code=404, message="Project balance not found"
             ).model_dump()
 
         # Update project balance
@@ -122,27 +126,21 @@ def update_project_balance(
         return ProjectServiceResponse(
             data=total_balance,
             message="Project balance updated successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         db.rollback()
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching project details: {str(e)}"
+            message=f"An error occurred while fetching project details: {str(e)}",
         ).model_dump()
 
 
-@project_router.get(
-        "/balance",
-        tags=["Projects"],
-        deprecated=True
-    )
+@project_router.get("/balance", tags=["Projects"], deprecated=True)
 def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)):
     try:
-        project = (
-            db.query(Project).filter(Project.uuid == project_uuid).first()
-        )
+        project = db.query(Project).filter(Project.uuid == project_uuid).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
@@ -156,21 +154,17 @@ def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)):
         return ProjectServiceResponse(
             data=response,
             message="Project balance fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching project details: {str(e)}"
+            message=f"An error occurred while fetching project details: {str(e)}",
         ).model_dump()
 
 
-@project_router.put(
-        "/adjust-balance",
-        tags=["Projects"],
-        deprecated=True
-    )
+@project_router.put("/adjust-balance", tags=["Projects"], deprecated=True)
 def adjust_project_balance(
     project_uuid: UUID,
     adjustment: float,
@@ -179,14 +173,10 @@ def adjust_project_balance(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        project = (
-            db.query(Project).filter(Project.uuid == project_uuid).first()
-        )
+        project = db.query(Project).filter(Project.uuid == project_uuid).first()
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         if current_user.role not in [
@@ -194,28 +184,32 @@ def adjust_project_balance(
             UserRole.ADMIN.value,
         ]:
             return ProjectServiceResponse(
-                data=None,
-                status_code=403,
-                message="Unauthorized to adjust balance"
+                data=None, status_code=403, message="Unauthorized to adjust balance"
             ).model_dump()
 
-        create_project_balance_entry(db=db, project_id=project_uuid, adjustment=adjustment, description=description, current_user=current_user)
+        create_project_balance_entry(
+            db=db,
+            project_id=project_uuid,
+            adjustment=adjustment,
+            description=description,
+            current_user=current_user,
+        )
         return ProjectServiceResponse(
-            data=None,
-            message="Project balance adjusted successfully",
-            status_code=200
+            data=None, message="Project balance adjusted successfully", status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching project details: {str(e)}"
+            message=f"An error occurred while fetching project details: {str(e)}",
         ).model_dump()
 
 
 @project_router.post(
-    "/create", status_code=status.HTTP_201_CREATED, tags=["Projects"],
+    "/create",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Projects"],
     description="""
     Create a new project with optional PO document upload.
 
@@ -231,10 +225,13 @@ def adjust_project_balance(
         "actual_balance": 500.0
     }
     ```
-    """
+    """,
 )
 def create_project(
-    request: str = Form(..., description="JSON string containing project details (name, description, location, estimated_balance, actual_balance)"),
+    request: str = Form(
+        ...,
+        description="JSON string containing project details (name, description, location, estimated_balance, actual_balance)",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -245,7 +242,11 @@ def create_project(
 
         logger.info(f"Create project request received: {project_request}")
         # Fix: current_user might be dict, access role accordingly
-        user_role = current_user.role if hasattr(current_user, 'role') else current_user.get('role')
+        user_role = (
+            current_user.role
+            if hasattr(current_user, "role")
+            else current_user.get("role")
+        )
         logger.info(f"Current user role: {user_role}")
         if user_role not in [
             UserRole.SUPER_ADMIN.value,
@@ -253,9 +254,7 @@ def create_project(
             UserRole.PROJECT_MANAGER.value,
         ]:
             return ProjectServiceResponse(
-                data=None,
-                status_code=403,
-                message=constants.CAN_NOT_CREATE_PROJECT
+                data=None, status_code=403, message=constants.CAN_NOT_CREATE_PROJECT
             ).model_dump()
 
         project_uuid = str(uuid4())
@@ -285,7 +284,7 @@ def create_project(
             end_date=project_request.end_date,
             location=project_request.location,
             estimated_balance=project_request.estimated_balance,
-            actual_balance=project_request.actual_balance
+            actual_balance=project_request.actual_balance,
         )
         db.add(new_project)
         db.commit()
@@ -311,7 +310,7 @@ def create_project(
                 adjustment=project_request.estimated_balance,
                 description="Initial estimated balance",
                 current_user=current_user,
-                balance_type="estimated"
+                balance_type="estimated",
             )
 
         # Actual Balance
@@ -322,7 +321,7 @@ def create_project(
                 adjustment=project_request.actual_balance,
                 description="Initial actual balance",
                 current_user=current_user,
-                balance_type="actual"
+                balance_type="actual",
             )
 
         # Create a log entry for project creation
@@ -348,7 +347,7 @@ def create_project(
                 "actual_balance": new_project.actual_balance,
             },
             message="Project Created Successfully",
-            status_code=201
+            status_code=201,
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -356,7 +355,7 @@ def create_project(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while creating project: {str(e)}"
+            message=f"An error occurred while creating project: {str(e)}",
         ).model_dump()
 
 
@@ -543,11 +542,12 @@ def create_project(
 #             message="An error occurred while fetching project details."
 #         ).model_dump()
 
+
 @project_router.get(
     "",
     status_code=status.HTTP_200_OK,
     tags=["Projects"],
-    description="Fetch all projects visible to the current user along with PO and item expense details."
+    description="Fetch all projects visible to the current user along with PO and item expense details.",
 )
 def list_all_projects(
     db: Session = Depends(get_db),
@@ -566,8 +566,17 @@ def list_all_projects(
     - Total PO amount per project
     """
     try:
-        if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, UserRole.ACCOUNTANT.value]:
-            projects = db.query(Project).filter(Project.is_deleted.is_(False)).order_by(Project.id.desc()).all()
+        if current_user.role in [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+        ]:
+            projects = (
+                db.query(Project)
+                .filter(Project.is_deleted.is_(False))
+                .order_by(Project.id.desc())
+                .all()
+            )
         else:
             projects = (
                 db.query(Project)
@@ -591,7 +600,7 @@ def list_all_projects(
                 db.query(
                     ProjectItemMap.project_id,
                     ProjectItemMap.item_id,
-                    func.max(ProjectItemMap.id).label('max_id')
+                    func.max(ProjectItemMap.id).label("max_id"),
                 )
                 .filter(ProjectItemMap.project_id == project.uuid)
                 .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
@@ -618,18 +627,21 @@ def list_all_projects(
                     .filter(
                         PaymentItem.item_id == item.uuid,
                         Payment.project_id == project.uuid,
-                        Payment.status == 'transferred',
+                        Payment.status == "transferred",
                         Payment.is_deleted.is_(False),
-                        PaymentItem.is_deleted.is_(False)
+                        PaymentItem.is_deleted.is_(False),
                     )
-                    .scalar() or 0.0
+                    .scalar()
+                    or 0.0
                 )
                 if current_expense > estimation:
-                    exceeding_items.append({
-                        "item_name": item.name,
-                        "estimation": estimation,
-                        "current_expense": current_expense
-                    })
+                    exceeding_items.append(
+                        {
+                            "item_name": item.name,
+                            "estimation": estimation,
+                            "current_expense": current_expense,
+                        }
+                    )
 
             # PO list and total value
             pos_list = []
@@ -644,53 +656,70 @@ def list_all_projects(
                     db.query(func.sum(Invoice.total_paid_amount))
                     .join(ProjectPO, Invoice.project_po_id == ProjectPO.uuid)
                     .filter(
-                        Invoice.project_po_id == po.uuid, 
-                        Invoice.is_deleted.is_(False), 
+                        Invoice.project_po_id == po.uuid,
+                        Invoice.is_deleted.is_(False),
                         # Invoice.status == 'paid',
-                        Invoice.payment_status.in_(["partially_paid", "fully_paid"])
+                        Invoice.payment_status.in_(["partially_paid", "fully_paid"]),
                     )
-                    .scalar() or 0.0
+                    .scalar()
+                    or 0.0
                 )
                 total_po_paid += paid_amount
 
-                creator_name = db.query(User.name).filter(User.uuid == po.created_by).scalar()
-                pos_list.append({
-                    "uuid": str(po.uuid),
-                    "po_number": po.po_number,
-                    "client_name": po.client_name,
-                    "amount": po.amount,
-                    "description": po.description,
-                    "po_date": po.po_date.strftime("%Y-%m-%d") if po.po_date else None,
-                    "file_path": constants.HOST_URL + "/" + po.file_path if po.file_path else None,
-                    "created_by": creator_name or "Unknown",
-                    "created_at": po.created_at.strftime("%Y-%m-%d %H:%M:%S") if po.created_at else None
-                })
+                creator_name = (
+                    db.query(User.name).filter(User.uuid == po.created_by).scalar()
+                )
+                pos_list.append(
+                    {
+                        "uuid": str(po.uuid),
+                        "po_number": po.po_number,
+                        "client_name": po.client_name,
+                        "amount": po.amount,
+                        "description": po.description,
+                        "po_date": (
+                            po.po_date.strftime("%Y-%m-%d") if po.po_date else None
+                        ),
+                        "file_path": (
+                            constants.HOST_URL + "/" + po.file_path
+                            if po.file_path
+                            else None
+                        ),
+                        "created_by": creator_name or "Unknown",
+                        "created_at": (
+                            po.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                            if po.created_at
+                            else None
+                        ),
+                    }
+                )
                 total_po_amount += po.amount or 0.0
 
-            projects_response_data.append({
-                "uuid": str(project.uuid),
-                "name": project.name,
-                "description": project.description,
-                "location": project.location,
-                "start_date": project.start_date,
-                "end_date": project.end_date,
-                "estimated_balance": estimated_balance,
-                "actual_balance": actual_balance,
-                "created_at": project.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                "items_count": items_count,
-                "exceeding_items": {
-                    "count": len(exceeding_items),
-                    "items": exceeding_items
-                },
-                "total_po_amount": total_po_amount,
-                "total_po_paid": total_po_paid,
-                "pos": pos_list
-            })
+            projects_response_data.append(
+                {
+                    "uuid": str(project.uuid),
+                    "name": project.name,
+                    "description": project.description,
+                    "location": project.location,
+                    "start_date": project.start_date,
+                    "end_date": project.end_date,
+                    "estimated_balance": estimated_balance,
+                    "actual_balance": actual_balance,
+                    "created_at": project.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    "items_count": items_count,
+                    "exceeding_items": {
+                        "count": len(exceeding_items),
+                        "items": exceeding_items,
+                    },
+                    "total_po_amount": total_po_amount,
+                    "total_po_paid": total_po_paid,
+                    "pos": pos_list,
+                }
+            )
 
         return ProjectServiceResponse(
             data=projects_response_data,
             message="Projects fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -698,30 +727,21 @@ def list_all_projects(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while fetching project details."
+            message="An error occurred while fetching project details.",
         ).model_dump()
 
 
-
-@project_router.get(
-    "/project", status_code=status.HTTP_200_OK, tags=["Projects"]
-)
+@project_router.get("/project", status_code=status.HTTP_200_OK, tags=["Projects"])
 def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
     try:
         project = (
             db.query(Project)
-            .filter(
-                and_(
-                    Project.uuid == project_uuid, Project.is_deleted.is_(False)
-                )
-            )
+            .filter(and_(Project.uuid == project_uuid, Project.is_deleted.is_(False)))
             .first()
         )
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message=constants.PROJECT_NOT_FOUND
+                data=None, status_code=404, message=constants.PROJECT_NOT_FOUND
             ).model_dump()
 
         # Get total balance (for backward compatibility)
@@ -735,9 +755,11 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
         # po_balance = project.po_balance if project.po_balance else 0
 
         # Get estimated balance & actual balance
-        estimated_balance = project.estimated_balance if project.estimated_balance else 0
+        estimated_balance = (
+            project.estimated_balance if project.estimated_balance else 0
+        )
         actual_balance = project.actual_balance if project.actual_balance else 0
-        
+
         total_po_paid = 0.0
         for po in project.project_pos:
             if po.is_deleted:
@@ -748,9 +770,10 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
                 .filter(
                     Invoice.project_po_id == po.uuid,
                     Invoice.is_deleted.is_(False),
-                    Invoice.payment_status.in_(["partially_paid", "fully_paid"])
+                    Invoice.payment_status.in_(["partially_paid", "fully_paid"]),
                 )
-                .scalar() or 0.0
+                .scalar()
+                or 0.0
             )
             total_po_paid += paid_amount
 
@@ -771,17 +794,16 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
         return ProjectServiceResponse(
             data=project_response_data,
             message="Project info fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
-    
+
     except Exception as e:
         logger.error(f"Error in get_project_info API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching project details: {str(e)}"
+            message=f"An error occurred while fetching project details: {str(e)}",
         ).model_dump()
-
 
 
 @project_router.put("/{project_uuid}", tags=["Projects"], status_code=200)
@@ -811,21 +833,19 @@ def update_project(
         )
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         # Example: Only Admin, SuperAdmin, or PM can update a project
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
-            UserRole.PROJECT_MANAGER.value
+            UserRole.PROJECT_MANAGER.value,
         ]:
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="You are not authorized to update projects"
+                message="You are not authorized to update projects",
             ).model_dump()
 
         # Update fields if provided
@@ -850,7 +870,7 @@ def update_project(
             entity="Project",
             action="Update",
             entity_id=project_uuid,
-            performed_by=current_user.uuid
+            performed_by=current_user.uuid,
         )
         db.add(log_entry)
 
@@ -866,24 +886,26 @@ def update_project(
                 "start_date": project.start_date,
                 "end_date": project.end_date,
                 "estimated_balance": project.estimated_balance,
-                "actual_balance": project.actual_balance
+                "actual_balance": project.actual_balance,
             },
             message="Project updated successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         db.rollback()
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while updating project: {str(e)}"
+            message=f"An error occurred while updating project: {str(e)}",
         ).model_dump()
 
 
 def get_total_transferred_payments_sum(db):
-    total_sum = db.query(func.sum(Payment.amount))\
-                  .filter(Payment.status == 'transferred', Payment.is_deleted.is_(False))\
-                  .scalar()
+    total_sum = (
+        db.query(func.sum(Payment.amount))
+        .filter(Payment.status == "transferred", Payment.is_deleted.is_(False))
+        .scalar()
+    )
     if total_sum:
         return total_sum
     else:
@@ -894,24 +916,24 @@ def get_total_transferred_payments_sum(db):
 def add_bank(
     bank_data: BankCreateSchema,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
     Create a new bank/cash entry.
     Only Accountant or Super Admin can do this.
     """
     try:
-        if current_user.role not in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
+        if current_user.role not in [
+            UserRole.ACCOUNTANT.value,
+            UserRole.SUPER_ADMIN.value,
+        ]:
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Only Accountant or Super Admin can add bank balance"
+                message="Only Accountant or Super Admin can add bank balance",
             ).model_dump()
 
-        new_bank = BalanceDetail(
-            name=bank_data.name,
-            balance=bank_data.balance
-        )
+        new_bank = BalanceDetail(name=bank_data.name, balance=bank_data.balance)
         db.add(new_bank)
         db.commit()
         db.refresh(new_bank)
@@ -919,21 +941,17 @@ def add_bank(
         response_data = {
             "uuid": str(new_bank.uuid),
             "name": new_bank.name,
-            "balance": new_bank.balance
+            "balance": new_bank.balance,
         }
         return ProjectServiceResponse(
-            data=response_data,
-            status_code=201,
-            message="Bank created successfully"
+            data=response_data, status_code=201, message="Bank created successfully"
         ).model_dump()
 
     except Exception as e:
         logger.error(f"Error in add_bank: {e}")
         db.rollback()
         return ProjectServiceResponse(
-            data=None,
-            status_code=500,
-            message="An error occurred while creating bank"
+            data=None, status_code=500, message="An error occurred while creating bank"
         ).model_dump()
 
 
@@ -942,26 +960,31 @@ def edit_bank(
     bank_uuid: UUID,
     bank_data: BankEditSchema,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
     Edit an existing bank/cash entry.
     Only Accountant or Super Admin can do this.
     """
     try:
-        if current_user.role not in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
+        if current_user.role not in [
+            UserRole.ACCOUNTANT.value,
+            UserRole.SUPER_ADMIN.value,
+        ]:
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Only Accountant or Super Admin can update bank balance"
+                message="Only Accountant or Super Admin can update bank balance",
             ).model_dump()
 
-        bank_obj = db.query(BalanceDetail).filter(BalanceDetail.uuid == bank_uuid).first()
+        bank_obj = (
+            db.query(BalanceDetail).filter(BalanceDetail.uuid == bank_uuid).first()
+        )
         if not bank_obj:
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
-                message=f"No bank found with uuid={bank_uuid}"
+                message=f"No bank found with uuid={bank_uuid}",
             ).model_dump()
 
         bank_obj.name = bank_data.name
@@ -972,21 +995,17 @@ def edit_bank(
         response_data = {
             "uuid": str(bank_obj.uuid),
             "name": bank_obj.name,
-            "balance": bank_obj.balance
+            "balance": bank_obj.balance,
         }
         return ProjectServiceResponse(
-            data=response_data,
-            status_code=200,
-            message="Bank updated successfully"
+            data=response_data, status_code=200, message="Bank updated successfully"
         ).model_dump()
 
     except Exception as e:
         logger.error(f"Error in edit_bank: {e}")
         db.rollback()
         return ProjectServiceResponse(
-            data=None,
-            status_code=500,
-            message="An error occurred while updating bank"
+            data=None, status_code=500, message="An error occurred while updating bank"
         ).model_dump()
 
 
@@ -1011,22 +1030,18 @@ def get_bank_balance(
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
-                message="No bank balance found (check bank_uuid?)"
+                message="No bank balance found (check bank_uuid?)",
             ).model_dump()
 
         # Build a list of dict
         data_out = []
         for b in results:
-            data_out.append({
-                "uuid": str(b.uuid),
-                "name": b.name,
-                "balance": b.balance
-            })
+            data_out.append({"uuid": str(b.uuid), "name": b.name, "balance": b.balance})
 
         return ProjectServiceResponse(
             data=data_out,
             status_code=200,
-            message="Bank Balance(s) fetched successfully."
+            message="Bank Balance(s) fetched successfully.",
         ).model_dump()
 
     except Exception as e:
@@ -1034,61 +1049,56 @@ def get_bank_balance(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while getting bank balances"
+            message="An error occurred while getting bank balances",
         ).model_dump()
 
 
 @balance_router.delete(
-        "/bank/{bank_uuid}",
-        status_code=status.HTTP_200_OK,
-        tags=["Bank Balance"]
+    "/bank/{bank_uuid}", status_code=status.HTTP_200_OK, tags=["Bank Balance"]
 )
 def delete_bank(
     bank_uuid: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ) -> ProjectServiceResponse:
     try:
-        if current_user.role not in [UserRole.ACCOUNTANT.value, UserRole.SUPER_ADMIN.value]:
+        if current_user.role not in [
+            UserRole.ACCOUNTANT.value,
+            UserRole.SUPER_ADMIN.value,
+        ]:
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
-                message="Only Accountant or Super Admin can delete bank data"
+                message="Only Accountant or Super Admin can delete bank data",
             ).model_dump()
 
-        bank_data = db.query(
-            BalanceDetail
-        ).filter(
-            BalanceDetail.uuid == bank_uuid
-        ).first()
+        bank_data = (
+            db.query(BalanceDetail).filter(BalanceDetail.uuid == bank_uuid).first()
+        )
 
         if not bank_data:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Bank Not Found"
+                data=None, status_code=404, message="Bank Not Found"
             ).model_dump()
 
         db.delete(bank_data)
         db.commit()
 
         return ProjectServiceResponse(
-            data=None,
-            status_code=200,
-            message="Bank Deleted Successfully"
+            data=None, status_code=200, message="Bank Deleted Successfully"
         ).model_dump()
 
     except Exception as e:
         db.rollback()
         logger.error(f"Error in delete_bank API: {str(e)}")
         return ProjectServiceResponse(
-            data=None,
-            status_code=500,
-            message="An error occurred while deleting bank"
+            data=None, status_code=500, message="An error occurred while deleting bank"
         ).model_dump()
 
 
-@project_router.delete("/{project_uuid}", status_code=status.HTTP_200_OK, tags=["Projects"])
+@project_router.delete(
+    "/{project_uuid}", status_code=status.HTTP_200_OK, tags=["Projects"]
+)
 def delete_project(
     project_uuid: UUID,
     db: Session = Depends(get_db),
@@ -1104,25 +1114,21 @@ def delete_project(
 
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
             return ProjectServiceResponse(
-                data=None,
-                status_code=403,
-                message="Unauthorized to delete project"
+                data=None, status_code=403, message="Unauthorized to delete project"
             ).model_dump()
 
         # Soft delete project
         project.is_deleted = True
 
         # Soft delete related Payments
-        db.query(Payment).filter(
-            Payment.project_id == project.uuid
-        ).update({Payment.is_deleted: True})
+        db.query(Payment).filter(Payment.project_id == project.uuid).update(
+            {Payment.is_deleted: True}
+        )
 
         # Soft delete ProjectUserMap
         db.query(ProjectUserMap).filter(
@@ -1154,7 +1160,7 @@ def delete_project(
         return ProjectServiceResponse(
             data=None,
             message="Project and related data soft deleted successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -1163,11 +1169,12 @@ def delete_project(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while deleting the project"
+            message="An error occurred while deleting the project",
         ).model_dump()
 
 
 # Simple PO Management API for unlimited PO support
+
 
 @project_router.post(
     "/{project_id}/pos",
@@ -1181,11 +1188,11 @@ Send the PO data as a JSON string via the `po_data` form field and optionally up
  **Example `po_data` JSON Format**:
 ```json
 {
-  "po_number": "PO-2025-0005",         
-  "client_name": "ABC Company",        
-  "amount": 500.0,                     
-  "description": "Invoice for materials", 
-  "po_date": "2025-06-15",             
+  "po_number": "PO-2025-0005",
+  "client_name": "ABC Company",
+  "amount": 500.0,
+  "description": "Invoice for materials",
+  "po_date": "2025-06-15",
   "items": [
     {
       "item_name": "Steel Rods",
@@ -1200,7 +1207,7 @@ Send the PO data as a JSON string via the `po_data` form field and optionally up
  File Upload :
 
 Use po_document field to attach a PDF/DOCX file.
-"""
+""",
 )
 def add_project_po(
     project_id: UUID,
@@ -1220,9 +1227,7 @@ def add_project_po(
 
         if not amount or amount <= 0:
             return ProjectServiceResponse(
-                data=None,
-                status_code=400,
-                message="Amount must be greater than 0"
+                data=None, status_code=400, message="Amount must be greater than 0"
             ).model_dump()
 
         # Convert date
@@ -1234,19 +1239,18 @@ def add_project_po(
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
-                    message="Invalid date format. Use YYYY-MM-DD"
+                    message="Invalid date format. Use YYYY-MM-DD",
                 ).model_dump()
 
         # Check project
-        project = db.query(Project).filter(
-            Project.uuid == project_id,
-            Project.is_deleted.is_(False)
-        ).first()
+        project = (
+            db.query(Project)
+            .filter(Project.uuid == project_id, Project.is_deleted.is_(False))
+            .first()
+        )
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         # Role check
@@ -1257,17 +1261,15 @@ def add_project_po(
             UserRole.PROJECT_MANAGER.value,
         ]:
             return ProjectServiceResponse(
-                data=None,
-                status_code=403,
-                message="Unauthorized to add POs to project"
+                data=None, status_code=403, message="Unauthorized to add POs to project"
             ).model_dump()
 
         # Auto-generate PO number if not given
         if not po_number:
             year = datetime.utcnow().year
-            existing_po_count = db.query(ProjectPO).filter(
-                ProjectPO.project_id == project_id
-            ).count()
+            existing_po_count = (
+                db.query(ProjectPO).filter(ProjectPO.project_id == project_id).count()
+            )
             po_number = f"PO-{year}-{str(existing_po_count + 1).zfill(4)}"
 
         # Save file if provided
@@ -1290,7 +1292,7 @@ def add_project_po(
             client_name=client_name,
             po_date=po_date,
             file_path=file_path,
-            created_by=current_user.uuid
+            created_by=current_user.uuid,
         )
         db.add(new_po)
         db.flush()  # Required to get new_po.uuid before adding items
@@ -1302,9 +1304,7 @@ def add_project_po(
             if not item_name or basic_value is None:
                 continue
             new_item = ProjectPOItem(
-                project_po_id=new_po.uuid,
-                item_name=item_name,
-                basic_value=basic_value
+                project_po_id=new_po.uuid, item_name=item_name, basic_value=basic_value
             )
             db.add(new_item)
 
@@ -1320,25 +1320,33 @@ def add_project_po(
                 "client_name": new_po.client_name,
                 "amount": new_po.amount,
                 "description": new_po.description,
-                "po_date": new_po.po_date.strftime("%Y-%m-%d") if new_po.po_date else None,
-                "created_at": new_po.created_at.strftime("%Y-%m-%d %H:%M:%S") if new_po.created_at else None,
-                "items": [
-                    {
-                        "item_name": item.item_name,
-                        "basic_value": item.basic_value
-                    } for item in new_po.po_items  # ensure this relationship exists
-                ] if hasattr(new_po, "po_items") else [],
-                "file_path": new_po.file_path
+                "po_date": (
+                    new_po.po_date.strftime("%Y-%m-%d") if new_po.po_date else None
+                ),
+                "created_at": (
+                    new_po.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                    if new_po.created_at
+                    else None
+                ),
+                "items": (
+                    [
+                        {"item_name": item.item_name, "basic_value": item.basic_value}
+                        for item in new_po.po_items  # ensure this relationship exists
+                    ]
+                    if hasattr(new_po, "po_items")
+                    else []
+                ),
+                "file_path": new_po.file_path,
             },
             message="PO added to project successfully",
-            status_code=201
+            status_code=201,
         ).model_dump()
 
     except json.JSONDecodeError as json_error:
         return ProjectServiceResponse(
             data=None,
             status_code=400,
-            message=f"Invalid JSON in PO data: {str(json_error)}"
+            message=f"Invalid JSON in PO data: {str(json_error)}",
         ).model_dump()
 
     except Exception as e:
@@ -1346,14 +1354,14 @@ def add_project_po(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while adding PO: {str(e)}"
+            message=f"An error occurred while adding PO: {str(e)}",
         ).model_dump()
 
 
 @project_router.get(
     "/{project_id}/pos",
     tags=["Project POs"],
-    description="Get all POs for a specific project"
+    description="Get all POs for a specific project",
 )
 def get_project_pos(
     project_id: UUID,
@@ -1363,23 +1371,24 @@ def get_project_pos(
     """Get all POs for a specific project."""
     try:
         # Validate project
-        project = db.query(Project).filter(
-            Project.uuid == project_id,
-            Project.is_deleted.is_(False)
-        ).first()
+        project = (
+            db.query(Project)
+            .filter(Project.uuid == project_id, Project.is_deleted.is_(False))
+            .first()
+        )
 
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         # Fetch all non-deleted POs
-        pos = db.query(ProjectPO).filter(
-            ProjectPO.project_id == project_id,
-            ProjectPO.is_deleted.is_(False)
-        ).order_by(ProjectPO.created_at).all()
+        pos = (
+            db.query(ProjectPO)
+            .filter(ProjectPO.project_id == project_id, ProjectPO.is_deleted.is_(False))
+            .order_by(ProjectPO.created_at)
+            .all()
+        )
 
         pos_data = []
         total_amount = 0.0
@@ -1387,16 +1396,16 @@ def get_project_pos(
         for po in pos:
 
             # Get invoices for this PO
-            invoices = db.query(Invoice).filter(
-                Invoice.project_po_id == po.uuid,
-                Invoice.is_deleted.is_(False)
-            ).all()
+            invoices = (
+                db.query(Invoice)
+                .filter(Invoice.project_po_id == po.uuid, Invoice.is_deleted.is_(False))
+                .all()
+            )
 
             # total_invoice_amount = sum(inv.amount for inv in invoices)
             # total_paid_amount = sum(inv.total_paid_amount for inv in invoices if inv.payment_status in ["partially_paid", "fully_paid"])
             # pending_amount = total_invoice_amount - total_paid_amount
             # not_generated_amount = po.amount - total_invoice_amount
-
 
             po_data = {
                 "uuid": str(po.uuid),
@@ -1405,20 +1414,28 @@ def get_project_pos(
                 "amount": po.amount,
                 "description": po.description,
                 "po_date": po.po_date.strftime("%Y-%m-%d") if po.po_date else None,
-                "created_at": po.created_at.strftime("%Y-%m-%d %H:%M:%S") if po.created_at else None,
-                "file_path": constants.HOST_URL + "/" + po.file_path if po.file_path else None,
-                "items": [
-                    {
-                        "item_name": item.item_name,
-                        "basic_value": item.basic_value
-                    } for item in getattr(po, "po_items", [])
-                ] if hasattr(po, "po_items") else [],
+                "created_at": (
+                    po.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                    if po.created_at
+                    else None
+                ),
+                "file_path": (
+                    constants.HOST_URL + "/" + po.file_path if po.file_path else None
+                ),
+                "items": (
+                    [
+                        {"item_name": item.item_name, "basic_value": item.basic_value}
+                        for item in getattr(po, "po_items", [])
+                    ]
+                    if hasattr(po, "po_items")
+                    else []
+                ),
                 # "metrics": {
                 #     "total_po_paid": total_paid_amount,
                 #     "total_created_invoice_pending": pending_amount,
                 #     "invoice_not_generated_amount": not_generated_amount
                 # },
-                "created_by": str(po.created_by)
+                "created_by": str(po.created_by),
             }
             pos_data.append(po_data)
             total_amount += po.amount
@@ -1427,14 +1444,11 @@ def get_project_pos(
             data={
                 "project_id": str(project.uuid),
                 "project_name": project.name,
-                "po_summary": {
-                    "total_pos": len(pos),
-                    "total_amount": total_amount
-                },
-                "pos": pos_data
+                "po_summary": {"total_pos": len(pos), "total_amount": total_amount},
+                "pos": pos_data,
             },
             message="Project POs fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -1442,13 +1456,14 @@ def get_project_pos(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching project POs: {str(e)}"
+            message=f"An error occurred while fetching project POs: {str(e)}",
         ).model_dump()
+
 
 @project_router.put(
     "/{project_id}/pos/{po_id}",
     tags=["Project POs"],
-    description="Update an existing Purchase Order (PO) under a project. File update is not allowed."
+    description="Update an existing Purchase Order (PO) under a project. File update is not allowed.",
 )
 def update_project_po(
     po_id: UUID,
@@ -1457,16 +1472,15 @@ def update_project_po(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        po = db.query(ProjectPO).filter(
-            ProjectPO.uuid == po_id,
-            ProjectPO.is_deleted.is_(False)
-        ).first()
+        po = (
+            db.query(ProjectPO)
+            .filter(ProjectPO.uuid == po_id, ProjectPO.is_deleted.is_(False))
+            .first()
+        )
 
         if not po:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="PO not found under this project"
+                data=None, status_code=404, message="PO not found under this project"
             ).model_dump()
 
         # Update fields
@@ -1482,17 +1496,19 @@ def update_project_po(
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
-                    message="Invalid date format. Use YYYY-MM-DD"
+                    message="Invalid date format. Use YYYY-MM-DD",
                 ).model_dump()
 
         #  Update PO items
         db.query(ProjectPOItem).filter(ProjectPOItem.project_po_id == po_id).delete()
         for item in po_data.items:
-            db.add(ProjectPOItem(
-                project_po_id=po_id,
-                item_name=item.item_name,
-                basic_value=item.basic_value
-            ))
+            db.add(
+                ProjectPOItem(
+                    project_po_id=po_id,
+                    item_name=item.item_name,
+                    basic_value=item.basic_value,
+                )
+            )
 
         db.commit()
         db.refresh(po)
@@ -1505,15 +1521,17 @@ def update_project_po(
                 "amount": po.amount,
                 "description": po.description,
                 "po_date": po.po_date.strftime("%Y-%m-%d") if po.po_date else None,
-                "items": [
-                    {
-                        "item_name": item.item_name,
-                        "basic_value": item.basic_value
-                    } for item in po.po_items
-                ] if hasattr(po, "po_items") else []
+                "items": (
+                    [
+                        {"item_name": item.item_name, "basic_value": item.basic_value}
+                        for item in po.po_items
+                    ]
+                    if hasattr(po, "po_items")
+                    else []
+                ),
             },
             message="PO updated successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -1522,16 +1540,15 @@ def update_project_po(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while updating PO: {str(e)}"
+            message=f"An error occurred while updating PO: {str(e)}",
         ).model_dump()
-   
+
 
 @project_router.delete(
     "/project/po/{po_id}",
     tags=["Project POs"],
     description="Delete a project PO",
 )
-
 def delete_project_po(
     po_id: UUID,
     db: Session = Depends(get_db),
@@ -1543,9 +1560,7 @@ def delete_project_po(
 
     if not po:
         return ProjectServiceResponse(
-            data=None,
-            status_code=404,
-            message="PO not found"
+            data=None, status_code=404, message="PO not found"
         ).model_dump()
 
     # Authorization check
@@ -1558,7 +1573,7 @@ def delete_project_po(
         return ProjectServiceResponse(
             data=None,
             status_code=403,
-            message="You are not authorized to delete this PO"
+            message="You are not authorized to delete this PO",
         ).model_dump()
 
     try:
@@ -1567,22 +1582,21 @@ def delete_project_po(
         return ProjectServiceResponse(
             data={"uuid": str(po_id)},
             message="PO deleted successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         db.rollback()
         return ProjectServiceResponse(
             data=None,
             message=f"An error occurred while deleting PO: {str(e)}",
-            status_code=500
+            status_code=500,
         ).model_dump()
-    
 
- 
+
 @project_router.get(
     "/project-item-view/{project_id}/{user_id}",
     tags=["Mappings"],
-    description="Get items visible to current user under a specific project."
+    description="Get items visible to current user under a specific project.",
 )
 def view_project_items_for_user(
     project_id: UUID,
@@ -1608,7 +1622,7 @@ def view_project_items_for_user(
             db.query(
                 ProjectItemMap.project_id,
                 ProjectItemMap.item_id,
-                func.max(ProjectItemMap.id).label('max_id')
+                func.max(ProjectItemMap.id).label("max_id"),
             )
             .filter(ProjectItemMap.project_id == project_id)
             .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
@@ -1629,7 +1643,7 @@ def view_project_items_for_user(
                 "listTag": m.item.list_tag if m.item else None,
                 "has_additional_info": m.item.has_additional_info if m.item else None,
                 "item_balance": m.item_balance,
-                "remaining_balance": None
+                "remaining_balance": None,
             }
             for m in project_items
         ]
@@ -1639,13 +1653,16 @@ def view_project_items_for_user(
         project_items = (
             db.query(ProjectUserItemMap, ProjectItemMap)
             .join(Item, ProjectUserItemMap.item_id == Item.uuid)
-            .join(ProjectItemMap, and_(
-                ProjectUserItemMap.item_id == ProjectItemMap.item_id,
-                ProjectUserItemMap.project_id == ProjectItemMap.project_id
-            ))
+            .join(
+                ProjectItemMap,
+                and_(
+                    ProjectUserItemMap.item_id == ProjectItemMap.item_id,
+                    ProjectUserItemMap.project_id == ProjectItemMap.project_id,
+                ),
+            )
             .filter(
                 ProjectUserItemMap.project_id == project_id,
-                ProjectUserItemMap.user_id == user_id
+                ProjectUserItemMap.user_id == user_id,
             )
             .all()
         )
@@ -1655,37 +1672,45 @@ def view_project_items_for_user(
                 "name": user_item_map.item.name if user_item_map.item else None,
                 "category": user_item_map.item.category if user_item_map.item else None,
                 "listTag": user_item_map.item.list_tag if user_item_map.item else None,
-                "has_additional_info": user_item_map.item.has_additional_info if user_item_map.item else None,
+                "has_additional_info": (
+                    user_item_map.item.has_additional_info
+                    if user_item_map.item
+                    else None
+                ),
                 "item_balance": project_item_map.item_balance,
-                "remaining_balance": None
+                "remaining_balance": None,
             }
             for user_item_map, project_item_map in project_items
         ]
     return ProjectServiceResponse(
         data=response,
         message="Project User Items Fetched Successfully.",
-        status_code=200
+        status_code=200,
     ).model_dump()
 
+
 @project_router.get(
-        "/states",
-        tags=["Location"],
-        description="Get a list of all Indian states", 
-    )
+    "/states",
+    tags=["Location"],
+    description="Get a list of all Indian states",
+)
 def get_all_states():
     states = list(LocationService._INDIA_STATES_CITIES.keys())
     return {
         "data": states,
         "message": "List of Indian States fetched successfully.",
-        "status_code": 200
+        "status_code": 200,
     }
 
+
 @project_router.get(
-        "/cities", 
-        tags=["Location"],
-        description="Get a list of cities for a given state",
-    )
-def get_cities_by_state(state: str = Query(..., description="State name to get cities for")):
+    "/cities",
+    tags=["Location"],
+    description="Get a list of cities for a given state",
+)
+def get_cities_by_state(
+    state: str = Query(..., description="State name to get cities for")
+):
     normalized_state = state.strip().lower()
     matched_state = None
 
@@ -1700,8 +1725,9 @@ def get_cities_by_state(state: str = Query(..., description="State name to get c
     return {
         "data": LocationService._INDIA_STATES_CITIES[matched_state],
         "message": f"Cities fetched for {matched_state.title()}",
-        "status_code": 200
+        "status_code": 200,
     }
+
 
 @project_router.post(
     "/company-info",
@@ -1720,7 +1746,7 @@ Send the `company_data` JSON string via form and optionally upload a logo file.
   "user_construction": "Industrial",
   "successfull_installations": "150+ installations"
 }
-"""
+""",
 )
 def create_company_info(
     company_data: str = Form(..., description="JSON string with company info"),
@@ -1733,8 +1759,7 @@ def create_company_info(
         user_role = getattr(current_user, "role", None) or current_user.get("role")
         if user_role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
             return ProjectServiceResponse(
-            status_code=403,
-            message="Unauthorized to create company info"
+                status_code=403, message="Unauthorized to create company info"
             ).model_dump()
 
         # Parse JSON
@@ -1743,9 +1768,7 @@ def create_company_info(
             payload = CompanyInfoCreate(**payload_dict)
         except Exception as e:
             return ProjectServiceResponse(
-                data=None,
-                status_code=400,
-                message=f"Invalid JSON: {str(e)}"
+                data=None, status_code=400, message=f"Invalid JSON: {str(e)}"
             ).model_dump()
 
         # Save logo file if present
@@ -1778,10 +1801,10 @@ def create_company_info(
                 "no_of_staff": company.no_of_staff,
                 "user_construction": company.user_construction,
                 "successfull_installations": company.successfull_installations,
-                "logo_photo_path": company.logo_photo_url
+                "logo_photo_path": company.logo_photo_url,
             },
             status_code=201,
-            message="Company info created successfully"
+            message="Company info created successfully",
         ).model_dump()
 
     except Exception as e:
@@ -1789,19 +1812,18 @@ def create_company_info(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"Error while creating company info: {str(e)}"
+            message=f"Error while creating company info: {str(e)}",
         ).model_dump()
+
 
 @project_router.get(
     "/company-info",
     tags=["Company Info"],
     response_model=dict,
     summary="Get all company info records",
-    description="Fetches all company info entries including logo URL"
+    description="Fetches all company info entries including logo URL",
 )
-def get_all_company_info(
-    db: Session = Depends(get_db)
-):
+def get_all_company_info(db: Session = Depends(get_db)):
     try:
         companies = db.query(CompanyInfo).filter().all()
 
@@ -1812,21 +1834,24 @@ def get_all_company_info(
                 "no_of_staff": c.no_of_staff,
                 "user_construction": c.user_construction,
                 "successfull_installations": c.successfull_installations,
-                "logo_photo_url": f"{constants.HOST_URL}/{c.logo_photo_url}" if c.logo_photo_url else None
-            } for c in companies
+                "logo_photo_url": (
+                    f"{constants.HOST_URL}/{c.logo_photo_url}"
+                    if c.logo_photo_url
+                    else None
+                ),
+            }
+            for c in companies
         ]
 
         return ProjectServiceResponse(
             data=data,
             status_code=200,
-            message="Company info records fetched successfully"
+            message="Company info records fetched successfully",
         ).model_dump()
 
     except Exception as e:
         return ProjectServiceResponse(
-            data=None,
-            status_code=500,
-            message=f"Error fetching records: {str(e)}"
+            data=None, status_code=500, message=f"Error fetching records: {str(e)}"
         ).model_dump()
 
 
@@ -1836,22 +1861,15 @@ def get_all_company_info(
     response_model=dict,
     summary="Get single company info by UUID",
     description="Fetch a specific company info entry",
-    deprecated=True
+    deprecated=True,
 )
-def get_company_info_by_uuid(
-    uuid: UUID,
-    db: Session = Depends(get_db)
-):
+def get_company_info_by_uuid(uuid: UUID, db: Session = Depends(get_db)):
     try:
-        company = db.query(CompanyInfo).filter(
-            CompanyInfo.uuid == uuid
-        ).first()
+        company = db.query(CompanyInfo).filter(CompanyInfo.uuid == uuid).first()
 
         if not company:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Company info not found"
+                data=None, status_code=404, message="Company info not found"
             ).model_dump()
 
         data = {
@@ -1860,21 +1878,18 @@ def get_company_info_by_uuid(
             "no_of_staff": company.no_of_staff,
             "user_construction": company.user_construction,
             "successfull_installations": company.successfull_installations,
-            "logo_photo_url": company.logo_photo_url
+            "logo_photo_url": company.logo_photo_url,
         }
 
         return ProjectServiceResponse(
-            data=data,
-            status_code=200,
-            message="Company info fetched successfully"
+            data=data, status_code=200, message="Company info fetched successfully"
         ).model_dump()
 
     except Exception as e:
         return ProjectServiceResponse(
-            data=None,
-            status_code=500,
-            message=f"Error fetching company info: {str(e)}"
+            data=None, status_code=500, message=f"Error fetching company info: {str(e)}"
         ).model_dump()
+
 
 @project_router.put(
     "/company-info/{uuid}",
@@ -1896,12 +1911,14 @@ Send as `multipart/form-data`:
   "user_construction": "Industrial",
   "successfull_installations": "500+ successful projects"
 }
-"""
+""",
 )
 def update_company_info(
     uuid: UUID,
     company_data: str = Form(..., description="Updated JSON data"),
-    logo_photo_file: Optional[UploadFile] = File(None, description="New logo or document"),
+    logo_photo_file: Optional[UploadFile] = File(
+        None, description="New logo or document"
+    ),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -1910,17 +1927,14 @@ def update_company_info(
         user_role = getattr(current_user, "role", None) or current_user.get("role")
         if user_role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
             return ProjectServiceResponse(
-            status_code=403,
-            message="Unauthorized to update company info"
+                status_code=403, message="Unauthorized to update company info"
             ).model_dump()
 
         # Fetch company record
         company = db.query(CompanyInfo).filter(CompanyInfo.uuid == uuid).first()
         if not company:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Company info not found"
+                data=None, status_code=404, message="Company info not found"
             ).model_dump()
 
         # Parse JSON
@@ -1929,9 +1943,7 @@ def update_company_info(
             payload = CompanyInfoUpdate(**payload_dict)
         except Exception as e:
             return ProjectServiceResponse(
-                data=None,
-                status_code=400,
-                message=f"Invalid JSON: {str(e)}"
+                data=None, status_code=400, message=f"Invalid JSON: {str(e)}"
             ).model_dump()
 
         # Save new logo if provided
@@ -1965,10 +1977,10 @@ def update_company_info(
                 "no_of_staff": company.no_of_staff,
                 "user_construction": company.user_construction,
                 "successfull_installations": company.successfull_installations,
-                "logo_photo_path": company.logo_photo_url
+                "logo_photo_path": company.logo_photo_url,
             },
             status_code=200,
-            message="Company info updated successfully"
+            message="Company info updated successfully",
         ).model_dump()
 
     except Exception as e:
@@ -1976,6 +1988,5 @@ def update_company_info(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"Error while updating company info: {str(e)}"
+            message=f"Error while updating company info: {str(e)}",
         ).model_dump()
-    

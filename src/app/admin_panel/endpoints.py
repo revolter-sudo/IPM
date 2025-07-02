@@ -1,112 +1,90 @@
-import os
 import json
+import os
+import uuid
 from collections import defaultdict
-from fastapi import FastAPI, Body
-from fastapi_sqlalchemy import DBSessionMiddleware
-from fastapi.middleware.cors import CORSMiddleware
-from src.app.database.database import settings
-from src.app.services.auth_service import get_current_user
-from src.app.schemas.auth_service_schamas import UserRole
-from src.app.admin_panel.services import (
-    create_project_user_mapping,
-    create_project_item_mapping,
-    create_user_item_mapping,
-    create_multiple_user_item_mappings,
-    remove_project_item_mapping,
-    remove_project_user_mapping,
-    remove_user_item_mapping,
-    create_default_config_service,
-    update_default_config_service,
-    sync_project_user_mappings,
-    sync_project_item_mappings,
-    sync_project_user_item_mappings
-)
-from src.app.admin_panel.schemas import (
-    UserProjectItemResponse
-    )
-from src.app.schemas.project_service_schemas import (
-    ProjectServiceResponse,
-    InvoiceCreateRequest,
-    InvoiceUpdateRequest,
-    InvoiceStatusUpdateRequest,
-    InvoicePaymentCreateRequest,
-    InvoicePaymentResponse,
-    InvoiceAnalyticsResponse,
-    InvoiceAnalyticsItem,
-    MultiInvoicePaymentRequest,
-    ProjectItemUpdateRequest,
-    ItemUpdate,
-    ProjectItemUpdateResponse
-)
-from src.app.schemas.payment_service_schemas import PaymentStatus, PaymentServiceResponse
-from typing import Optional, List
+from datetime import datetime, date
+from typing import List, Optional
 from uuid import UUID, uuid4
-from datetime import datetime
-from sqlalchemy import and_, func
-from fastapi import (
-    Depends,
-    File,
-    Query,
-    UploadFile,
-    Form,
-    Body
-)
-from src.app.database.models import (
-    Log,
-    Project,
-    User,
-    Payment,
-    ProjectUserMap,
-    Item,
-    ProjectItemMap,
-    Invoice,
-    UserItemMap,
-    Khatabook,
-    KhatabookItem,
-    KhatabookFile,
-    Person,
-    DefaultConfig,
-    PaymentItem,
-    ProjectUserItemMap,
-    ProjectItemMap,
-    UserItemMap,
-    ProjectUserMap,
-    ProjectPO,
-    InvoicePayment,
-    InvoiceItem,
-    ItemGroups,
-    ItemGroupMap,
-    Salary,
-    InquiryData
-)
+
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi_sqlalchemy import DBSessionMiddleware
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
-from src.app.schemas import constants
-from src.app.admin_panel.services import get_default_config_service
-from src.app.database.database import get_db
-from src.app.utils.logging_config import get_logger, get_api_logger
+
 from src.app.admin_panel.schemas import (
     AdminPanelResponse,
     DefaultConfigCreate,
     DefaultConfigUpdate,
     ProjectUserItemMapCreate,
     SalaryCreateRequest,
-    SalaryUpdateRequest,
     SalaryResponse,
+    SalaryUpdateRequest,
 )
-from fastapi import HTTPException
-from sqlalchemy import select
-import uuid
-
+from src.app.admin_panel.services import (
+    create_default_config_service,
+    create_multiple_user_item_mappings,
+    create_project_item_mapping,
+    create_project_user_mapping,
+    create_user_item_mapping,
+    get_default_config_service,
+    remove_project_item_mapping,
+    remove_project_user_mapping,
+    remove_user_item_mapping,
+    sync_project_item_mappings,
+    sync_project_user_item_mappings,
+    sync_project_user_mappings,
+    update_default_config_service,
+)
+from src.app.database.database import get_db, settings
+from src.app.database.models import (
+    DefaultConfig,
+    Invoice,
+    InvoiceItem,
+    InvoicePayment,
+    Item,
+    ItemGroupMap,
+    ItemGroups,
+    Khatabook,
+    KhatabookFile,
+    KhatabookItem,
+    Log,
+    Payment,
+    PaymentItem,
+    Person,
+    Project,
+    ProjectItemMap,
+    ProjectPO,
+    ProjectUserItemMap,
+    ProjectUserMap,
+    Salary,
+    User,
+    UserItemMap,
+)
+from src.app.schemas import constants
+from src.app.schemas.auth_service_schamas import UserRole
+from src.app.schemas.payment_service_schemas import (
+    PaymentServiceResponse,
+    PaymentStatus,
+)
+from src.app.schemas.project_service_schemas import (
+    InvoiceAnalyticsItem,
+    InvoiceAnalyticsResponse,
+    InvoiceStatusUpdateRequest,
+    InvoiceUpdateRequest,
+    MultiInvoicePaymentRequest,
+    ProjectItemUpdateRequest,
+    ProjectItemUpdateResponse,
+    ProjectServiceResponse,
+)
+from src.app.services.auth_service import get_current_user
+from src.app.utils.logging_config import get_api_logger, get_logger
 
 # Initialize loggers
 logger = get_logger(__name__)
 api_logger = get_api_logger()
 
-admin_app = FastAPI(
-    title="Admin API",
-    docs_url="/docs",
-    openapi_url="/openapi.json"
-)
+admin_app = FastAPI(title="Admin API", docs_url="/docs", openapi_url="/openapi.json")
 
 admin_app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 
@@ -130,9 +108,9 @@ admin_app.add_middleware(
 
 @admin_app.get(
     "/default-config",
-    tags=['Default Config'],
+    tags=["Default Config"],
     status_code=200,
-    description="Get the current default configuration (admin amount and site expense item)"
+    description="Get the current default configuration (admin amount and site expense item)",
 )
 def get_default_config():
     try:
@@ -140,65 +118,55 @@ def get_default_config():
         return AdminPanelResponse(
             data=default_config,
             message="Default Config Fetched Successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         logger.error(f"Error in get_default_config API: {str(e)}")
         return AdminPanelResponse(
-            data=None,
-            message="Error in get_default_config API",
-            status_code=500
+            data=None, message="Error in get_default_config API", status_code=500
         ).model_dump()
 
 
 @admin_app.post(
     "/default-config",
-    tags=['Default Config'],
+    tags=["Default Config"],
     status_code=201,
-    description="Create a new default configuration with specified item and admin amount"
+    description="Create a new default configuration with specified item and admin amount",
 )
 def create_default_config(
     config_data: DefaultConfigCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
 
-        if current_user.role not in [
-            UserRole.SUPER_ADMIN.value,
-            UserRole.ADMIN.value
-        ]:
+        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
             return AdminPanelResponse(
                 data=None,
                 message="Only admin and super admin can create default config",
-                status_code=403
+                status_code=403,
             ).model_dump()
 
         # Check if item exists
         item = db.query(Item).filter(Item.uuid == config_data.item_id).first()
         if not item:
             return AdminPanelResponse(
-                data=None,
-                message="Item not found",
-                status_code=404
+                data=None, message="Item not found", status_code=404
             ).model_dump()
 
-        existing_config = db.query(
-            DefaultConfig
-        ).filter(
-            DefaultConfig.is_deleted.is_(False)
-        ).first()
+        existing_config = (
+            db.query(DefaultConfig).filter(DefaultConfig.is_deleted.is_(False)).first()
+        )
         if existing_config:
             return AdminPanelResponse(
                 data=None,
                 message="Default config already exists. Please update instead.",
-                status_code=400
+                status_code=400,
             ).model_dump()
 
         # Create new default config
         new_config = create_default_config_service(
-            item_id=config_data.item_id,
-            admin_amount=config_data.admin_amount
+            item_id=config_data.item_id, admin_amount=config_data.admin_amount
         )
 
         return AdminPanelResponse(
@@ -206,56 +174,50 @@ def create_default_config(
                 "uuid": str(new_config.uuid),
                 "item_id": str(new_config.item_id),
                 "admin_amount": new_config.admin_amount,
-                "created_at": new_config.created_at.isoformat()
+                "created_at": new_config.created_at.isoformat(),
             },
             message="Default Config Created Successfully",
-            status_code=201
+            status_code=201,
         ).model_dump()
     except Exception as e:
         logger.error(f"Error in create_default_config API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"Error in create_default_config API: {str(e)}",
-            status_code=500
+            status_code=500,
         ).model_dump()
 
 
 @admin_app.put(
     "/default-config",
-    tags=['Default Config'],
+    tags=["Default Config"],
     status_code=200,
-    description="Update the default configuration with new item and admin amount"
+    description="Update the default configuration with new item and admin amount",
 )
 def update_default_config(
     config_data: DefaultConfigUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
         # Check if user has permission
-        if current_user.role not in [
-            UserRole.SUPER_ADMIN.value,
-            UserRole.ADMIN.value
-        ]:
+        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
             return AdminPanelResponse(
                 data=None,
                 message="Only admin and super admin can update default config",
-                status_code=403
+                status_code=403,
             ).model_dump()
 
         # Check if item exists
         item = db.query(Item).filter(Item.uuid == config_data.item_id).first()
         if not item:
             return AdminPanelResponse(
-                data=None,
-                message="Item not found",
-                status_code=404
+                data=None, message="Item not found", status_code=404
             ).model_dump()
 
         # Update default config
         updated_config = update_default_config_service(
-            item_id=config_data.item_id,
-            admin_amount=config_data.admin_amount
+            item_id=config_data.item_id, admin_amount=config_data.admin_amount
         )
 
         return AdminPanelResponse(
@@ -263,17 +225,17 @@ def update_default_config(
                 "uuid": str(updated_config.uuid),
                 "item_id": str(updated_config.item_id),
                 "admin_amount": updated_config.admin_amount,
-                "created_at": updated_config.created_at.isoformat()
+                "created_at": updated_config.created_at.isoformat(),
             },
             message="Default Config Updated Successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         logger.error(f"Error in update_default_config API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"Error in update_default_config API: {str(e)}",
-            status_code=500
+            status_code=500,
         ).model_dump()
 
 
@@ -298,40 +260,36 @@ def map_user_to_project(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Unauthorized to assign project to user"
+                message="Unauthorized to assign project to user",
             ).model_dump()
 
         user = db.query(User).filter(User.uuid == user_id).first()
         if not user:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="User not found"
+                data=None, status_code=404, message="User not found"
             ).model_dump()
 
         project = db.query(Project).filter(Project.uuid == project_id).first()
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         try:
             create_project_user_mapping(db=db, user_id=user_id, project_id=project_id)
         except Exception as db_error:
             db.rollback()
-            logger.error(f"Database error in create_project_user_mapping: {str(db_error)}")
+            logger.error(
+                f"Database error in create_project_user_mapping: {str(db_error)}"
+            )
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
-                message=f"Database error while mapping user to project: {str(db_error)}"
+                message=f"Database error while mapping user to project: {str(db_error)}",
             ).model_dump()
 
         return ProjectServiceResponse(
-            data=None,
-            message="Project assigned to user successfully",
-            status_code=200
+            data=None, message="Project assigned to user successfully", status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -339,14 +297,14 @@ def map_user_to_project(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while mapping user to project"
+            message="An error occurred while mapping user to project",
         ).model_dump()
 
 
 @admin_app.post(
     "/project_users_mapping/{project_id}",
     tags=["admin_panel"],
-    description="Map multiple users to a project at once (handles both assignment and unassignment)"
+    description="Map multiple users to a project at once (handles both assignment and unassignment)",
 )
 def map_multiple_users_to_project(
     project_id: UUID,
@@ -377,32 +335,26 @@ def map_multiple_users_to_project(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Unauthorized to assign users to project"
+                message="Unauthorized to assign users to project",
             ).model_dump()
 
         # Verify project exists
         project = db.query(Project).filter(Project.uuid == project_id).first()
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         # Verify all users exist
         user_count = db.query(User).filter(User.uuid.in_(user_ids)).count()
         if user_count != len(user_ids):
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="One or more users not found"
+                data=None, status_code=404, message="One or more users not found"
             ).model_dump()
 
         try:
             result = sync_project_user_mappings(
-                db=db,
-                project_id=project_id,
-                user_ids=user_ids
+                db=db, project_id=project_id, user_ids=user_ids
             )
 
             return ProjectServiceResponse(
@@ -410,18 +362,20 @@ def map_multiple_users_to_project(
                     "project_id": str(project_id),
                     "added_count": result["added"],
                     "removed_count": result["removed"],
-                    "total_mapped": len(result["mappings"]) + result["removed"]
+                    "total_mapped": len(result["mappings"]) + result["removed"],
                 },
                 message="Users synchronized with project successfully",
-                status_code=200
+                status_code=200,
             ).model_dump()
         except Exception as db_error:
             db.rollback()
-            logger.error(f"Database error in map_multiple_users_to_project: {str(db_error)}")
+            logger.error(
+                f"Database error in map_multiple_users_to_project: {str(db_error)}"
+            )
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
-                message=f"Database error while mapping users to project: {str(db_error)}"
+                message=f"Database error while mapping users to project: {str(db_error)}",
             ).model_dump()
     except Exception as e:
         db.rollback()
@@ -429,8 +383,9 @@ def map_multiple_users_to_project(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while mapping users to project"
+            message="An error occurred while mapping users to project",
         ).model_dump()
+
 
 @admin_app.post(
     "/item_mapping/{item_id}/{project_id}",
@@ -454,46 +409,39 @@ def map_item_to_project(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Unauthorized to assign project to user"
+                message="Unauthorized to assign project to user",
             ).model_dump()
 
         # Check if item exists
         item = db.query(Item).filter(Item.uuid == item_id).first()
         if not item:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Item not found"
+                data=None, status_code=404, message="Item not found"
             ).model_dump()
 
         project = db.query(Project).filter(Project.uuid == project_id).first()
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         try:
             create_project_item_mapping(
-                db=db,
-                item_id=item_id,
-                project_id=project_id,
-                item_balance=item_balance
+                db=db, item_id=item_id, project_id=project_id, item_balance=item_balance
             )
         except Exception as db_error:
             db.rollback()
-            logger.error(f"Database error in create_project_item_mapping: {str(db_error)}")
+            logger.error(
+                f"Database error in create_project_item_mapping: {str(db_error)}"
+            )
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
-                message=f"Database error while mapping item to project: {str(db_error)}"
+                message=f"Database error while mapping item to project: {str(db_error)}",
             ).model_dump()
 
         return ProjectServiceResponse(
-            data=None,
-            message="Item mapped to project successfully",
-            status_code=200
+            data=None, message="Item mapped to project successfully", status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -501,7 +449,7 @@ def map_item_to_project(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while mapping item to project"
+            message="An error occurred while mapping item to project",
         ).model_dump()
 
 
@@ -516,11 +464,13 @@ def map_item_to_project(
             {"item_id": "uuid2", "balance": 200.0}
         ]
     }
-    """
+    """,
 )
 def map_multiple_items_to_project(
     project_id: UUID,
-    items_data: List[dict] = Body(..., embed=True, description="List of items with their balances"),
+    items_data: List[dict] = Body(
+        ..., embed=True, description="List of items with their balances"
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -550,16 +500,14 @@ def map_multiple_items_to_project(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Unauthorized to assign items to project"
+                message="Unauthorized to assign items to project",
             ).model_dump()
 
         # Verify project exists
         project = db.query(Project).filter(Project.uuid == project_id).first()
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         # Extract item IDs for validation
@@ -572,24 +520,20 @@ def map_multiple_items_to_project(
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
-                    message=f"Invalid item data format: {str(e)}"
+                    message=f"Invalid item data format: {str(e)}",
                 ).model_dump()
 
         # Verify all items exist
         item_count = db.query(Item).filter(Item.uuid.in_(item_ids)).count()
         if item_count != len(item_ids):
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="One or more items not found"
+                data=None, status_code=404, message="One or more items not found"
             ).model_dump()
 
         try:
             # Use the sync function to handle both assignment and unassignment
             result = sync_project_item_mappings(
-                db=db,
-                item_data_list=items_data,
-                project_id=project_id
+                db=db, item_data_list=items_data, project_id=project_id
             )
 
             return ProjectServiceResponse(
@@ -598,18 +542,20 @@ def map_multiple_items_to_project(
                     "added_count": result["added"],
                     "updated_count": result["updated"],
                     "removed_count": result["removed"],
-                    "total_mapped": len(result["mappings"])
+                    "total_mapped": len(result["mappings"]),
                 },
                 message="Items synchronized with project successfully",
-                status_code=200
+                status_code=200,
             ).model_dump()
         except Exception as db_error:
             db.rollback()
-            logger.error(f"Database error in map_multiple_items_to_project: {str(db_error)}")
+            logger.error(
+                f"Database error in map_multiple_items_to_project: {str(db_error)}"
+            )
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
-                message=f"Database error while mapping items to project: {str(db_error)}"
+                message=f"Database error while mapping items to project: {str(db_error)}",
             ).model_dump()
     except Exception as e:
         db.rollback()
@@ -617,7 +563,7 @@ def map_multiple_items_to_project(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while mapping items to project"
+            message="An error occurred while mapping items to project",
         ).model_dump()
 
 
@@ -643,33 +589,26 @@ def map_item_to_user(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Unauthorized to assign items to user"
+                message="Unauthorized to assign items to user",
             ).model_dump()
 
         # Check if user exists
         user = db.query(User).filter(User.uuid == user_id).first()
         if not user:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="User not found"
+                data=None, status_code=404, message="User not found"
             ).model_dump()
 
         # Check if item exists
         item = db.query(Item).filter(Item.uuid == item_id).first()
         if not item:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Item not found"
+                data=None, status_code=404, message="Item not found"
             ).model_dump()
 
         try:
             create_user_item_mapping(
-                db=db,
-                user_id=user_id,
-                item_id=item_id,
-                item_balance=item_balance
+                db=db, user_id=user_id, item_id=item_id, item_balance=item_balance
             )
         except Exception as db_error:
             db.rollback()
@@ -677,13 +616,11 @@ def map_item_to_user(
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
-                message=f"Database error while mapping item to user: {str(db_error)}"
+                message=f"Database error while mapping item to user: {str(db_error)}",
             ).model_dump()
 
         return ProjectServiceResponse(
-            data=None,
-            message="Item assigned to user successfully",
-            status_code=200
+            data=None, message="Item assigned to user successfully", status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -691,18 +628,20 @@ def map_item_to_user(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while mapping item to user"
+            message="An error occurred while mapping item to user",
         ).model_dump()
 
 
 @admin_app.post(
     "/user_items_mapping/{user_id}",
     tags=["admin_panel"],
-    description="Map multiple items to a user at once"
+    description="Map multiple items to a user at once",
 )
 def map_multiple_items_to_user(
     user_id: UUID,
-    items_data: List[dict] = Body(..., embed=True, description="List of items with their balances"),
+    items_data: List[dict] = Body(
+        ..., embed=True, description="List of items with their balances"
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -728,16 +667,14 @@ def map_multiple_items_to_user(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Unauthorized to assign items to user"
+                message="Unauthorized to assign items to user",
             ).model_dump()
 
         # Verify user exists
         user = db.query(User).filter(User.uuid == user_id).first()
         if not user:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="User not found"
+                data=None, status_code=404, message="User not found"
             ).model_dump()
 
         # Extract item IDs and balances
@@ -747,48 +684,46 @@ def map_multiple_items_to_user(
         for item_data in items_data:
             try:
                 item_id = UUID(item_data.get("item_id"))
-                balance = float(item_data.get("balance", 0.0)) if "balance" in item_data else None
+                balance = (
+                    float(item_data.get("balance", 0.0))
+                    if "balance" in item_data
+                    else None
+                )
                 item_ids.append(item_id)
                 item_balances.append(balance)
             except (ValueError, TypeError) as e:
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
-                    message=f"Invalid item data format: {str(e)}"
+                    message=f"Invalid item data format: {str(e)}",
                 ).model_dump()
 
         # Verify all items exist
         item_count = db.query(Item).filter(Item.uuid.in_(item_ids)).count()
         if item_count != len(item_ids):
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="One or more items not found"
+                data=None, status_code=404, message="One or more items not found"
             ).model_dump()
 
         try:
             mappings = create_multiple_user_item_mappings(
-                db=db,
-                user_id=user_id,
-                item_ids=item_ids,
-                item_balances=item_balances
+                db=db, user_id=user_id, item_ids=item_ids, item_balances=item_balances
             )
 
             return ProjectServiceResponse(
-                data={
-                    "mapped_count": len(mappings),
-                    "user_id": str(user_id)
-                },
+                data={"mapped_count": len(mappings), "user_id": str(user_id)},
                 message="Items assigned to user successfully",
-                status_code=200
+                status_code=200,
             ).model_dump()
         except Exception as db_error:
             db.rollback()
-            logger.error(f"Database error in map_multiple_items_to_user: {str(db_error)}")
+            logger.error(
+                f"Database error in map_multiple_items_to_user: {str(db_error)}"
+            )
             return ProjectServiceResponse(
                 data=None,
                 status_code=500,
-                message=f"Database error while mapping items to user: {str(db_error)}"
+                message=f"Database error while mapping items to user: {str(db_error)}",
             ).model_dump()
     except Exception as e:
         db.rollback()
@@ -796,14 +731,14 @@ def map_multiple_items_to_user(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while mapping items to user"
+            message="An error occurred while mapping items to user",
         ).model_dump()
 
 
 @admin_app.delete(
     "/project_item_mapping/{project_id}/{item_id}",
     tags=["admin_panel"],
-    description="Remove an item from a project"
+    description="Remove an item from a project",
 )
 def remove_item_from_project(
     project_id: UUID,
@@ -820,41 +755,35 @@ def remove_item_from_project(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Unauthorized to remove items from project"
+                message="Unauthorized to remove items from project",
             ).model_dump()
 
         # Check if project exists
         project = db.query(Project).filter(Project.uuid == project_id).first()
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         # Check if item exists
         item = db.query(Item).filter(Item.uuid == item_id).first()
         if not item:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Item not found"
+                data=None, status_code=404, message="Item not found"
             ).model_dump()
 
         # Remove the mapping
-        result = remove_project_item_mapping(db=db, item_id=item_id, project_id=project_id)
+        result = remove_project_item_mapping(
+            db=db, item_id=item_id, project_id=project_id
+        )
 
         if not result:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Item is not mapped to this project"
+                data=None, status_code=404, message="Item is not mapped to this project"
             ).model_dump()
 
         return ProjectServiceResponse(
-            data=None,
-            message="Item removed from project successfully",
-            status_code=200
+            data=None, message="Item removed from project successfully", status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -862,14 +791,14 @@ def remove_item_from_project(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while removing item from project"
+            message="An error occurred while removing item from project",
         ).model_dump()
 
 
 @admin_app.delete(
     "/project_user_mapping/{project_id}/{user_id}",
     tags=["admin_panel"],
-    description="Remove a user from a project"
+    description="Remove a user from a project",
 )
 def remove_user_from_project(
     project_id: UUID,
@@ -886,41 +815,35 @@ def remove_user_from_project(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Unauthorized to remove users from project"
+                message="Unauthorized to remove users from project",
             ).model_dump()
 
         # Check if project exists
         project = db.query(Project).filter(Project.uuid == project_id).first()
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         # Check if user exists
         user = db.query(User).filter(User.uuid == user_id).first()
         if not user:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="User not found"
+                data=None, status_code=404, message="User not found"
             ).model_dump()
 
         # Remove the mapping
-        result = remove_project_user_mapping(db=db, user_id=user_id, project_id=project_id)
+        result = remove_project_user_mapping(
+            db=db, user_id=user_id, project_id=project_id
+        )
 
         if not result:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="User is not mapped to this project"
+                data=None, status_code=404, message="User is not mapped to this project"
             ).model_dump()
 
         return ProjectServiceResponse(
-            data=None,
-            message="User removed from project successfully",
-            status_code=200
+            data=None, message="User removed from project successfully", status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -928,14 +851,14 @@ def remove_user_from_project(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while removing user from project"
+            message="An error occurred while removing user from project",
         ).model_dump()
 
 
 @admin_app.delete(
     "/user_item_mapping/{user_id}/{item_id}",
     tags=["admin_panel"],
-    description="Remove an item from a user"
+    description="Remove an item from a user",
 )
 def remove_item_from_user(
     user_id: UUID,
@@ -952,25 +875,21 @@ def remove_item_from_user(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Unauthorized to remove items from user"
+                message="Unauthorized to remove items from user",
             ).model_dump()
 
         # Check if user exists
         user = db.query(User).filter(User.uuid == user_id).first()
         if not user:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="User not found"
+                data=None, status_code=404, message="User not found"
             ).model_dump()
 
         # Check if item exists
         item = db.query(Item).filter(Item.uuid == item_id).first()
         if not item:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Item not found"
+                data=None, status_code=404, message="Item not found"
             ).model_dump()
 
         # Remove the mapping
@@ -978,15 +897,11 @@ def remove_item_from_user(
 
         if not result:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Item is not mapped to this user"
+                data=None, status_code=404, message="Item is not mapped to this user"
             ).model_dump()
 
         return ProjectServiceResponse(
-            data=None,
-            message="Item removed from user successfully",
-            status_code=200
+            data=None, message="Item removed from user successfully", status_code=200
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -994,15 +909,11 @@ def remove_item_from_user(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while removing item from user"
+            message="An error occurred while removing item from user",
         ).model_dump()
 
 
-@admin_app.get(
-    "/user/{user_id}/items",
-    tags=["admin_panel"],
-    deprecated=True
-)
+@admin_app.get("/user/{user_id}/items", tags=["admin_panel"], deprecated=True)
 def get_user_items(
     user_id: UUID,
     db: Session = Depends(get_db),
@@ -1013,9 +924,7 @@ def get_user_items(
         user = db.query(User).filter(User.uuid == user_id).first()
         if not user:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="User not found"
+                data=None, status_code=404, message="User not found"
             ).model_dump()
 
         # Get all items mapped to this user
@@ -1026,19 +935,20 @@ def get_user_items(
             .all()
         )
 
-        items_list = [{
-            "uuid": str(item.uuid),
-            "name": item.name,
-            "category": item.category,
-            "list_tag": item.list_tag,
-            "has_additional_info": item.has_additional_info,
-            "item_balance": item_mapping.item_balance
-        } for item, item_mapping in user_items]
+        items_list = [
+            {
+                "uuid": str(item.uuid),
+                "name": item.name,
+                "category": item.category,
+                "list_tag": item.list_tag,
+                "has_additional_info": item.has_additional_info,
+                "item_balance": item_mapping.item_balance,
+            }
+            for item, item_mapping in user_items
+        ]
 
         return ProjectServiceResponse(
-            data=items_list,
-            message="User items fetched successfully",
-            status_code=200
+            data=items_list, message="User items fetched successfully", status_code=200
         ).model_dump()
 
     except Exception as e:
@@ -1046,7 +956,7 @@ def get_user_items(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while fetching user items"
+            message="An error occurred while fetching user items",
         ).model_dump()
 
 
@@ -1058,7 +968,7 @@ def get_project_items(db: Session, project_id: UUID, current_user: User = None):
             db.query(
                 ProjectItemMap.project_id,
                 ProjectItemMap.item_id,
-                func.max(ProjectItemMap.id).label('max_id')
+                func.max(ProjectItemMap.id).label("max_id"),
             )
             .filter(ProjectItemMap.project_id == project_id)
             .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
@@ -1079,27 +989,26 @@ def get_project_items(db: Session, project_id: UUID, current_user: User = None):
                 "category": item.Item.category,
                 "remaining_balance": item.ProjectItemMap.item_balance,
                 "list_tag": item.Item.list_tag,
-                "has_additional_info": item.Item.has_additional_info
-            } for item in project_items
+                "has_additional_info": item.Item.has_additional_info,
+            }
+            for item in project_items
         ]
 
         return {
             "data": items_list,
             "message": "Project items fetched successfully",
-            "status_code": 200
+            "status_code": 200,
         }
     except Exception as e:
         logger.error(f"Error in get_project_items function: {str(e)}")
         return {
             "data": [],
             "message": "An error occurred while fetching project items",
-            "status_code": 500
+            "status_code": 500,
         }
 
-@admin_app.get(
-    "/{project_id}/items",
-    tags=["admin_panel"]
-)
+
+@admin_app.get("/{project_id}/items", tags=["admin_panel"])
 def get_project_items_list(
     project_id: UUID,
     db: Session = Depends(get_db),
@@ -1110,9 +1019,7 @@ def get_project_items_list(
         project = db.query(Project).filter(Project.uuid == project_id).first()
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         # Query ProjectItemMap joined with Item to get item UUID and name
@@ -1121,7 +1028,7 @@ def get_project_items_list(
             db.query(
                 ProjectItemMap.project_id,
                 ProjectItemMap.item_id,
-                func.max(ProjectItemMap.id).label('max_id')
+                func.max(ProjectItemMap.id).label("max_id"),
             )
             .filter(ProjectItemMap.project_id == project_id)
             .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
@@ -1143,14 +1050,15 @@ def get_project_items_list(
                 "category": item.Item.category,
                 "remaining_balance": item.ProjectItemMap.item_balance,
                 "list_tag": item.Item.list_tag,
-                "has_additional_info": item.Item.has_additional_info
-            } for item in project_items
+                "has_additional_info": item.Item.has_additional_info,
+            }
+            for item in project_items
         ]
 
         return ProjectServiceResponse(
             data=items_list,
             message="Project items fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -1158,14 +1066,11 @@ def get_project_items_list(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while fetching project items"
+            message="An error occurred while fetching project items",
         ).model_dump()
 
 
-@admin_app.get(
-    "/{project_id}/users",
-    tags=["admin_panel"]
-)
+@admin_app.get("/{project_id}/users", tags=["admin_panel"])
 def get_project_users(
     project_id: UUID,
     db: Session = Depends(get_db),
@@ -1176,12 +1081,14 @@ def get_project_users(
         project = db.query(Project).filter(Project.uuid == project_id).first()
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
-        user_mappings = db.query(ProjectUserMap).filter(ProjectUserMap.project_id == project_id).all()
+        user_mappings = (
+            db.query(ProjectUserMap)
+            .filter(ProjectUserMap.project_id == project_id)
+            .all()
+        )
 
         user_ids = [mapping.user_id for mapping in user_mappings]
         users = db.query(User).filter(User.uuid.in_(user_ids)).all()
@@ -1196,21 +1103,23 @@ def get_project_users(
                     "account_number": user.person.account_number,
                     "ifsc_code": user.person.ifsc_code,
                     "phone_number": user.person.phone_number,
-                    "upi_number": user.person.upi_number
+                    "upi_number": user.person.upi_number,
                 }
-            user_response.append({
-                "uuid": str(user.uuid),
-                "name": user.name,
-                "phone": user.phone,
-                "role": user.role,
-                "photo_path": user.photo_path,
-                "person": person_data
-            })
+            user_response.append(
+                {
+                    "uuid": str(user.uuid),
+                    "name": user.name,
+                    "phone": user.phone,
+                    "role": user.role,
+                    "photo_path": user.photo_path,
+                    "person": person_data,
+                }
+            )
 
         return ProjectServiceResponse(
             data=user_response,
             message="Project users fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -1219,13 +1128,11 @@ def get_project_users(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while fetching project users"
+            message="An error occurred while fetching project users",
         ).model_dump()
 
-@admin_app.get(
-    "/{user_id}/projects",
-    tags=["admin_panel"]
-    )
+
+@admin_app.get("/{user_id}/projects", tags=["admin_panel"])
 def get_user_projects(
     user_id: UUID,
     db: Session = Depends(get_db),
@@ -1236,12 +1143,12 @@ def get_user_projects(
         user = db.query(User).filter(User.uuid == user_id).first()
         if not user:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="User not found"
+                data=None, status_code=404, message="User not found"
             ).model_dump()
 
-        project_mappings = db.query(ProjectUserMap).filter(ProjectUserMap.user_id == user_id).all()
+        project_mappings = (
+            db.query(ProjectUserMap).filter(ProjectUserMap.user_id == user_id).all()
+        )
 
         project_ids = [mapping.project_id for mapping in project_mappings]
         projects = db.query(Project).filter(Project.uuid.in_(project_ids)).all()
@@ -1259,25 +1166,29 @@ def get_user_projects(
             # po_balance = project.po_balance if project.po_balance else 0
 
             # Get estimated balance
-            estimated_balance = project.estimated_balance if project.estimated_balance else 0
+            estimated_balance = (
+                project.estimated_balance if project.estimated_balance else 0
+            )
 
             # Get actual balance
             actual_balance = project.actual_balance if project.actual_balance else 0
 
-            project_response.append({
-                "uuid": str(project.uuid),
-                "name": project.name,
-                "description": project.description,
-                "location": project.location,
-                "start_date": project.start_date,
-                "end_date": project.end_date,
-                "estimated_balance": estimated_balance,
-                "actual_balance": actual_balance
-            })
+            project_response.append(
+                {
+                    "uuid": str(project.uuid),
+                    "name": project.name,
+                    "description": project.description,
+                    "location": project.location,
+                    "start_date": project.start_date,
+                    "end_date": project.end_date,
+                    "estimated_balance": estimated_balance,
+                    "actual_balance": actual_balance,
+                }
+            )
         return ProjectServiceResponse(
             data=project_response,
             message="User projects fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -1285,8 +1196,9 @@ def get_user_projects(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while fetching user projects"
+            message="An error occurred while fetching user projects",
         ).model_dump()
+
 
 # @admin_app.get(
 #     "/user/{user_id}/details",
@@ -1390,10 +1302,7 @@ def get_user_projects(
 #         ).model_dump()
 
 
-@admin_app.get(
-    "/user/{user_id}/details",
-    tags=["admin_panel"]
-)
+@admin_app.get("/user/{user_id}/details", tags=["admin_panel"])
 def get_user_details(
     user_id: UUID,
     db: Session = Depends(get_db),
@@ -1407,18 +1316,14 @@ def get_user_details(
             UserRole.PROJECT_MANAGER.value,
         ]:
             return ProjectServiceResponse(
-                data=None,
-                status_code=403,
-                message="Unauthorized to view user details"
+                data=None, status_code=403, message="Unauthorized to view user details"
             ).model_dump()
 
         # Fetch the target user whose details are being requested
         user = db.query(User).filter(User.uuid == user_id).first()
         if not user:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="User not found"
+                data=None, status_code=404, message="User not found"
             ).model_dump()
 
         # Fetch account info from Person table
@@ -1429,11 +1334,13 @@ def get_user_details(
             "ifsc_code": person.ifsc_code if person else None,
             "phone_number": person.phone_number if person else None,
             "upi_number": person.upi_number if person else None,
-            "parent_id": str(person.parent_id) if person and person.parent_id else None
+            "parent_id": str(person.parent_id) if person and person.parent_id else None,
         }
 
         # Fetch projects assigned to the user
-        project_mappings = db.query(ProjectUserMap).filter(ProjectUserMap.user_id == user_id).all()
+        project_mappings = (
+            db.query(ProjectUserMap).filter(ProjectUserMap.user_id == user_id).all()
+        )
         project_ids = [mapping.project_id for mapping in project_mappings]
         projects = db.query(Project).filter(Project.uuid.in_(project_ids)).all()
 
@@ -1464,7 +1371,7 @@ def get_user_details(
                     .join(ProjectUserItemMap, Item.uuid == ProjectUserItemMap.item_id)
                     .filter(
                         ProjectUserItemMap.user_id == user_id,
-                        ProjectUserItemMap.project_id == project.uuid
+                        ProjectUserItemMap.project_id == project.uuid,
                     )
                     .all()
                 )
@@ -1475,7 +1382,7 @@ def get_user_details(
                     "name": item.name,
                     "category": item.category,
                     "list_tag": item.list_tag,
-                    "has_additional_info": item.has_additional_info
+                    "has_additional_info": item.has_additional_info,
                 }
                 for item in item_mappings
             ]
@@ -1487,7 +1394,7 @@ def get_user_details(
                 "location": project.location,
                 "estimated_balance": project.estimated_balance or 0,
                 "actual_balance": project.actual_balance or 0,
-                "items": items_list
+                "items": items_list,
             }
 
         # Final user detail response
@@ -1497,13 +1404,13 @@ def get_user_details(
             "phone": user.phone,
             "role": user.role,
             "account_info": account_info,
-            "projects": list(project_dict.values())
+            "projects": list(project_dict.values()),
         }
 
         return ProjectServiceResponse(
             data=user_details,
             message="User details fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -1512,16 +1419,15 @@ def get_user_details(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while fetching user details"
+            message="An error occurred while fetching user details",
         ).model_dump()
-
 
 
 @admin_app.get(
     "/user/{user_id}/project-items",
     tags=["admin_panel"],
     description="Get all projects and their assigned items for a specific user",
-    deprecated=True
+    deprecated=True,
 )
 def get_user_project_items_old(
     user_id: UUID,
@@ -1533,9 +1439,7 @@ def get_user_project_items_old(
         user = db.query(User).filter(User.uuid == user_id).first()
         if not user:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="User not found"
+                data=None, status_code=404, message="User not found"
             ).model_dump()
 
         # Get all projects mapped to this user
@@ -1556,14 +1460,17 @@ def get_user_project_items_old(
                 .all()
             )
 
-            items_list = [{
-                "uuid": str(item.uuid),
-                "name": item.name,
-                "category": item.category,
-                "list_tag": item.list_tag,
-                "has_additional_info": item.has_additional_info,
-                "balance": item_mapping.item_balance
-            } for item, item_mapping in project_items]
+            items_list = [
+                {
+                    "uuid": str(item.uuid),
+                    "name": item.name,
+                    "category": item.category,
+                    "list_tag": item.list_tag,
+                    "has_additional_info": item.has_additional_info,
+                    "balance": item_mapping.item_balance,
+                }
+                for item, item_mapping in project_items
+            ]
 
             # Get project balances
             # total_balance = (
@@ -1572,31 +1479,33 @@ def get_user_project_items_old(
             #     .scalar()
             # ) or 0.0
 
-            projects_list.append({
-                "uuid": str(project.uuid),
-                "name": project.name,
-                "description": project.description,
-                "location": project.location,
-                "start_date": project.start_date,
-                "end_date": project.end_date,
-                "po_balance": project.po_balance,
-                "estimated_balance": project.estimated_balance,
-                "actual_balance": project.actual_balance,
-                "items_list": items_list  # Renamed to avoid conflict with built-in method
-            })
+            projects_list.append(
+                {
+                    "uuid": str(project.uuid),
+                    "name": project.name,
+                    "description": project.description,
+                    "location": project.location,
+                    "start_date": project.start_date,
+                    "end_date": project.end_date,
+                    "po_balance": project.po_balance,
+                    "estimated_balance": project.estimated_balance,
+                    "actual_balance": project.actual_balance,
+                    "items_list": items_list,  # Renamed to avoid conflict with built-in method
+                }
+            )
 
         user_response = {
             "uuid": str(user.uuid),
             "name": user.name,
             "phone": user.phone,
             "role": user.role,
-            "projects": projects_list
+            "projects": projects_list,
         }
 
         return ProjectServiceResponse(
             data=user_response,
             message="User project items fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -1605,7 +1514,7 @@ def get_user_project_items_old(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message="An error occurred while fetching user project items"
+            message="An error occurred while fetching user project items",
         ).model_dump()
 
 
@@ -1761,6 +1670,7 @@ def get_user_project_items_old(
 #             message=f"An error occurred while uploading invoice: {str(e)}"
 #         ).model_dump()
 
+
 @admin_app.post(
     "/project/{project_id}/po/{po_id}/invoice",
     tags=["Invoices"],
@@ -1794,7 +1704,7 @@ def get_user_project_items_old(
     "due_date": "2025-06-25"
     }
     '''
-    """
+    """,
 )
 def upload_single_invoice_for_po(
     project_id: UUID,
@@ -1813,34 +1723,33 @@ def upload_single_invoice_for_po(
             item = json.loads(invoice)
         except json.JSONDecodeError:
             return ProjectServiceResponse(
-                data=None,
-                status_code=400,
-                message="Invalid JSON in 'invoice' field"
+                data=None, status_code=400, message="Invalid JSON in 'invoice' field"
             ).model_dump()
 
         # Validate project
-        project = db.query(Project).filter(
-            Project.uuid == project_id,
-            Project.is_deleted.is_(False)
-        ).first()
+        project = (
+            db.query(Project)
+            .filter(Project.uuid == project_id, Project.is_deleted.is_(False))
+            .first()
+        )
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         # Validate PO
-        po = db.query(ProjectPO).filter(
-            ProjectPO.uuid == po_id,
-            ProjectPO.project_id == project_id,
-            ProjectPO.is_deleted.is_(False)
-        ).first()
+        po = (
+            db.query(ProjectPO)
+            .filter(
+                ProjectPO.uuid == po_id,
+                ProjectPO.project_id == project_id,
+                ProjectPO.is_deleted.is_(False),
+            )
+            .first()
+        )
         if not po:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="PO not found under this project"
+                data=None, status_code=404, message="PO not found under this project"
             ).model_dump()
 
         # Parse due_date
@@ -1850,19 +1759,21 @@ def upload_single_invoice_for_po(
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
-                message="Invalid or missing due_date. Use YYYY-MM-DD"
+                message="Invalid or missing due_date. Use YYYY-MM-DD",
             ).model_dump()
 
         # Parse invoice_date
         invoice_date = None
         if item.get("invoice_date"):
             try:
-                invoice_date = datetime.strptime(item["invoice_date"], "%Y-%m-%d").date()
+                invoice_date = datetime.strptime(
+                    item["invoice_date"], "%Y-%m-%d"
+                ).date()
             except ValueError:
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
-                    message="Invalid invoice_date. Use YYYY-MM-DD"
+                    message="Invalid invoice_date. Use YYYY-MM-DD",
                 ).model_dump()
 
         # Save file if present
@@ -1890,7 +1801,7 @@ def upload_single_invoice_for_po(
             status="uploaded",
             payment_status="not_paid",
             total_paid_amount=0.0,
-            created_by=current_user.uuid
+            created_by=current_user.uuid,
         )
         db.add(new_invoice)
         db.flush()
@@ -1900,20 +1811,22 @@ def upload_single_invoice_for_po(
             name = sub_item.get("item_name")
             value = sub_item.get("basic_value")
             if name and value is not None:
-                db.add(InvoiceItem(
-                    invoice_id=new_invoice.uuid,
-                    item_name=name,
-                    basic_value=value
-                ))
+                db.add(
+                    InvoiceItem(
+                        invoice_id=new_invoice.uuid, item_name=name, basic_value=value
+                    )
+                )
 
         # Log entry
-        db.add(Log(
-            uuid=str(uuid4()),
-            entity="Invoice",
-            action="Create",
-            entity_id=new_invoice.uuid,
-            performed_by=current_user.uuid,
-        ))
+        db.add(
+            Log(
+                uuid=str(uuid4()),
+                entity="Invoice",
+                action="Create",
+                entity_id=new_invoice.uuid,
+                performed_by=current_user.uuid,
+            )
+        )
 
         db.commit()
 
@@ -1924,10 +1837,12 @@ def upload_single_invoice_for_po(
                 "invoice_number": new_invoice.invoice_number,
                 "amount": new_invoice.amount,
                 "due_date": new_invoice.due_date.strftime("%Y-%m-%d"),
-                "file_path": constants.HOST_URL + "/" + file_path if file_path else None,
+                "file_path": (
+                    constants.HOST_URL + "/" + file_path if file_path else None
+                ),
             },
             message="Invoice uploaded successfully",
-            status_code=201
+            status_code=201,
         ).model_dump()
 
     except Exception as e:
@@ -1936,8 +1851,9 @@ def upload_single_invoice_for_po(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while uploading the invoice: {str(e)}"
+            message=f"An error occurred while uploading the invoice: {str(e)}",
         ).model_dump()
+
 
 @admin_app.post(
     "/project/{project_id}/po/{po_id}/invoices/batch",
@@ -2003,7 +1919,7 @@ Do not include project_id or po_id in the invoice objects — they are inferred 
 
 Dates must follow format: YYYY-MM-DD.
 
-"""
+""",
 )
 def upload_multiple_invoices_for_po(
     project_id: UUID,
@@ -2019,41 +1935,40 @@ def upload_multiple_invoices_for_po(
             invoice_list = json.loads(invoices)
         except json.JSONDecodeError:
             return ProjectServiceResponse(
-                data=None,
-                status_code=400,
-                message="Invalid JSON in 'invoices' field"
+                data=None, status_code=400, message="Invalid JSON in 'invoices' field"
             ).model_dump()
 
         if not isinstance(invoice_list, list):
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
-                message="Invoices must be a list of invoice objects"
+                message="Invoices must be a list of invoice objects",
             ).model_dump()
 
         # Validate project
-        project = db.query(Project).filter(
-            Project.uuid == project_id,
-            Project.is_deleted.is_(False)
-        ).first()
+        project = (
+            db.query(Project)
+            .filter(Project.uuid == project_id, Project.is_deleted.is_(False))
+            .first()
+        )
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
         # Validate PO
-        po = db.query(ProjectPO).filter(
-            ProjectPO.uuid == po_id,
-            ProjectPO.is_deleted.is_(False),
-            ProjectPO.project_id == project_id
-        ).first()
+        po = (
+            db.query(ProjectPO)
+            .filter(
+                ProjectPO.uuid == po_id,
+                ProjectPO.is_deleted.is_(False),
+                ProjectPO.project_id == project_id,
+            )
+            .first()
+        )
         if not po:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="PO not found under this project"
+                data=None, status_code=404, message="PO not found under this project"
             ).model_dump()
 
         created_invoices = []
@@ -2066,19 +1981,21 @@ def upload_multiple_invoices_for_po(
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
-                    message=f"Invalid or missing due_date at index {index}. Use YYYY-MM-DD"
+                    message=f"Invalid or missing due_date at index {index}. Use YYYY-MM-DD",
                 ).model_dump()
 
             # Parse invoice_date
             invoice_date = None
             if item.get("invoice_date"):
                 try:
-                    invoice_date = datetime.strptime(item["invoice_date"], "%Y-%m-%d").date()
+                    invoice_date = datetime.strptime(
+                        item["invoice_date"], "%Y-%m-%d"
+                    ).date()
                 except ValueError:
                     return ProjectServiceResponse(
                         data=None,
                         status_code=400,
-                        message=f"Invalid invoice_date at index {index}. Use YYYY-MM-DD"
+                        message=f"Invalid invoice_date at index {index}. Use YYYY-MM-DD",
                     ).model_dump()
 
             # Optional file
@@ -2107,7 +2024,7 @@ def upload_multiple_invoices_for_po(
                 status="uploaded",
                 payment_status="not_paid",
                 total_paid_amount=0.0,
-                created_by=current_user.uuid
+                created_by=current_user.uuid,
             )
             db.add(new_invoice)
             db.flush()
@@ -2117,37 +2034,49 @@ def upload_multiple_invoices_for_po(
                 name = sub_item.get("item_name")
                 value = sub_item.get("basic_value")
                 if name and value is not None:
-                    db.add(InvoiceItem(
-                        invoice_id=new_invoice.uuid,
-                        item_name=name,
-                        basic_value=value
-                    ))
+                    db.add(
+                        InvoiceItem(
+                            invoice_id=new_invoice.uuid,
+                            item_name=name,
+                            basic_value=value,
+                        )
+                    )
 
             # Log entry
-            db.add(Log(
-                uuid=str(uuid4()),
-                entity="Invoice",
-                action="Create",
-                entity_id=new_invoice.uuid,
-                performed_by=current_user.uuid,
-            ))
+            db.add(
+                Log(
+                    uuid=str(uuid4()),
+                    entity="Invoice",
+                    action="Create",
+                    entity_id=new_invoice.uuid,
+                    performed_by=current_user.uuid,
+                )
+            )
 
-            created_invoices.append({
-                "uuid": str(new_invoice.uuid),
-                "amount": new_invoice.amount,
-                "client_name": new_invoice.client_name,
-                "invoice_number": new_invoice.invoice_number,
-                "invoice_date": new_invoice.invoice_date.isoformat() if new_invoice.invoice_date else None,
-                "due_date": due_date.strftime("%Y-%m-%d"),
-                "file_path": constants.HOST_URL + "/" + file_path if file_path else None
-            })
+            created_invoices.append(
+                {
+                    "uuid": str(new_invoice.uuid),
+                    "amount": new_invoice.amount,
+                    "client_name": new_invoice.client_name,
+                    "invoice_number": new_invoice.invoice_number,
+                    "invoice_date": (
+                        new_invoice.invoice_date.isoformat()
+                        if new_invoice.invoice_date
+                        else None
+                    ),
+                    "due_date": due_date.strftime("%Y-%m-%d"),
+                    "file_path": (
+                        constants.HOST_URL + "/" + file_path if file_path else None
+                    ),
+                }
+            )
 
         db.commit()
 
         return ProjectServiceResponse(
             data={"invoices": created_invoices},
             message=f"{len(created_invoices)} invoices uploaded successfully",
-            status_code=201
+            status_code=201,
         ).model_dump()
 
     except Exception as e:
@@ -2156,10 +2085,8 @@ def upload_multiple_invoices_for_po(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while uploading invoices: {str(e)}"
+            message=f"An error occurred while uploading invoices: {str(e)}",
         ).model_dump()
-
-
 
 
 @admin_app.put(
@@ -2176,14 +2103,12 @@ def upload_multiple_invoices_for_po(
     ```
 
     Possible status values: "uploaded", "received"
-    """
+    """,
 )
 def update_invoice_status(
     invoice_id: UUID,
     status_request: InvoiceStatusUpdateRequest = Body(
-        ...,
-        description="Status update information",
-        example={"status": "received"}
+        ..., description="Status update information", example={"status": "received"}
     ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -2201,20 +2126,19 @@ def update_invoice_status(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Not authorized to update invoice status"
+                message="Not authorized to update invoice status",
             ).model_dump()
 
         # Find the invoice
-        invoice = db.query(Invoice).filter(
-            Invoice.uuid == invoice_id,
-            Invoice.is_deleted.is_(False)
-        ).first()
+        invoice = (
+            db.query(Invoice)
+            .filter(Invoice.uuid == invoice_id, Invoice.is_deleted.is_(False))
+            .first()
+        )
 
         if not invoice:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Invoice not found"
+                data=None, status_code=404, message="Invoice not found"
             ).model_dump()
 
         # Update status
@@ -2232,12 +2156,9 @@ def update_invoice_status(
         db.commit()
 
         return ProjectServiceResponse(
-            data={
-                "uuid": str(invoice.uuid),
-                "status": invoice.status
-            },
+            data={"uuid": str(invoice.uuid), "status": invoice.status},
             message="Invoice status updated successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -2245,14 +2166,11 @@ def update_invoice_status(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while updating invoice status: {str(e)}"
+            message=f"An error occurred while updating invoice status: {str(e)}",
         ).model_dump()
 
 
-@admin_app.get(
-    "/invoices",
-    tags=["Invoices"]
-)
+@admin_app.get("/invoices", tags=["Invoices"])
 def list_invoices(
     project_id: Optional[UUID] = Query(None),
     status: Optional[str] = Query(None),
@@ -2276,28 +2194,34 @@ def list_invoices(
 
         invoice_list = []
         for invoice in invoices:
-            invoice_list.append({
-                "uuid": str(invoice.uuid),
-                "project_id": str(invoice.project_id),
-                "client_name": invoice.client_name,
-                "invoice_items": [
-                    {
-                        "item_name": item.item_name,
-                        "basic_value": item.basic_value
-                    } for item in invoice.invoice_items
-                ],
-                "amount": invoice.amount,
-                "description": invoice.description,
-                "due_date": invoice.due_date.strftime("%Y-%m-%d") if invoice.due_date else None,
-                "file_path": constants.HOST_URL + "/" + invoice.file_path if invoice.file_path else None,
-                "status": invoice.status,
-                "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            })
+            invoice_list.append(
+                {
+                    "uuid": str(invoice.uuid),
+                    "project_id": str(invoice.project_id),
+                    "client_name": invoice.client_name,
+                    "invoice_items": [
+                        {"item_name": item.item_name, "basic_value": item.basic_value}
+                        for item in invoice.invoice_items
+                    ],
+                    "amount": invoice.amount,
+                    "description": invoice.description,
+                    "due_date": (
+                        invoice.due_date.strftime("%Y-%m-%d")
+                        if invoice.due_date
+                        else None
+                    ),
+                    "file_path": (
+                        constants.HOST_URL + "/" + invoice.file_path
+                        if invoice.file_path
+                        else None
+                    ),
+                    "status": invoice.status,
+                    "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            )
 
         return ProjectServiceResponse(
-            data=invoice_list,
-            message="Invoices fetched successfully",
-            status_code=200
+            data=invoice_list, message="Invoices fetched successfully", status_code=200
         ).model_dump()
 
     except Exception as e:
@@ -2305,15 +2229,11 @@ def list_invoices(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching invoices: {str(e)}"
+            message=f"An error occurred while fetching invoices: {str(e)}",
         ).model_dump()
 
 
-
-@admin_app.get(
-    "/invoices/{invoice_id}",
-    tags=["Invoices"]
-)
+@admin_app.get("/invoices/{invoice_id}", tags=["Invoices"])
 def get_invoice(
     invoice_id: UUID,
     db: Session = Depends(get_db),
@@ -2323,16 +2243,15 @@ def get_invoice(
     Get details of a specific invoice.
     """
     try:
-        invoice = db.query(Invoice).filter(
-            Invoice.uuid == invoice_id,
-            Invoice.is_deleted.is_(False)
-        ).first()
+        invoice = (
+            db.query(Invoice)
+            .filter(Invoice.uuid == invoice_id, Invoice.is_deleted.is_(False))
+            .first()
+        )
 
         if not invoice:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Invoice not found"
+                data=None, status_code=404, message="Invoice not found"
             ).model_dump()
 
         # Get project details
@@ -2345,21 +2264,29 @@ def get_invoice(
                 "project_name": project.name if project else None,
                 "client_name": invoice.client_name,
                 "invoice_items": [
-                    {
-                        "item_name": item.item_name,
-                        "basic_value": item.basic_value
-                    } for item in invoice.invoice_items
+                    {"item_name": item.item_name, "basic_value": item.basic_value}
+                    for item in invoice.invoice_items
                 ],
                 "amount": invoice.amount,
                 "description": invoice.description,
-                "due_date": invoice.due_date.strftime("%Y-%m-%d") if invoice.due_date else None,
-                "file_path": constants.HOST_URL + "/" + invoice.file_path if invoice.file_path else None,
+                "due_date": (
+                    invoice.due_date.strftime("%Y-%m-%d") if invoice.due_date else None
+                ),
+                "file_path": (
+                    constants.HOST_URL + "/" + invoice.file_path
+                    if invoice.file_path
+                    else None
+                ),
                 "status": invoice.status,
-                "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S") if invoice.created_at else None,
-                "created_by": str(invoice.created_by)
+                "created_at": (
+                    invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                    if invoice.created_at
+                    else None
+                ),
+                "created_by": str(invoice.created_by),
             },
             message="Invoice fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -2367,7 +2294,7 @@ def get_invoice(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching invoice: {str(e)}"
+            message=f"An error occurred while fetching invoice: {str(e)}",
         ).model_dump()
 
 
@@ -2391,7 +2318,7 @@ def get_invoice(
         ]
     }
     ```
-    """
+    """,
 )
 def update_invoice(
     invoice_id: UUID,
@@ -2407,22 +2334,19 @@ def update_invoice(
             UserRole.ACCOUNTANT.value,
         ]:
             return ProjectServiceResponse(
-                data=None,
-                status_code=403,
-                message="Not authorized to update invoice"
+                data=None, status_code=403, message="Not authorized to update invoice"
             ).model_dump()
 
         # ✅ Fetch invoice
-        invoice = db.query(Invoice).filter(
-            Invoice.uuid == invoice_id,
-            Invoice.is_deleted.is_(False)
-        ).first()
+        invoice = (
+            db.query(Invoice)
+            .filter(Invoice.uuid == invoice_id, Invoice.is_deleted.is_(False))
+            .first()
+        )
 
         if not invoice:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Invoice not found"
+                data=None, status_code=404, message="Invoice not found"
             ).model_dump()
 
         # ✅ Update fields
@@ -2443,34 +2367,42 @@ def update_invoice(
 
         if update_request.due_date is not None:
             try:
-                invoice.due_date = datetime.strptime(update_request.due_date, "%Y-%m-%d")
+                invoice.due_date = datetime.strptime(
+                    update_request.due_date, "%Y-%m-%d"
+                )
             except ValueError:
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
-                    message="Invalid due_date format. Use YYYY-MM-DD"
+                    message="Invalid due_date format. Use YYYY-MM-DD",
                 ).model_dump()
 
         # ✅ Replace invoice_items if provided
         if update_request.invoice_items is not None:
             # Delete old items
-            db.query(InvoiceItem).filter(InvoiceItem.invoice_id == invoice.uuid).delete()
+            db.query(InvoiceItem).filter(
+                InvoiceItem.invoice_id == invoice.uuid
+            ).delete()
             # Add new ones
             for item in update_request.invoice_items:
-                db.add(InvoiceItem(
-                    invoice_id=invoice.uuid,
-                    item_name=item.item_name,
-                    basic_value=item.basic_value
-                ))
+                db.add(
+                    InvoiceItem(
+                        invoice_id=invoice.uuid,
+                        item_name=item.item_name,
+                        basic_value=item.basic_value,
+                    )
+                )
 
         # ✅ Add log
-        db.add(Log(
-            uuid=str(uuid4()),
-            entity="Invoice",
-            action="Update",
-            entity_id=invoice_id,
-            performed_by=current_user.uuid,
-        ))
+        db.add(
+            Log(
+                uuid=str(uuid4()),
+                entity="Invoice",
+                action="Update",
+                entity_id=invoice_id,
+                performed_by=current_user.uuid,
+            )
+        )
 
         db.commit()
         db.refresh(invoice)
@@ -2484,19 +2416,23 @@ def update_invoice(
                 "description": invoice.description,
                 "invoice_number": invoice.invoice_number,
                 "invoice_date": invoice.invoice_date,
-                "due_date": invoice.due_date.strftime("%Y-%m-%d") if invoice.due_date else None,
+                "due_date": (
+                    invoice.due_date.strftime("%Y-%m-%d") if invoice.due_date else None
+                ),
                 "invoice_items": [
-                    {
-                        "item_name": i.item_name,
-                        "basic_value": i.basic_value
-                    } for i in invoice.invoice_items
+                    {"item_name": i.item_name, "basic_value": i.basic_value}
+                    for i in invoice.invoice_items
                 ],
-                "file_path": constants.HOST_URL + "/" + invoice.file_path if invoice.file_path else None,
+                "file_path": (
+                    constants.HOST_URL + "/" + invoice.file_path
+                    if invoice.file_path
+                    else None
+                ),
                 "status": invoice.status,
-                "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                "created_at": invoice.created_at.strftime("%Y-%m-%d %H:%M:%S"),
             },
             message="Invoice updated successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -2505,15 +2441,12 @@ def update_invoice(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while updating invoice: {str(e)}"
+            message=f"An error occurred while updating invoice: {str(e)}",
         ).model_dump()
 
 
-
 @admin_app.delete(
-    "/invoices/{invoice_id}",
-    tags=["Invoices"],
-    description="Soft delete an invoice"
+    "/invoices/{invoice_id}", tags=["Invoices"], description="Soft delete an invoice"
 )
 def delete_invoice(
     invoice_id: UUID,
@@ -2531,22 +2464,19 @@ def delete_invoice(
             UserRole.ACCOUNTANT.value,
         ]:
             return ProjectServiceResponse(
-                data=None,
-                status_code=403,
-                message="Not authorized to delete invoice"
+                data=None, status_code=403, message="Not authorized to delete invoice"
             ).model_dump()
 
         # Find the invoice
-        invoice = db.query(Invoice).filter(
-            Invoice.uuid == invoice_id,
-            Invoice.is_deleted.is_(False)
-        ).first()
+        invoice = (
+            db.query(Invoice)
+            .filter(Invoice.uuid == invoice_id, Invoice.is_deleted.is_(False))
+            .first()
+        )
 
         if not invoice:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Invoice not found"
+                data=None, status_code=404, message="Invoice not found"
             ).model_dump()
 
         # Soft delete the invoice
@@ -2566,7 +2496,7 @@ def delete_invoice(
         return ProjectServiceResponse(
             data={"deleted_invoice_id": str(invoice_id)},
             message="Invoice deleted successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         db.rollback()
@@ -2574,14 +2504,15 @@ def delete_invoice(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while deleting invoice: {str(e)}"
+            message=f"An error occurred while deleting invoice: {str(e)}",
         ).model_dump()
-    
+
+
 @admin_app.get(
     "/po/{po_id}/invoices",
     tags=["Invoices"],
     status_code=200,
-    description="Get all invoices created against a specific PO"
+    description="Get all invoices created against a specific PO",
 )
 def get_invoices_by_po(
     po_id: UUID,
@@ -2590,16 +2521,15 @@ def get_invoices_by_po(
 ):
     try:
         # Validate PO exists
-        po = db.query(ProjectPO).filter(
-            ProjectPO.uuid == po_id,
-            ProjectPO.is_deleted.is_(False)
-        ).first()
+        po = (
+            db.query(ProjectPO)
+            .filter(ProjectPO.uuid == po_id, ProjectPO.is_deleted.is_(False))
+            .first()
+        )
 
         if not po:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="PO not found"
+                data=None, status_code=404, message="PO not found"
             ).model_dump()
 
         # Optional: permissions check
@@ -2607,52 +2537,59 @@ def get_invoices_by_po(
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
             UserRole.ACCOUNTANT.value,
-            UserRole.PROJECT_MANAGER.value
+            UserRole.PROJECT_MANAGER.value,
         ]:
             return ProjectServiceResponse(
-                data=None,
-                status_code=403,
-                message="Unauthorized to view invoices"
+                data=None, status_code=403, message="Unauthorized to view invoices"
             ).model_dump()
 
         # Fetch all invoices linked to this PO
-        invoices = db.query(Invoice).filter(
-            Invoice.project_po_id == po_id,
-            Invoice.is_deleted.is_(False)
-        ).order_by(Invoice.created_at.desc()).all()
-
+        invoices = (
+            db.query(Invoice)
+            .filter(Invoice.project_po_id == po_id, Invoice.is_deleted.is_(False))
+            .order_by(Invoice.created_at.desc())
+            .all()
+        )
 
         total_invoice_amount = 0.0
         total_po_paid = 0.0
         invoice_list = []
 
-        
         for inv in invoices:
             total_invoice_amount += inv.amount or 0.0
             if inv.payment_status in ["partially_paid", "fully_paid"]:
                 total_po_paid += inv.total_paid_amount or 0.0
 
-            invoice_list.append({
-                "uuid": str(inv.uuid),
-                "project_id": str(inv.project_id),
-                "client_name": inv.client_name,
-                "invoice_items": [
-                    {
-                        "item_name": item.item_name,
-                        "basic_value": item.basic_value
-                    } for item in inv.invoice_items
-                ],
-                "amount": inv.amount,
-                "description": inv.description,
-                "invoice_number": inv.invoice_number,
-                "invoice_date": inv.invoice_date,
-                "due_date": inv.due_date.strftime("%Y-%m-%d") if inv.due_date else None,
-                "payment_status": inv.payment_status,
-                "total_paid_amount": inv.total_paid_amount,
-                "file_url": constants.HOST_URL + "/" + inv.file_path if inv.file_path else None,
-                "created_at": inv.created_at.strftime("%Y-%m-%d %H:%M:%S") if inv.created_at else None
-            })
-
+            invoice_list.append(
+                {
+                    "uuid": str(inv.uuid),
+                    "project_id": str(inv.project_id),
+                    "client_name": inv.client_name,
+                    "invoice_items": [
+                        {"item_name": item.item_name, "basic_value": item.basic_value}
+                        for item in inv.invoice_items
+                    ],
+                    "amount": inv.amount,
+                    "description": inv.description,
+                    "invoice_number": inv.invoice_number,
+                    "invoice_date": inv.invoice_date,
+                    "due_date": (
+                        inv.due_date.strftime("%Y-%m-%d") if inv.due_date else None
+                    ),
+                    "payment_status": inv.payment_status,
+                    "total_paid_amount": inv.total_paid_amount,
+                    "file_url": (
+                        constants.HOST_URL + "/" + inv.file_path
+                        if inv.file_path
+                        else None
+                    ),
+                    "created_at": (
+                        inv.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                        if inv.created_at
+                        else None
+                    ),
+                }
+            )
 
         return ProjectServiceResponse(
             data={
@@ -2661,10 +2598,10 @@ def get_invoices_by_po(
                 "total_po_paid": total_po_paid,
                 "total_created_invoice_pending": total_invoice_amount - total_po_paid,
                 "invoice_not_generated_amount": po.amount - total_invoice_amount,
-                "invoices": invoice_list
+                "invoices": invoice_list,
             },
             message="Invoices fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -2672,10 +2609,8 @@ def get_invoices_by_po(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching invoices: {str(e)}"
+            message=f"An error occurred while fetching invoices: {str(e)}",
         ).model_dump()
-
-
 
 
 # Invoice Payment APIs
@@ -2814,12 +2749,13 @@ def get_invoices_by_po(
 #             status_code=500,
 #             message=f"An error occurred while creating invoice payment: {str(e)}"
 #         ).model_dump()
-    
+
+
 @admin_app.post(
     "/invoices/{invoice_id}/payments",
     tags=["Invoice Payments"],
     status_code=201,
-    description="Create multiple payments for an invoice"
+    description="Create multiple payments for an invoice",
 )
 def create_multiple_invoice_payments(
     invoice_id: UUID,
@@ -2837,38 +2773,40 @@ def create_multiple_invoice_payments(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Not authorized to create invoice payments"
+                message="Not authorized to create invoice payments",
             ).model_dump()
 
         # ✅ Get Invoice
-        invoice = db.query(Invoice).filter(
-            Invoice.uuid == invoice_id,
-            Invoice.is_deleted.is_(False)
-        ).first()
+        invoice = (
+            db.query(Invoice)
+            .filter(Invoice.uuid == invoice_id, Invoice.is_deleted.is_(False))
+            .first()
+        )
         if not invoice:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Invoice not found"
+                data=None, status_code=404, message="Invoice not found"
             ).model_dump()
 
         # ✅ Get related project (for checking `end_date`)
-        project = db.query(Project).filter(
-            Project.uuid == invoice.project_id,
-            Project.is_deleted.is_(False)
-        ).first()
+        project = (
+            db.query(Project)
+            .filter(Project.uuid == invoice.project_id, Project.is_deleted.is_(False))
+            .first()
+        )
 
         created_payments = []
 
         for payment in payment_request.payments:
             # ✅ Parse payment date
             try:
-                payment_date = datetime.strptime(payment.payment_date, "%Y-%m-%d").date()
+                payment_date = datetime.strptime(
+                    payment.payment_date, "%Y-%m-%d"
+                ).date()
             except ValueError:
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
-                    message=f"Invalid payment_date format: {payment.payment_date}"
+                    message=f"Invalid payment_date format: {payment.payment_date}",
                 ).model_dump()
 
             # ✅ is_late logic
@@ -2885,20 +2823,22 @@ def create_multiple_invoice_payments(
                 payment_method=payment.payment_method,
                 reference_number=payment.reference_number,
                 is_late=is_late,
-                created_by=current_user.uuid
+                created_by=current_user.uuid,
             )
             db.add(new_payment)
             db.flush()
 
-            created_payments.append({
-                "uuid": str(new_payment.uuid),
-                "amount": new_payment.amount,
-                "payment_date": new_payment.payment_date.strftime("%Y-%m-%d"),
-                "description": new_payment.description,
-                "payment_method": new_payment.payment_method,
-                "reference_number": new_payment.reference_number,
-                "is_late": new_payment.is_late
-            })
+            created_payments.append(
+                {
+                    "uuid": str(new_payment.uuid),
+                    "amount": new_payment.amount,
+                    "payment_date": new_payment.payment_date.strftime("%Y-%m-%d"),
+                    "description": new_payment.description,
+                    "payment_method": new_payment.payment_method,
+                    "reference_number": new_payment.reference_number,
+                    "is_late": new_payment.is_late,
+                }
+            )
 
             # ✅ Update invoice totals
             invoice.total_paid_amount += new_payment.amount
@@ -2908,7 +2848,9 @@ def create_multiple_invoice_payments(
         # ✅ Update invoice payment status
         if invoice.total_paid_amount >= invoice.amount:
             invoice.payment_status = "fully_paid"
-        elif invoice.total_paid_amount > 0 or invoice.total_paid_amount < invoice.amount:
+        elif (
+            invoice.total_paid_amount > 0 or invoice.total_paid_amount < invoice.amount
+        ):
             invoice.payment_status = "partially_paid"
         else:
             invoice.payment_status = "not_paid"
@@ -2929,10 +2871,10 @@ def create_multiple_invoice_payments(
                 "invoice_id": str(invoice_id),
                 "invoice_payment_status": invoice.payment_status,
                 "invoice_total_paid": invoice.total_paid_amount,
-                "payments": created_payments
+                "payments": created_payments,
             },
             message=f"{len(created_payments)} payments created successfully",
-            status_code=201
+            status_code=201,
         ).model_dump()
 
     except Exception as e:
@@ -2941,14 +2883,15 @@ def create_multiple_invoice_payments(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while creating payments: {str(e)}"
+            message=f"An error occurred while creating payments: {str(e)}",
         ).model_dump()
+
 
 @admin_app.get(
     "/invoices/{invoice_id}/payments",
     tags=["Invoice Payments"],
     status_code=200,
-    description="Get all payments made for a specific invoice"
+    description="Get all payments made for a specific invoice",
 )
 def get_invoice_payments(
     invoice_id: UUID,
@@ -2957,16 +2900,15 @@ def get_invoice_payments(
 ):
     try:
         # Validate invoice exists
-        invoice = db.query(Invoice).filter(
-            Invoice.uuid == invoice_id,
-            Invoice.is_deleted.is_(False)
-        ).first()
+        invoice = (
+            db.query(Invoice)
+            .filter(Invoice.uuid == invoice_id, Invoice.is_deleted.is_(False))
+            .first()
+        )
 
         if not invoice:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Invoice not found"
+                data=None, status_code=404, message="Invoice not found"
             ).model_dump()
 
         # Optional: Role check
@@ -2978,27 +2920,34 @@ def get_invoice_payments(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Not authorized to view invoice payments"
+                message="Not authorized to view invoice payments",
             ).model_dump()
 
         # Get all payments for this invoice
-        payments = db.query(InvoicePayment).filter(
-            InvoicePayment.invoice_id == invoice_id,
-            InvoicePayment.is_deleted.is_(False)
-        ).order_by(InvoicePayment.payment_date.desc()).all()
+        payments = (
+            db.query(InvoicePayment)
+            .filter(
+                InvoicePayment.invoice_id == invoice_id,
+                InvoicePayment.is_deleted.is_(False),
+            )
+            .order_by(InvoicePayment.payment_date.desc())
+            .all()
+        )
 
         # Format output
         payment_list = []
         for payment in payments:
-            payment_list.append({
-                "uuid": str(payment.uuid),
-                "amount": payment.amount,
-                "payment_date": payment.payment_date.strftime("%Y-%m-%d"),
-                "description": payment.description,
-                "payment_method": payment.payment_method,
-                "reference_number": payment.reference_number,
-                "created_at": payment.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            })
+            payment_list.append(
+                {
+                    "uuid": str(payment.uuid),
+                    "amount": payment.amount,
+                    "payment_date": payment.payment_date.strftime("%Y-%m-%d"),
+                    "description": payment.description,
+                    "payment_method": payment.payment_method,
+                    "reference_number": payment.reference_number,
+                    "created_at": payment.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            )
 
         return ProjectServiceResponse(
             data={
@@ -3007,10 +2956,10 @@ def get_invoice_payments(
                 "payment_status": invoice.payment_status,
                 "total_paid_amount": invoice.total_paid_amount,
                 "remaining_amount": invoice.amount - invoice.total_paid_amount,
-                "payments": payment_list
+                "payments": payment_list,
             },
             message="Invoice payments fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -3018,8 +2967,9 @@ def get_invoice_payments(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching payments: {str(e)}"
+            message=f"An error occurred while fetching payments: {str(e)}",
         ).model_dump()
+
 
 # @admin_app.get(
 #     "/invoices/{invoice_id}/payments",
@@ -3087,11 +3037,12 @@ def get_invoice_payments(
 #             status_code=500,
 #             message=f"An error occurred while fetching invoice payments: {str(e)}"
 #         ).model_dump()
-    
+
+
 @admin_app.delete(
     "/invoices/{invoice_id}/payments/{payment_id}",
     tags=["Invoice Payments"],
-    description="Delete a specific payment for an invoice"
+    description="Delete a specific payment for an invoice",
 )
 def delete_invoice_payment(
     invoice_id: UUID,
@@ -3112,34 +3063,35 @@ def delete_invoice_payment(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Not authorized to delete invoice payments"
+                message="Not authorized to delete invoice payments",
             ).model_dump()
 
         # Get the invoice
-        invoice = db.query(Invoice).filter(
-            Invoice.uuid == invoice_id,
-            Invoice.is_deleted.is_(False)
-        ).first()
+        invoice = (
+            db.query(Invoice)
+            .filter(Invoice.uuid == invoice_id, Invoice.is_deleted.is_(False))
+            .first()
+        )
 
         if not invoice:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Invoice not found"
+                data=None, status_code=404, message="Invoice not found"
             ).model_dump()
 
         # Get the payment record
-        payment = db.query(InvoicePayment).filter(
-            InvoicePayment.uuid == payment_id,
-            InvoicePayment.invoice_id == invoice_id,
-            InvoicePayment.is_deleted.is_(False)
-        ).first()
+        payment = (
+            db.query(InvoicePayment)
+            .filter(
+                InvoicePayment.uuid == payment_id,
+                InvoicePayment.invoice_id == invoice_id,
+                InvoicePayment.is_deleted.is_(False),
+            )
+            .first()
+        )
 
         if not payment:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Invoice payment not found"
+                data=None, status_code=404, message="Invoice payment not found"
             ).model_dump()
 
         # Soft-delete payment
@@ -3171,10 +3123,10 @@ def delete_invoice_payment(
                 "invoice_id": str(invoice_id),
                 "payment_id": str(payment_id),
                 "new_invoice_status": invoice.payment_status,
-                "total_paid_amount": invoice.total_paid_amount
+                "total_paid_amount": invoice.total_paid_amount,
             },
             message="Invoice payment deleted successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -3183,8 +3135,9 @@ def delete_invoice_payment(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while deleting invoice payment: {str(e)}"
+            message=f"An error occurred while deleting invoice payment: {str(e)}",
         ).model_dump()
+
 
 @admin_app.get(
     "/khatabook",
@@ -3194,7 +3147,7 @@ def delete_invoice_payment(
 
     This endpoint allows admins to view khatabook entries from all users.
     You can filter by amount, date range, item, and user.
-    """
+    """,
 )
 def get_all_khatabook_entries_admin(
     user_id: Optional[UUID] = Query(None, description="Filter by user ID"),
@@ -3219,7 +3172,7 @@ def get_all_khatabook_entries_admin(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Only admin and super admin can access all khatabook entries"
+                message="Only admin and super admin can access all khatabook entries",
             ).model_dump()
 
         # Base query with all joins
@@ -3266,17 +3219,13 @@ def get_all_khatabook_entries_admin(
         query = query.order_by(Khatabook.created_at.desc())
 
         # Execute query with eager loading of relationships
-        entries = (
-            query
-            .options(
-                joinedload(Khatabook.files),
-                joinedload(Khatabook.person),
-                joinedload(Khatabook.items).joinedload(KhatabookItem.item),
-                joinedload(Khatabook.project),
-                joinedload(Khatabook.created_by_user)
-            )
-            .all()
-        )
+        entries = query.options(
+            joinedload(Khatabook.files),
+            joinedload(Khatabook.person),
+            joinedload(Khatabook.items).joinedload(KhatabookItem.item),
+            joinedload(Khatabook.project),
+            joinedload(Khatabook.created_by_user),
+        ).all()
 
         # Format response
         response_data = []
@@ -3286,7 +3235,9 @@ def get_all_khatabook_entries_admin(
             if entry.files:
                 for f in entry.files:
                     filename = os.path.basename(f.file_path)
-                    file_url = f"{constants.HOST_URL}/uploads/khatabook_files/{filename}"
+                    file_url = (
+                        f"{constants.HOST_URL}/uploads/khatabook_files/{filename}"
+                    )
                     file_urls.append(file_url)
 
             # Process items
@@ -3294,17 +3245,19 @@ def get_all_khatabook_entries_admin(
             if entry.items:
                 for khatabook_item in entry.items:
                     if khatabook_item.item:
-                        items_data.append({
-                            "uuid": str(khatabook_item.item.uuid),
-                            "name": khatabook_item.item.name,
-                            "category": khatabook_item.item.category,
-                        })
+                        items_data.append(
+                            {
+                                "uuid": str(khatabook_item.item.uuid),
+                                "name": khatabook_item.item.name,
+                                "category": khatabook_item.item.category,
+                            }
+                        )
             # Process project info
             project_info = None
             if entry.project:
                 project_info = {
                     "uuid": str(entry.project.uuid),
-                    "name": entry.project.name
+                    "name": entry.project.name,
                 }
 
             # Process user info
@@ -3314,7 +3267,7 @@ def get_all_khatabook_entries_admin(
                     "uuid": str(entry.created_by_user.uuid),
                     "name": entry.created_by_user.name,
                     "phone": entry.created_by_user.phone,
-                    "role": entry.created_by_user.role
+                    "role": entry.created_by_user.role,
                 }
 
             # Process person info
@@ -3323,26 +3276,30 @@ def get_all_khatabook_entries_admin(
                 person_info = {
                     "uuid": str(entry.person.uuid),
                     "name": entry.person.name,
-                    "phone_number": entry.person.phone_number
+                    "phone_number": entry.person.phone_number,
                 }
 
             # Add entry to response
-            response_data.append({
-                "uuid": str(entry.uuid),
-                "amount": entry.amount,
-                "remarks": entry.remarks,
-                "balance_after_entry": entry.balance_after_entry,
-                "person": person_info,
-                "user": user_info,
-                "project": project_info,
-                "expense_date": entry.expense_date.isoformat() if entry.expense_date else None,
-                "created_at": entry.created_at.isoformat(),
-                "files": file_urls,
-                "items": items_data,
-                "is_suspicious": entry.is_suspicious,
-                "payment_mode": entry.payment_mode,
-                "entry_type": entry.entry_type  # Include entry_type in admin response
-            })
+            response_data.append(
+                {
+                    "uuid": str(entry.uuid),
+                    "amount": entry.amount,
+                    "remarks": entry.remarks,
+                    "balance_after_entry": entry.balance_after_entry,
+                    "person": person_info,
+                    "user": user_info,
+                    "project": project_info,
+                    "expense_date": (
+                        entry.expense_date.isoformat() if entry.expense_date else None
+                    ),
+                    "created_at": entry.created_at.isoformat(),
+                    "files": file_urls,
+                    "items": items_data,
+                    "is_suspicious": entry.is_suspicious,
+                    "payment_mode": entry.payment_mode,
+                    "entry_type": entry.entry_type,  # Include entry_type in admin response
+                }
+            )
 
         # Calculate totals
         total_amount = sum(entry["amount"] for entry in response_data)
@@ -3351,10 +3308,10 @@ def get_all_khatabook_entries_admin(
             data={
                 "total_amount": total_amount,
                 "entries_count": len(response_data),
-                "entries": response_data
+                "entries": response_data,
             },
             message="Khatabook entries fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -3362,7 +3319,7 @@ def get_all_khatabook_entries_admin(
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching khatabook entries: {str(e)}"
+            message=f"An error occurred while fetching khatabook entries: {str(e)}",
         ).model_dump()
 
 
@@ -3471,10 +3428,11 @@ def get_all_khatabook_entries_admin(
 #             status_code=500
 #         ).model_dump()
 
+
 @admin_app.get(
     "/item-analytics",
     tags=["Analytics"],
-    description="Get item analytics data for all projects (estimation vs current expense)"
+    description="Get item analytics data for all projects (estimation vs current expense)",
 )
 def get_all_item_analytics(
     db: Session = Depends(get_db),
@@ -3490,14 +3448,11 @@ def get_all_item_analytics(
     """
     try:
         # Check permissions
-        if current_user.role not in [
-            UserRole.SUPER_ADMIN.value,
-            UserRole.ADMIN.value
-        ]:
+        if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
             return AdminPanelResponse(
                 data=None,
                 message="Only admin and super admin can access all item analytics",
-                status_code=403
+                status_code=403,
             ).model_dump()
 
         # Subquery to get latest ProjectItemMap entry per (project, item)
@@ -3505,7 +3460,7 @@ def get_all_item_analytics(
             db.query(
                 ProjectItemMap.project_id,
                 ProjectItemMap.item_id,
-                func.max(ProjectItemMap.id).label('max_id')
+                func.max(ProjectItemMap.id).label("max_id"),
             )
             .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
             .subquery()
@@ -3524,7 +3479,7 @@ def get_all_item_analytics(
             return AdminPanelResponse(
                 data={"items_analytics": []},
                 message="No items found in any project",
-                status_code=200
+                status_code=200,
             ).model_dump()
 
         # Group items per project
@@ -3541,17 +3496,20 @@ def get_all_item_analytics(
                     Payment.project_id == project.uuid,
                     Payment.status == PaymentStatus.TRANSFERRED.value,
                     Payment.is_deleted.is_(False),
-                    PaymentItem.is_deleted.is_(False)
+                    PaymentItem.is_deleted.is_(False),
                 )
-                .scalar() or 0.0
+                .scalar()
+                or 0.0
             )
 
-            project_wise_items[project.name].append({
-                "uuid": item.uuid,
-                "item_name": item.name,
-                "estimation": estimation,
-                "current_expense": current_expense
-            })
+            project_wise_items[project.name].append(
+                {
+                    "uuid": item.uuid,
+                    "item_name": item.name,
+                    "estimation": estimation,
+                    "current_expense": current_expense,
+                }
+            )
 
         # Apply sorting to each project's items
         items_analytics = []
@@ -3561,18 +3519,17 @@ def get_all_item_analytics(
                 key=lambda x: (
                     0 if x["current_expense"] > 0 or x["estimation"] > 0 else 1,
                     -x["current_expense"],
-                    -x["estimation"]
-                )
+                    -x["estimation"],
+                ),
             )
-            items_analytics.append({
-                "project_name": project_name,
-                "items": sorted_items
-            })
+            items_analytics.append(
+                {"project_name": project_name, "items": sorted_items}
+            )
 
         return AdminPanelResponse(
             data={"items_analytics": items_analytics},
             message="Item analytics fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -3580,7 +3537,7 @@ def get_all_item_analytics(
         return AdminPanelResponse(
             data=None,
             message=f"An error occurred while fetching item analytics: {str(e)}",
-            status_code=500
+            status_code=500,
         ).model_dump()
 
 
@@ -3700,10 +3657,11 @@ def get_all_item_analytics(
 #             status_code=500
 #         ).model_dump()
 
+
 @admin_app.get(
     "/projects/{project_id}/item-analytics",
     tags=["Analytics"],
-    description="Get item analytics data for a specific project (estimation vs current expense)"
+    description="Get item analytics data for a specific project (estimation vs current expense)",
 )
 def get_project_item_analytics(
     project_id: UUID,
@@ -3719,21 +3677,23 @@ def get_project_item_analytics(
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
-            UserRole.PROJECT_MANAGER.value
+            UserRole.PROJECT_MANAGER.value,
         ]:
             return AdminPanelResponse(
                 data=None,
                 message="Only admin, super admin, or project manager can access item analytics",
-                status_code=403
+                status_code=403,
             ).model_dump()
 
         # Check if project exists
-        project = db.query(Project).filter(Project.uuid == project_id, Project.is_deleted.is_(False)).first()
+        project = (
+            db.query(Project)
+            .filter(Project.uuid == project_id, Project.is_deleted.is_(False))
+            .first()
+        )
         if not project:
             return AdminPanelResponse(
-                data=None,
-                message="Project not found",
-                status_code=404
+                data=None, message="Project not found", status_code=404
             ).model_dump()
 
         # Get all unique items mapped to this project with their balances
@@ -3741,7 +3701,7 @@ def get_project_item_analytics(
             db.query(
                 ProjectItemMap.project_id,
                 ProjectItemMap.item_id,
-                func.max(ProjectItemMap.id).label('max_id')
+                func.max(ProjectItemMap.id).label("max_id"),
             )
             .filter(ProjectItemMap.project_id == project_id)
             .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
@@ -3760,10 +3720,10 @@ def get_project_item_analytics(
                 data={
                     "project_id": str(project_id),
                     "project_name": project.name,
-                    "items_analytics": []
+                    "items_analytics": [],
                 },
                 message="No items found for this project",
-                status_code=200
+                status_code=200,
             ).model_dump()
 
         # Prepare items analytics
@@ -3779,17 +3739,20 @@ def get_project_item_analytics(
                     Payment.project_id == project_id,
                     Payment.status == PaymentStatus.TRANSFERRED.value,
                     Payment.is_deleted.is_(False),
-                    PaymentItem.is_deleted.is_(False)
+                    PaymentItem.is_deleted.is_(False),
                 )
-                .scalar() or 0.0
+                .scalar()
+                or 0.0
             )
 
-            items_analytics.append({
-                "uuid": item.uuid,
-                "item_name": item.name,
-                "estimation": estimation,
-                "current_expense": current_expense
-            })
+            items_analytics.append(
+                {
+                    "uuid": item.uuid,
+                    "item_name": item.name,
+                    "estimation": estimation,
+                    "current_expense": current_expense,
+                }
+            )
 
         # Sort:
         # - first by whether it has any value (non-zero current_expense or estimation)
@@ -3798,22 +3761,24 @@ def get_project_item_analytics(
         sorted_items_analytics = sorted(
             items_analytics,
             key=lambda x: (
-                0 if x["current_expense"] > 0 or x["estimation"] > 0 else 1,  # 0 = has value, 1 = both zero
+                (
+                    0 if x["current_expense"] > 0 or x["estimation"] > 0 else 1
+                ),  # 0 = has value, 1 = both zero
                 -x["current_expense"],
-                -x["estimation"]
-            )
+                -x["estimation"],
+            ),
         )
 
         response_data = {
             "project_id": str(project_id),
             "project_name": project.name,
-            "items_analytics": sorted_items_analytics
+            "items_analytics": sorted_items_analytics,
         }
 
         return AdminPanelResponse(
             data=response_data,
             message="Item analytics fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -3821,14 +3786,14 @@ def get_project_item_analytics(
         return AdminPanelResponse(
             data=None,
             message=f"An error occurred while fetching item analytics: {str(e)}",
-            status_code=500
+            status_code=500,
         ).model_dump()
 
 
 @admin_app.get(
     "/projects/{project_id}/payment-analytics",
     tags=["Analytics"],
-    description="Get payment analytics data for a specific project (count, amount, percentage by status)"
+    description="Get payment analytics data for a specific project (count, amount, percentage by status)",
 )
 def get_project_payment_analytics(
     project_id: UUID,
@@ -3844,28 +3809,34 @@ def get_project_payment_analytics(
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
-            UserRole.PROJECT_MANAGER.value
+            UserRole.PROJECT_MANAGER.value,
         ]:
             return AdminPanelResponse(
                 data=None,
                 message="Only admin, super admin, or project manager can access payment analytics",
-                status_code=403
+                status_code=403,
             ).model_dump()
 
         # Check if project exists
-        project = db.query(Project).filter(Project.uuid == project_id, Project.is_deleted.is_(False)).first()
+        project = (
+            db.query(Project)
+            .filter(Project.uuid == project_id, Project.is_deleted.is_(False))
+            .first()
+        )
         if not project:
             return AdminPanelResponse(
-                data=None,
-                message="Project not found",
-                status_code=404
+                data=None, message="Project not found", status_code=404
             ).model_dump()
 
         # Get all payments for this project
-        payments = db.query(Payment).filter(
-            Payment.project_id == project_id,
-            Payment.is_deleted.is_(False),
-        ).all()
+        payments = (
+            db.query(Payment)
+            .filter(
+                Payment.project_id == project_id,
+                Payment.is_deleted.is_(False),
+            )
+            .all()
+        )
 
         if not payments:
             # Return empty analytics if no payments found
@@ -3875,10 +3846,10 @@ def get_project_payment_analytics(
                     "project_name": project.name,
                     "total_payments": 0,
                     "total_amount": 0.0,
-                    "status_analytics": []
+                    "status_analytics": [],
                 },
                 message="No payments found for this project",
-                status_code=200
+                status_code=200,
             ).model_dump()
 
         # Count total payments and calculate total amount
@@ -3905,12 +3876,14 @@ def get_project_payment_analytics(
             amount = status_amounts.get(status_value, 0.0)
             percentage = (count / total_payments * 100) if total_payments > 0 else 0.0
 
-            status_analytics.append({
-                "status": status_value,
-                "count": count,
-                "total_amount": amount,
-                "percentage": round(percentage, 2)
-            })
+            status_analytics.append(
+                {
+                    "status": status_value,
+                    "count": count,
+                    "total_amount": amount,
+                    "percentage": round(percentage, 2),
+                }
+            )
 
         # Prepare response
         response_data = {
@@ -3918,33 +3891,39 @@ def get_project_payment_analytics(
             "project_name": project.name,
             "total_payments": total_payments,
             "total_amount": total_amount,
-            "status_analytics": status_analytics
+            "status_analytics": status_analytics,
         }
 
         return AdminPanelResponse(
             data=response_data,
             message="Payment analytics fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
     except Exception as e:
         logger.error(f"Error in get_project_payment_analytics API: {str(e)}")
         return AdminPanelResponse(
             data=None,
             message=f"An error occurred while fetching payment analytics: {str(e)}",
-            status_code=500
+            status_code=500,
         ).model_dump()
 
 
 @admin_app.get(
     "/logs",
     tags=["Logs"],
-    description="Get all logs of user operations with filtering options"
+    description="Get all logs of user operations with filtering options",
 )
 def get_all_logs(
-    entity: Optional[str] = Query(None, description="Filter by entity type (e.g., User, Project, Payment)"),
-    action: Optional[str] = Query(None, description="Filter by action (e.g., Create, Edit, Delete)"),
+    entity: Optional[str] = Query(
+        None, description="Filter by entity type (e.g., User, Project, Payment)"
+    ),
+    action: Optional[str] = Query(
+        None, description="Filter by action (e.g., Create, Edit, Delete)"
+    ),
     entity_id: Optional[UUID] = Query(None, description="Filter by entity ID"),
-    performed_by: Optional[UUID] = Query(None, description="Filter by user who performed the action"),
+    performed_by: Optional[UUID] = Query(
+        None, description="Filter by user who performed the action"
+    ),
     start_date: Optional[datetime] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[datetime] = Query(None, description="End date (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
@@ -3961,7 +3940,7 @@ def get_all_logs(
             return AdminPanelResponse(
                 data=None,
                 status_code=current_user.get("status_code", 401),
-                message=current_user.get("message", "Authentication error")
+                message=current_user.get("message", "Authentication error"),
             ).model_dump()
 
         # Check if user has permission
@@ -3969,7 +3948,7 @@ def get_all_logs(
             return AdminPanelResponse(
                 data=None,
                 status_code=403,
-                message="Only admin and super admin can access all logs"
+                message="Only admin and super admin can access all logs",
             ).model_dump()
 
         # Base query
@@ -4008,20 +3987,20 @@ def get_all_logs(
         # Format response
         logs_list = []
         for log in logs:
-            logs_list.append({
-                "uuid": str(log.uuid),
-                "entity": log.entity,
-                "action": log.action,
-                "entity_id": str(log.entity_id),
-                "performed_by": str(log.performed_by),
-                "performer_name": user_map.get(str(log.performed_by), "Unknown"),
-                "timestamp": log.timestamp.isoformat()
-            })
+            logs_list.append(
+                {
+                    "uuid": str(log.uuid),
+                    "entity": log.entity,
+                    "action": log.action,
+                    "entity_id": str(log.entity_id),
+                    "performed_by": str(log.performed_by),
+                    "performer_name": user_map.get(str(log.performed_by), "Unknown"),
+                    "timestamp": log.timestamp.isoformat(),
+                }
+            )
 
         return AdminPanelResponse(
-            data=logs_list,
-            message="Logs fetched successfully",
-            status_code=200
+            data=logs_list, message="Logs fetched successfully", status_code=200
         ).model_dump()
 
     except Exception as e:
@@ -4029,11 +4008,13 @@ def get_all_logs(
         return AdminPanelResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching logs: {str(e)}"
+            message=f"An error occurred while fetching logs: {str(e)}",
         ).model_dump()
 
 
-@admin_app.get("/items/user-project/{user_id}/{project_id}", tags=["Mappings"], deprecated=True)
+@admin_app.get(
+    "/items/user-project/{user_id}/{project_id}", tags=["Mappings"], deprecated=True
+)
 def get_user_project_items(
     user_id: UUID,
     project_id: UUID,
@@ -4044,18 +4025,17 @@ def get_user_project_items(
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
-            UserRole.PROJECT_MANAGER.value
+            UserRole.PROJECT_MANAGER.value,
         ]:
             return AdminPanelResponse(
                 data=None,
                 status_code=403,
-                message="Only admin, super admin, or project manager can access user project items"
+                message="Only admin, super admin, or project manager can access user project items",
             ).model_dump()
 
         # Subquery using select() to avoid SAWarning
-        project_items_subq = (
-            select(ProjectItemMap.item_id)
-            .where(ProjectItemMap.project_id == project_id)
+        project_items_subq = select(ProjectItemMap.item_id).where(
+            ProjectItemMap.project_id == project_id
         )
 
         # JOIN using Item.uuid (UUID match)
@@ -4064,7 +4044,7 @@ def get_user_project_items(
             .join(UserItemMap, UserItemMap.item_id == Item.uuid)
             .filter(
                 UserItemMap.user_id == user_id,
-                UserItemMap.item_id.in_(project_items_subq)
+                UserItemMap.item_id.in_(project_items_subq),
             )
             .all()
         )
@@ -4072,7 +4052,7 @@ def get_user_project_items(
         return AdminPanelResponse(
             data=[{"uuid": item.uuid, "name": item.name} for item in items],
             status_code=200,
-            message="Items assigned to user in project fetched successfully"
+            message="Items assigned to user in project fetched successfully",
         ).model_dump()
 
     except Exception as e:
@@ -4099,7 +4079,7 @@ def get_user_project_items(
         "item_ids": ["item_uuid1", "item_uuid2"]
     }
     ```
-    """
+    """,
 )
 def sync_project_user_item_map(
     payload: ProjectUserItemMapCreate,
@@ -4109,32 +4089,33 @@ def sync_project_user_item_map(
     if current_user.role not in [
         UserRole.SUPER_ADMIN.value,
         UserRole.ADMIN.value,
-        UserRole.PROJECT_MANAGER.value
+        UserRole.PROJECT_MANAGER.value,
     ]:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
     # Check if user is assigned to the project
-    user_assigned = db.query(ProjectUserMap).filter_by(
-        project_id=payload.project_id,
-        user_id=payload.user_id
-    ).first()
+    user_assigned = (
+        db.query(ProjectUserMap)
+        .filter_by(project_id=payload.project_id, user_id=payload.user_id)
+        .first()
+    )
 
     if not user_assigned:
         raise HTTPException(
             status_code=400,
-            detail="User is not assigned to the selected project. Please assign the user first."
+            detail="User is not assigned to the selected project. Please assign the user first.",
         )
 
     # Check which items are actually assigned to this project
     assigned_item_ids = {
-        row.item_id for row in db.query(ProjectItemMap.item_id).filter_by(
-            project_id=payload.project_id
-        ).all()
+        row.item_id
+        for row in db.query(ProjectItemMap.item_id)
+        .filter_by(project_id=payload.project_id)
+        .all()
     }
 
     invalid_items = [
-        str(item_id) for item_id in payload.item_ids
-        if item_id not in assigned_item_ids
+        str(item_id) for item_id in payload.item_ids if item_id not in assigned_item_ids
     ]
     if invalid_items:
         raise HTTPException(
@@ -4142,7 +4123,7 @@ def sync_project_user_item_map(
             detail=(
                 f"The following items are not assigned to the project: "
                 f"{', '.join(invalid_items)}"
-            )
+            ),
         )
 
     # Use sync function to handle both assignment and unassignment
@@ -4151,7 +4132,7 @@ def sync_project_user_item_map(
             db=db,
             project_id=payload.project_id,
             user_id=payload.user_id,
-            item_ids=payload.item_ids
+            item_ids=payload.item_ids,
         )
 
         return {
@@ -4171,17 +4152,20 @@ def sync_project_user_item_map(
                         "uuid": str(m.uuid),
                         "project_id": str(m.project_id),
                         "user_id": str(m.user_id),
-                        "item_id": str(m.item_id)
-                    } for m in result["mappings"]
-                ]
-            }
+                        "item_id": str(m.item_id),
+                    }
+                    for m in result["mappings"]
+                ],
+            },
         }
     except Exception as db_error:
         db.rollback()
-        logger.error(f"Database error in sync_project_user_item_mappings: {str(db_error)}")
+        logger.error(
+            f"Database error in sync_project_user_item_mappings: {str(db_error)}"
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Database error while synchronizing items: {str(db_error)}"
+            detail=f"Database error while synchronizing items: {str(db_error)}",
         )
 
 
@@ -4246,10 +4230,11 @@ def sync_project_user_item_map(
 #         "count": len(mappings)
 #     }
 
+
 @admin_app.get(
     "/project-item-view/{project_id}/{user_id}",
     tags=["Mappings"],
-    description="Get items visible to current user under a specific project."
+    description="Get items visible to current user under a specific project.",
 )
 def view_project_items_for_user(
     project_id: UUID,
@@ -4287,11 +4272,13 @@ def view_project_items_for_user(
                     "item_name": m.item.name if m.item else None,
                     "item_category": m.item.category if m.item else None,
                     "item_list_tag": m.item.list_tag if m.item else None,
-                    "item_has_additional_info": m.item.has_additional_info if m.item else None
+                    "item_has_additional_info": (
+                        m.item.has_additional_info if m.item else None
+                    ),
                 }
                 for m in project_items
             ],
-            "count": len(project_items)
+            "count": len(project_items),
         }
     else:
         # Show only items mapped to this user
@@ -4300,7 +4287,7 @@ def view_project_items_for_user(
             .join(Item, ProjectUserItemMap.item_id == Item.uuid)
             .filter(
                 ProjectUserItemMap.project_id == project_id,
-                ProjectUserItemMap.user_id == user_id
+                ProjectUserItemMap.user_id == user_id,
             )
             .all()
         )
@@ -4315,35 +4302,38 @@ def view_project_items_for_user(
                     "item_name": m.item.name if m.item else None,
                     "item_category": m.item.category if m.item else None,
                     "item_list_tag": m.item.list_tag if m.item else None,
-                    "item_has_additional_info": m.item.has_additional_info if m.item else None
+                    "item_has_additional_info": (
+                        m.item.has_additional_info if m.item else None
+                    ),
                 }
                 for m in project_items
             ],
-            "count": len(project_items)
+            "count": len(project_items),
         }
     return AdminPanelResponse(
         data=response,
         message="Project User Items Fetched Successfully.",
-        status_code=200
+        status_code=200,
     ).model_dump()
 
-@admin_app.put(
-    "/projects/{project_id}/items",
-    tags=["update_items_balance"]
-)
 
+@admin_app.put("/projects/{project_id}/items", tags=["update_items_balance"])
 def update_project_items(
-    project_id: UUID, 
-    payload: ProjectItemUpdateRequest, 
-    db: Session = Depends(get_db)
+    project_id: UUID, payload: ProjectItemUpdateRequest, db: Session = Depends(get_db)
 ):
     updated_items = []
     for item in payload.items:
-        mapping = db.query(ProjectItemMap).filter_by(project_id=project_id, item_id=item.item_id).first()
+        mapping = (
+            db.query(ProjectItemMap)
+            .filter_by(project_id=project_id, item_id=item.item_id)
+            .first()
+        )
         if not mapping:
             raise HTTPException(
-                status_code=404, detail=f"Item {item.item_id} not mapped to project {project_id}")
-        
+                status_code=404,
+                detail=f"Item {item.item_id} not mapped to project {project_id}",
+            )
+
         mapping.item_balance = item.item_balance
         updated_items.append(str(item.item_id))
 
@@ -4365,18 +4355,15 @@ def update_project_items(
     - True: Invoice payment is paid after project end date OR not yet paid and project end date has passed
     - False: Invoice payment is paid before project end date
     - None: Not yet paid and project end date has not passed
-    """
+    """,
 )
 def get_project_invoice_analytics(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Get invoice analytics for a project with is_late flag.
-    """
     try:
-        # Verify user has permission
+        # Permission check
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
@@ -4386,131 +4373,134 @@ def get_project_invoice_analytics(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Not authorized to view invoice analytics"
+                message="Not authorized to view invoice analytics",
             ).model_dump()
 
-        # Find the project
-        project = db.query(Project).filter(
-            Project.uuid == project_id,
-            Project.is_deleted.is_(False)
-        ).first()
+        # Project lookup
+        project = (
+            db.query(Project)
+            .filter(Project.uuid == project_id, Project.is_deleted.is_(False))
+            .first()
+        )
 
         if not project:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Project not found"
+                data=None, status_code=404, message="Project not found"
             ).model_dump()
 
-        # Get all invoices for this project
-        invoices = db.query(Invoice).filter(
-            Invoice.project_id == project_id,
-            Invoice.is_deleted.is_(False)
-        ).all()
+        # Fetch invoices and POs
+        invoices = (
+            db.query(Invoice)
+            .filter(Invoice.project_id == project_id, Invoice.is_deleted.is_(False))
+            .all()
+        )
 
-        # Get all POs for this project
-        project_pos = db.query(ProjectPO).filter(
-            ProjectPO.project_id == project_id,
-            ProjectPO.is_deleted.is_(False)
-        ).all()
+        project_pos = (
+            db.query(ProjectPO)
+            .filter(ProjectPO.project_id == project_id, ProjectPO.is_deleted.is_(False))
+            .all()
+        )
 
-        # Create PO lookup
         po_lookup = {po.uuid: po for po in project_pos}
-
-        # Process each invoice
-        invoice_analytics = []
-        from datetime import date
         today = date.today()
+        invoice_analytics = []
 
         for invoice in invoices:
-            # Get PO details
-            po_number = None
-            po_amount = 0.0
-            if invoice.project_po_id and invoice.project_po_id in po_lookup:
+            po_number, po_amount = None, 0.0
+            if invoice.project_po_id in po_lookup:
                 po = po_lookup[invoice.project_po_id]
                 po_number = po.po_number
                 po_amount = po.amount
 
-            # Get all payments for this invoice to determine latest payment date
-            payments = db.query(InvoicePayment).filter(
-                InvoicePayment.invoice_id == invoice.uuid,
-                InvoicePayment.is_deleted.is_(False)
-            ).order_by(InvoicePayment.payment_date.desc()).all()
+            # Get payments
+            payments = (
+                db.query(InvoicePayment)
+                .filter(
+                    InvoicePayment.invoice_id == invoice.uuid,
+                    InvoicePayment.is_deleted.is_(False),
+                )
+                .order_by(InvoicePayment.payment_date.desc())
+                .all()
+            )
 
-            # Prepare list of all payments for this invoice
             payment_list = [
                 {
-                    "amount": payment.amount,
-                    "date": payment.payment_date.strftime("%Y-%m-%d") if payment.payment_date else None
+                    "amount": p.amount,
+                    "date": (
+                        p.payment_date.strftime("%Y-%m-%d") if p.payment_date else None
+                    ),
                 }
-                for payment in payments
+                for p in payments
             ]
 
-            # Determine latest payment date
-            latest_payment_date_str = None
-            if payments:
-                latest_payment_date = max(payment.payment_date for payment in payments)
-                latest_payment_date_str = latest_payment_date.strftime("%Y-%m-%d")
+            latest_payment_date = max(
+                (p.payment_date for p in payments if p.payment_date), default=None
+            )
+            latest_payment_date_str = (
+                latest_payment_date.strftime("%Y-%m-%d")
+                if latest_payment_date
+                else None
+            )
 
-
-            # Determine is_late flag
+            # Determine is_late
             is_late = None
             if project.end_date:
-                if invoice.payment_status == "fully_paid" and payments:
-                    # Check if any payment was made after project end date
-                    latest_payment_date = max(payment.payment_date for payment in payments)
-                    is_late = latest_payment_date > project.end_date
-                elif invoice.payment_status == "partially_paid" and payments:
-                    # For partially paid, check if the latest payment was after end date
-                    latest_payment_date = max(payment.payment_date for payment in payments)
+                if (
+                    invoice.payment_status in ["fully_paid", "partially_paid"]
+                    and latest_payment_date
+                ):
                     is_late = latest_payment_date > project.end_date
                 elif invoice.payment_status == "not_paid":
-                    # Not paid and project end date has passed
                     is_late = today > project.end_date
-                else:
-                    is_late = None
 
-            invoice_analytics.append(InvoiceAnalyticsItem(
-                invoice_uuid=invoice.uuid,
-                project_name=project.name,
-                po_number=po_number,
-                po_amount=po_amount,
-                invoice_amount=invoice.amount,
-                invoice_due_date=invoice.due_date.strftime("%Y-%m-%d"),
-                payment_status=invoice.payment_status,
-                total_paid_amount=invoice.total_paid_amount,
-                payment_date=payment_list,
-                is_late=is_late
-            ))
+            invoice_analytics.append(
+                InvoiceAnalyticsItem(
+                    invoice_uuid=invoice.uuid,
+                    project_name=project.name,
+                    po_number=po_number,
+                    po_amount=po_amount,
+                    invoice_amount=invoice.amount,
+                    invoice_due_date=(
+                        invoice.due_date.strftime("%Y-%m-%d")
+                        if invoice.due_date
+                        else None
+                    ),
+                    payment_status=invoice.payment_status,
+                    total_paid_amount=invoice.total_paid_amount,
+                    payment_date=payment_list,
+                    is_late=is_late,
+                )
+            )
 
-        # Create response
-        analytics_response = InvoiceAnalyticsResponse(
+        response = InvoiceAnalyticsResponse(
             project_id=project_id,
             project_name=project.name,
-            project_end_date=project.end_date.strftime("%Y-%m-%d") if project.end_date else None,
-            invoices=invoice_analytics, 
+            project_end_date=(
+                project.end_date.strftime("%Y-%m-%d") if project.end_date else None
+            ),
+            invoices=invoice_analytics,
         )
 
         return ProjectServiceResponse(
-            data=analytics_response.model_dump(),
+            data=response.model_dump(),
             message="Invoice analytics fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
-        logger.error(f"Error in get_project_invoice_analytics API: {str(e)}")
+        logger.error(f"Error in get_project_invoice_analytics: {str(e)}")
         return ProjectServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while fetching invoice analytics: {str(e)}"
+            message=f"An error occurred while fetching invoice analytics: {str(e)}",
         ).model_dump()
 
 
 @admin_app.get(
-        "/project-stats", 
-        tags=["Dashboard"], 
-        description="Dashboard stats: projects, items, revenue, active users"
-    )
+    "/project-stats",
+    tags=["Dashboard"],
+    description="Dashboard stats: projects, items, revenue, active users",
+)
 def get_dashboard_project_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -4530,23 +4520,30 @@ def get_dashboard_project_stats(
 
         # ───── Total Projects ─────
         total_projects = db.query(Project).filter(Project.is_deleted.is_(False)).count()
-        recent_projects = db.query(Project).filter(
-            Project.is_deleted.is_(False),
-            Project.created_at >= last_31_days
-        ).count()
+        recent_projects = (
+            db.query(Project)
+            .filter(Project.is_deleted.is_(False), Project.created_at >= last_31_days)
+            .count()
+        )
 
         # ───── Total Items ─────
         total_items = db.query(Item).count()
         recent_items = db.query(Item).filter(Item.created_at >= last_31_days).count()
 
         # ───── Total Revenue ─────
-        total_revenue = db.query(func.coalesce(func.sum(InvoicePayment.amount), 0)).filter(
-            InvoicePayment.is_deleted.is_(False)
-        ).scalar()
-        recent_revenue = db.query(func.coalesce(func.sum(InvoicePayment.amount), 0)).filter(
-            InvoicePayment.payment_date >= last_31_days,
-            InvoicePayment.is_deleted.is_(False)
-        ).scalar()
+        total_revenue = (
+            db.query(func.coalesce(func.sum(InvoicePayment.amount), 0))
+            .filter(InvoicePayment.is_deleted.is_(False))
+            .scalar()
+        )
+        recent_revenue = (
+            db.query(func.coalesce(func.sum(InvoicePayment.amount), 0))
+            .filter(
+                InvoicePayment.payment_date >= last_31_days,
+                InvoicePayment.is_deleted.is_(False),
+            )
+            .scalar()
+        )
 
         # Growth %
         growth_percent = None
@@ -4559,33 +4556,25 @@ def get_dashboard_project_stats(
 
         # ───── Active Users ─────
         active_users = db.query(User).filter(User.is_active.is_(True)).count()
-        new_users = db.query(User).filter(
-            User.is_active.is_(True),
-            User.created_at >= last_31_days
-        ).count()
+        new_users = (
+            db.query(User)
+            .filter(User.is_active.is_(True), User.created_at >= last_31_days)
+            .count()
+        )
 
         return ProjectServiceResponse(
             data={
-                "projects": {
-                    "total": total_projects,
-                    "last_31_days": recent_projects
-                },
-                "items": {
-                    "total": total_items,
-                    "last_31_days": recent_items
-                },
+                "projects": {"total": total_projects, "last_31_days": recent_projects},
+                "items": {"total": total_items, "last_31_days": recent_items},
                 "revenue": {
                     "total": total_revenue,
                     "last_31_days": recent_revenue,
-                    "growth_percent": growth_percent
+                    "growth_percent": growth_percent,
                 },
-                "active_users": {
-                    "total": active_users,
-                    "last_31_days": new_users
-                }
+                "active_users": {"total": active_users, "last_31_days": new_users},
             },
             message="Dashboard stats fetched successfully",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -4593,40 +4582,39 @@ def get_dashboard_project_stats(
         return ProjectServiceResponse(
             data=None,
             message="An error occurred while fetching dashboard stats",
-            status_code=500
+            status_code=500,
         ).model_dump()
-    
 
 
 @admin_app.post(
     "/item-groups/{group_uuid}/map-items",
     tags=["admin_panel"],
     status_code=200,
-    description=
-    "Map items to an item group by UUID.\n\n"
+    description="Map items to an item group by UUID.\n\n"
     "### Request Body Format:\n"
     "{\n"
     '  "items": [\n'
-    '    {\n'
+    "    {\n"
     '      "item_id": "item1_uuid",\n'
     '      "item_value": 5000\n'
-    '    },\n'
-    '    {\n'
+    "    },\n"
+    "    {\n"
     '      "item_id": "item2_uuid",\n'
     '      "item_value": 6000\n'
-    '    }\n'
+    "    }\n"
     "  ]\n"
     "}\n\n"
     "- `item_id`: UUID of the item you want to map\n"
     "- `item_value`: Numeric value or balance associated with the item\n"
-    "- All existing items not in this list will remain unaffected (no unmapping done)"
-
+    "- All existing items not in this list will remain unaffected (no unmapping done)",
 )
 def map_items_to_item_group(
     group_uuid: UUID,
-    payload: dict = Body(...,),
+    payload: dict = Body(
+        ...,
+    ),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
 
@@ -4635,30 +4623,26 @@ def map_items_to_item_group(
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
             UserRole.ACCOUNTANT.value,
-            UserRole.PROJECT_MANAGER.value
+            UserRole.PROJECT_MANAGER.value,
         ]:
             raise HTTPException(status_code=403, detail="Unauthorized")
-        
-        
+
         items_data = payload.get("items", [])
 
         if not items_data:
             return PaymentServiceResponse(
-                data=None,
-                message="Item list is empty.",
-                status_code=400
+                data=None, message="Item list is empty.", status_code=400
             ).model_dump()
 
-        group = db.query(ItemGroups).filter(
-            ItemGroups.uuid == group_uuid,
-            ItemGroups.is_deleted == False
-        ).first()
+        group = (
+            db.query(ItemGroups)
+            .filter(ItemGroups.uuid == group_uuid, ItemGroups.is_deleted.is_(False))
+            .first()
+        )
 
         if not group:
             return PaymentServiceResponse(
-                data=None,
-                message="Item group not found.",
-                status_code=404
+                data=None, message="Item group not found.", status_code=404
             ).model_dump()
 
         added, updated = 0, 0
@@ -4674,23 +4658,25 @@ def map_items_to_item_group(
                 return PaymentServiceResponse(
                     data=None,
                     message=f"Invalid item_id: {item_id_str}",
-                    status_code=400
+                    status_code=400,
                 ).model_dump()
 
             item = db.query(Item).filter(Item.uuid == item_uuid).first()
             if not item:
                 return PaymentServiceResponse(
-                    data=None,
-                    message=f"Item not found: {item_id_str}",
-                    status_code=404
+                    data=None, message=f"Item not found: {item_id_str}", status_code=404
                 ).model_dump()
 
             mapped_uuids.append(str(item_uuid))
 
-            existing_map = db.query(ItemGroupMap).filter(
-                ItemGroupMap.item_group_id == group_uuid,
-                ItemGroupMap.item_id == item_uuid
-            ).first()
+            existing_map = (
+                db.query(ItemGroupMap)
+                .filter(
+                    ItemGroupMap.item_group_id == group_uuid,
+                    ItemGroupMap.item_id == item_uuid,
+                )
+                .first()
+            )
 
             if existing_map:
                 existing_map.item_balance = item_value
@@ -4701,7 +4687,7 @@ def map_items_to_item_group(
                     uuid=uuid.uuid4(),
                     item_group_id=group_uuid,
                     item_id=item_uuid,
-                    item_balance=item_value
+                    item_balance=item_value,
                 )
                 db.add(new_map)
                 added += 1
@@ -4714,10 +4700,10 @@ def map_items_to_item_group(
                 "total_items": len(items_data),
                 "added": added,
                 "updated": updated,
-                "mapped_item_ids": mapped_uuids
+                "mapped_item_ids": mapped_uuids,
             },
             message="Items mapped to group successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -4725,7 +4711,7 @@ def map_items_to_item_group(
         return PaymentServiceResponse(
             data=None,
             message=f"Error mapping items to group: {str(e)}",
-            status_code=500
+            status_code=500,
         ).model_dump()
 
 
@@ -4743,7 +4729,7 @@ def map_items_to_item_group(
 #         # 1. Verify the group exists
 #         group = db.query(ItemGroups).filter(
 #             ItemGroups.uuid == group_uuid,
-#             ItemGroups.is_deleted == False
+#             ItemGroups.is_deleted.is_(False)
 #         ).first()
 
 #         if not group:
@@ -4776,8 +4762,8 @@ def map_items_to_item_group(
 #             # Fetch all groups for each item
 #             group_mappings = db.query(ItemGroupMap, ItemGroups).join(ItemGroups, ItemGroupMap.item_group_id == ItemGroups.uuid).filter(
 #                 ItemGroupMap.item_id == item.uuid,
-#                 ItemGroupMap.is_deleted == False,
-#                 ItemGroups.is_deleted == False
+#                 ItemGroupMap.is_deleted.is_(False),
+#                 ItemGroups.is_deleted.is_(False)
 #             ).all()
 
 #             associated_groups = [
@@ -4811,16 +4797,17 @@ def map_items_to_item_group(
 #             status_code=500
 #         ).model_dump()
 
+
 @admin_app.get(
     "/item-groups/{group_uuid}/items",
     tags=["admin_panel"],
     status_code=200,
-    description="Fetch all items mapped to a specific item group UUID including item value (balance)."
+    description="Fetch all items mapped to a specific item group UUID including item value (balance).",
 )
 def get_items_by_group(
     group_uuid: UUID,
     db: Session = Depends(get_db),
-    current_user : User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
 
@@ -4829,28 +4816,31 @@ def get_items_by_group(
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
             UserRole.ACCOUNTANT.value,
-            UserRole.PROJECT_MANAGER.value
+            UserRole.PROJECT_MANAGER.value,
         ]:
             raise HTTPException(status_code=403, detail="Unauthorized")
 
         # Validate group
-        group = db.query(ItemGroups).filter(
-            ItemGroups.uuid == group_uuid,
-            ItemGroups.is_deleted == False
-        ).first()
+        group = (
+            db.query(ItemGroups)
+            .filter(ItemGroups.uuid == group_uuid, ItemGroups.is_deleted.is_(False))
+            .first()
+        )
 
         if not group:
             return PaymentServiceResponse(
-                data=None,
-                message="Item group not found.",
-                status_code=404
+                data=None, message="Item group not found.", status_code=404
             ).model_dump()
 
         # Get item mappings
-        mappings = db.query(ItemGroupMap).filter(
-            ItemGroupMap.item_group_id == group_uuid,
-            ItemGroupMap.is_deleted == False
-        ).all()
+        mappings = (
+            db.query(ItemGroupMap)
+            .filter(
+                ItemGroupMap.item_group_id == group_uuid,
+                ItemGroupMap.is_deleted.is_(False),
+            )
+            .all()
+        )
 
         if not mappings:
             return PaymentServiceResponse(
@@ -4858,55 +4848,56 @@ def get_items_by_group(
                     "group_id": str(group.uuid),
                     "group_name": group.item_groups,
                     "total_items": 0,
-                    "items": []
+                    "items": [],
                 },
                 message="No items mapped to this group.",
-                status_code=200
+                status_code=200,
             ).model_dump()
 
         item_data = []
         for map_obj in mappings:
             item = db.query(Item).filter(Item.uuid == map_obj.item_id).first()
             if item:
-                item_data.append({
-                    "uuid": str(item.uuid),
-                    "name": item.name,
-                    "category": item.category,
-                    "list_tag": item.list_tag,
-                    "has_additional_info": item.has_additional_info,
-                    "created_at": item.created_at,
-                    "item_value": map_obj.item_balance
-                })
+                item_data.append(
+                    {
+                        "uuid": str(item.uuid),
+                        "name": item.name,
+                        "category": item.category,
+                        "list_tag": item.list_tag,
+                        "has_additional_info": item.has_additional_info,
+                        "created_at": item.created_at,
+                        "item_value": map_obj.item_balance,
+                    }
+                )
 
         return PaymentServiceResponse(
             data={
                 "group_id": str(group.uuid),
                 "group_name": group.item_groups,
                 "total_items": len(item_data),
-                "items": item_data
+                "items": item_data,
             },
             message="Items in the group fetched successfully.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
         return PaymentServiceResponse(
-            data=None,
-            message=f"Error fetching group items: {str(e)}",
-            status_code=500
+            data=None, message=f"Error fetching group items: {str(e)}", status_code=500
         ).model_dump()
+
 
 @admin_app.delete(
     "/item-groups/{group_uuid}/items/{item_uuid}",
     tags=["admin_panel"],
     status_code=200,
-    description="Soft delete (unmap) an item from a specific item group by marking the mapping as deleted."
+    description="Soft delete (unmap) an item from a specific item group by marking the mapping as deleted.",
 )
 def unmap_item_from_group(
     group_uuid: UUID,
     item_uuid: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
 
@@ -4915,22 +4906,26 @@ def unmap_item_from_group(
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
             UserRole.ACCOUNTANT.value,
-            UserRole.PROJECT_MANAGER.value
+            UserRole.PROJECT_MANAGER.value,
         ]:
             raise HTTPException(status_code=403, detail="Unauthorized")
 
         # Check mapping exists
-        mapping = db.query(ItemGroupMap).filter(
-            ItemGroupMap.item_group_id == group_uuid,
-            ItemGroupMap.item_id == item_uuid,
-            ItemGroupMap.is_deleted == False
-        ).first()
+        mapping = (
+            db.query(ItemGroupMap)
+            .filter(
+                ItemGroupMap.item_group_id == group_uuid,
+                ItemGroupMap.item_id == item_uuid,
+                ItemGroupMap.is_deleted.is_(False),
+            )
+            .first()
+        )
 
         if not mapping:
             return PaymentServiceResponse(
                 data=None,
                 message="Mapping not found or already deleted.",
-                status_code=404
+                status_code=404,
             ).model_dump()
 
         # Perform soft delete
@@ -4938,12 +4933,9 @@ def unmap_item_from_group(
         db.commit()
 
         return PaymentServiceResponse(
-            data={
-                "group_id": str(group_uuid),
-                "item_id": str(item_uuid)
-            },
+            data={"group_id": str(group_uuid), "item_id": str(item_uuid)},
             message="Item successfully unmapped from group.",
-            status_code=200
+            status_code=200,
         ).model_dump()
 
     except Exception as e:
@@ -4951,8 +4943,9 @@ def unmap_item_from_group(
         return PaymentServiceResponse(
             data=None,
             message=f"Error unmapping item from group: {str(e)}",
-            status_code=500
+            status_code=500,
         ).model_dump()
+
 
 @admin_app.post(
     "/salary",
@@ -4962,14 +4955,14 @@ def unmap_item_from_group(
 def create_salary(
     payload: SalaryCreateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     try:
         # Authorization
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
-            UserRole.ACCOUNTANT.value
+            UserRole.ACCOUNTANT.value,
         ]:
             raise HTTPException(status_code=403, detail="Unauthorized")
 
@@ -4981,17 +4974,23 @@ def create_salary(
         project = db.query(Project).filter(Project.uuid == payload.project_id).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
-        
-         # Prevent duplicate entry
-        exists = db.query(Salary).filter(
-            Salary.user_id == payload.user_id,
-            Salary.project_id == payload.project_id,
-            Salary.month == payload.month,
-            Salary.is_deleted == False
-        ).first()
+
+        # Prevent duplicate entry
+        exists = (
+            db.query(Salary)
+            .filter(
+                Salary.user_id == payload.user_id,
+                Salary.project_id == payload.project_id,
+                Salary.month == payload.month,
+                Salary.is_deleted.is_(False),
+            )
+            .first()
+        )
         if exists:
-            raise HTTPException(status_code=409, detail="Salary already exists for this user and month")
-        
+            raise HTTPException(
+                status_code=409, detail="Salary already exists for this user and month"
+            )
+
         # Create new salary record
         salary = Salary(
             uuid=uuid4(),
@@ -4999,7 +4998,7 @@ def create_salary(
             project_id=payload.project_id,
             month=payload.month,
             amount=payload.amount,
-            created_by=current_user.uuid
+            created_by=current_user.uuid,
         )
         db.add(salary)
         db.commit()
@@ -5011,32 +5010,31 @@ def create_salary(
                 user_id=salary.user_id,
                 project_id=salary.project_id,
                 month=salary.month,
-                amount=salary.amount
+                amount=salary.amount,
             ),
             message="Salary data recorded successfully.",
-            status_code=201
+            status_code=201,
         )
     except Exception as e:
         db.rollback()
         return ProjectServiceResponse(
-            data=None,
-            message=f"Failed to create salary: {str(e)}",
-            status_code=500
+            data=None, message=f"Failed to create salary: {str(e)}", status_code=500
         ).model_dump()
+
 
 @admin_app.put(
     "/salary/{salary_uuid}",
     tags=["Salary"],
     status_code=200,
-    description="Update an existing salary record by UUID."
+    description="Update an existing salary record by UUID.",
 )
 def update_salary(
     salary_id: UUID,
     payload: SalaryUpdateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-    try : 
+    try:
         # Verify user role
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
@@ -5046,22 +5044,21 @@ def update_salary(
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
-                message="Not authorized to update invoice status"
+                message="Not authorized to update invoice status",
             ).model_dump()
-        
+
         # Fetch the salary record
-        salary = db.query(Salary).filter(
-            Salary.uuid == salary_id,
-            Salary.is_deleted == False
-        ).first()
+        salary = (
+            db.query(Salary)
+            .filter(Salary.uuid == salary_id, Salary.is_deleted.is_(False))
+            .first()
+        )
 
         if not salary:
             return ProjectServiceResponse(
-                data=None,
-                status_code=404,
-                message="Salary record not found"
+                data=None, status_code=404, message="Salary record not found"
             ).model_dump()
-        
+
         # Update fields
         salary.user_id = payload.user_id
         salary.project_id = payload.project_id
@@ -5093,7 +5090,9 @@ def update_salary(
 def get_all_salary(
     user_id: Optional[UUID] = Query(None, description="Filter by user ID"),
     project_id: Optional[UUID] = Query(None, description="Filter by project ID"),
-    month: Optional[str] = Query(None, description="Filter by month name e.g. 'June 2025'"),
+    month: Optional[str] = Query(
+        None, description="Filter by month name e.g. 'June 2025'"
+    ),
     amount: Optional[float] = Query(None, description="Filter by exact salary amount"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -5116,11 +5115,11 @@ def get_all_salary(
                 Salary.project_id,
                 Project.name.label("project_name"),
                 Salary.amount,
-                Salary.month
+                Salary.month,
             )
             .join(User, Salary.user_id == User.uuid)
             .join(Project, Salary.project_id == Project.uuid)
-            .filter(Salary.is_deleted == False)
+            .filter(Salary.is_deleted.is_(False))
         )
 
         # Apply filters
@@ -5138,28 +5137,31 @@ def get_all_salary(
         # Format response
         data = []
         for row in result:
-            data.append({
-                "uuid": str(row.uuid),
-                "user_id": str(row.user_id),
-                "user_name": row.user_name,
-                "project_id": str(row.project_id),
-                "project_name": row.project_name,
-                "amount": row.amount,
-                "month": row.month
-            })
+            data.append(
+                {
+                    "uuid": str(row.uuid),
+                    "user_id": str(row.user_id),
+                    "user_name": row.user_name,
+                    "project_id": str(row.project_id),
+                    "project_name": row.project_name,
+                    "amount": row.amount,
+                    "month": row.month,
+                }
+            )
 
         return {
             "data": data,
             "message": "Salary Records Fetched Successfully.",
-            "status_code": 200
+            "status_code": 200,
         }
 
     except Exception as e:
         return {
             "data": None,
             "message": f"Error fetching salary records: {str(e)}",
-            "status_code": 500
+            "status_code": 500,
         }
+
 
 @admin_app.delete(
     "/salary/{salary_id}",
@@ -5181,7 +5183,11 @@ def delete_salary_record(
             raise HTTPException(status_code=403, detail="Unauthorized access.")
 
         # 🔍 Fetch salary record
-        salary = db.query(Salary).filter(Salary.uuid == salary_id, Salary.is_deleted == False).first()
+        salary = (
+            db.query(Salary)
+            .filter(Salary.uuid == salary_id, Salary.is_deleted.is_(False))
+            .first()
+        )
         if not salary:
             raise HTTPException(status_code=404, detail="Salary record not found.")
 
