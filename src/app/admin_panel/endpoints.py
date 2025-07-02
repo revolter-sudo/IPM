@@ -4437,6 +4437,22 @@ def get_project_invoice_analytics(
                 InvoicePayment.is_deleted.is_(False)
             ).order_by(InvoicePayment.payment_date.desc()).all()
 
+            # Prepare list of all payments for this invoice
+            payment_list = [
+                {
+                    "amount": payment.amount,
+                    "date": payment.payment_date.strftime("%Y-%m-%d") if payment.payment_date else None
+                }
+                for payment in payments
+            ]
+
+            # Determine latest payment date
+            latest_payment_date_str = None
+            if payments:
+                latest_payment_date = max(payment.payment_date for payment in payments)
+                latest_payment_date_str = latest_payment_date.strftime("%Y-%m-%d")
+
+
             # Determine is_late flag
             is_late = None
             if project.end_date:
@@ -4463,6 +4479,7 @@ def get_project_invoice_analytics(
                 invoice_due_date=invoice.due_date.strftime("%Y-%m-%d"),
                 payment_status=invoice.payment_status,
                 total_paid_amount=invoice.total_paid_amount,
+                payment_date=payment_list,
                 is_late=is_late
             ))
 
@@ -4471,7 +4488,7 @@ def get_project_invoice_analytics(
             project_id=project_id,
             project_name=project.name,
             project_end_date=project.end_date.strftime("%Y-%m-%d") if project.end_date else None,
-            invoices=invoice_analytics
+            invoices=invoice_analytics, 
         )
 
         return ProjectServiceResponse(
