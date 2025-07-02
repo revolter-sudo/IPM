@@ -1,4 +1,5 @@
 from uuid import uuid4
+
 import logger
 from sqlalchemy import and_
 from sqlalchemy.orm import Session

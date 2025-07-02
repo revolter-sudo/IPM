@@ -1,4 +1,5 @@
 import uuid
+
 from sqlalchemy import (
     TIMESTAMP,
     BigInteger,
@@ -17,7 +18,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from src.app.database.database import Base
-
+from sqlalchemy import UniqueConstraint
 
 class Khatabook(Base):
     __tablename__ = "khatabook_entries"
