@@ -1,3 +1,4 @@
+from typing import Optional
 from uuid import uuid4
 
 import logger
@@ -16,7 +17,8 @@ def create_inquiry_service(
     db: Session, inquiry_data: InquiryCreateRequest
 ) -> InquiryServiceResponse:
     """
-    Create a new inquiry with validation to prevent duplicate phone+project_type combinations.
+    Create a new inquiry with validation to prevent
+    duplicate phone+project_type combinations.
 
     Args:
         db: Database session
@@ -42,7 +44,10 @@ def create_inquiry_service(
         if existing_inquiry:
             return InquiryServiceResponse(
                 data=None,
-                message=f"An inquiry for project type '{inquiry_data.project_type.value}' with this phone number already exists.",
+                message=(
+                    f"An inquiry for project type '{inquiry_data.project_type.value}' "
+                    "with this phone number already exists."
+                ),
                 status_code=409,  # Conflict
             )
 
@@ -91,10 +96,10 @@ def get_inquiries_service(
     db: Session,
     page: int = 1,
     page_size: int = 10,
-    phone_number: str = None,
-    project_type: str = None,
-    state: str = None,
-    city: str = None,
+    phone_number: Optional[str] = None,
+    project_type: Optional[str] = None,
+    state: Optional[str] = None,
+    city: Optional[str] = None,
 ) -> InquiryServiceResponse:
     """
     Get inquiries with optional filtering and pagination.

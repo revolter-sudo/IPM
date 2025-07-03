@@ -65,7 +65,7 @@ def create_project_balance_entry(
     current_user,
     project_id: UUID,
     adjustment: float,
-    description: str = None,
+    description: Optional[str] = None,
     balance_type: str = "actual",
 ):
     balance_entry = ProjectBalance(
@@ -1183,8 +1183,6 @@ def delete_project(
     description="""
 Add a new Purchase Order (PO) under a project.
 
-Send the PO data as a JSON string via the `po_data` form field and optionally upload a PO document file.
-
  **Example `po_data` JSON Format**:
 ```json
 {
@@ -1275,7 +1273,7 @@ def add_project_po(
         # Save file if provided
         file_path = None
         if po_document:
-            ext = os.path.splitext(po_document.filename)[1]
+            ext = os.path.splitext(po_document.filename or "")[1]
             filename = f"PO_{str(uuid4())}{ext}"
             upload_dir = "uploads/po_docs"
             os.makedirs(upload_dir, exist_ok=True)
@@ -1402,11 +1400,6 @@ def get_project_pos(
                 .all()
             )
 
-            # total_invoice_amount = sum(inv.amount for inv in invoices)
-            # total_paid_amount = sum(inv.total_paid_amount for inv in invoices if inv.payment_status in ["partially_paid", "fully_paid"])
-            # pending_amount = total_invoice_amount - total_paid_amount
-            # not_generated_amount = po.amount - total_invoice_amount
-
             po_data = {
                 "uuid": str(po.uuid),
                 "po_number": po.po_number,
@@ -1463,7 +1456,10 @@ def get_project_pos(
 @project_router.put(
     "/{project_id}/pos/{po_id}",
     tags=["Project POs"],
-    description="Update an existing Purchase Order (PO) under a project. File update is not allowed.",
+    description=(
+        "Update an existing Purchase Order (PO) under a project."
+        "File update is not allowed."
+    ),
 )
 def update_project_po(
     po_id: UUID,
@@ -1774,7 +1770,7 @@ def create_company_info(
         # Save logo file if present
         file_path = None
         if logo_photo_file:
-            ext = os.path.splitext(logo_photo_file.filename)[1]
+            ext = os.path.splitext(logo_photo_file.filename or "")[1]
             filename = f"logo_{str(uuid4())}{ext}"
             upload_dir = "uploads/company_logos"
             os.makedirs(upload_dir, exist_ok=True)
@@ -1950,7 +1946,7 @@ def update_company_info(
         if logo_photo_file:
             upload_dir = "uploads/company_logos"
             os.makedirs(upload_dir, exist_ok=True)
-            ext = os.path.splitext(logo_photo_file.filename)[1]
+            ext = os.path.splitext(logo_photo_file.filename or "")[1]
             filename = f"logo_{str(uuid4())}{ext}"
             file_path = os.path.join(upload_dir, filename)
             with open(file_path, "wb") as buffer:

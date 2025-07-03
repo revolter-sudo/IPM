@@ -41,7 +41,9 @@ class CreatePerson(BaseModel):
         min_length=8,
         max_length=18,
         pattern=r"^\d+$",
-        description="Account number must be 8 to 16 digits long and contain only numbers",
+        description=(
+            "Account number must be 8 to 16 digits long and contain only numbers"
+        ),
     )
     ifsc_code: Optional[str] = Field(
         None,
@@ -84,7 +86,9 @@ class UpdatePerson(BaseModel):
         min_length=8,
         max_length=18,
         pattern=r"^\d+$",
-        description="Account number must be 08 to 11 digits long and contain only numbers",
+        description=(
+            "Account number must be 08 to 11 digits long and contain only numbers"
+        ),
     )
     ifsc_code: Optional[str] = Field(
         None,

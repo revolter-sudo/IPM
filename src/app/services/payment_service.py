@@ -198,7 +198,7 @@ def create_payment(
             os.makedirs(upload_dir, exist_ok=True)
             for file in files:
                 # Create a unique filename to avoid collisions
-                file_ext = os.path.splitext(file.filename)[1]
+                file_ext = os.path.splitext(file.filename or "")[1]
                 unique_filename = f"{str(uuid4())}{file_ext}"
                 file_path = os.path.join(upload_dir, unique_filename)
 
@@ -502,7 +502,7 @@ def get_user_project_ids(db: Session, user_uuid: UUID):
     return [mapping[0] for mapping in project_mappings]
 
 
-def apply_role_restrictions(query, current_user: User, db: Session = None):
+def apply_role_restrictions(query, current_user: User, db: Optional[Session] = None):
     """
     Apply role-based restrictions to the query:
     - Super Admin, Admin, Accountant: see all payments
@@ -745,7 +745,8 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
         priority_name = row.priority_name
 
         # ----------------------------------------------------------- files
-        file_urls, approval_files = [], []
+        file_urls: list[str] = []
+        approval_files: list[str] = []
         if payment.payment_files:
             for f in payment.payment_files:
                 file_url = f"{constants.HOST_URL}/{f.file_path}"
@@ -1699,7 +1700,7 @@ def approve_payment(
             os.makedirs(upload_dir, exist_ok=True)
             for file in files:
                 # Create a unique filename to avoid collisions
-                file_ext = os.path.splitext(file.filename)[1]
+                file_ext = os.path.splitext(file.filename or "")[1]
                 unique_filename = f"{str(uuid4())}{file_ext}"
                 file_path = os.path.join(upload_dir, unique_filename)
 

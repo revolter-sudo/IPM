@@ -35,7 +35,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 def save_uploaded_file(upload_file: UploadFile) -> str:
     # Create a unique filename to avoid collisions
-    file_ext = os.path.splitext(upload_file.filename)[1]
+    file_ext = os.path.splitext(upload_file.filename or "")[1]
     unique_filename = f"{str(uuid4())}{file_ext}"
     file_location = os.path.join(UPLOAD_DIR, unique_filename)
 
@@ -133,8 +133,8 @@ def get_all_khatabook_entries(
         remaining_balance = current_balance - total_spent
 
         response_data = {
-            "remaining_balance": remaining_balance,  # Current balance from KhatabookBalance table
-            "total_amount": total_spent,  # Total manual expenses (debit entries)
+            "remaining_balance": remaining_balance,
+            "total_amount": total_spent,
             "entries": entries,
         }
         return AuthServiceResponse(
@@ -188,7 +188,10 @@ def mark_suspicious(
         return KhatabookServiceResponse(
             data={"uuid": str(entry.uuid), "is_suspicious": entry.is_suspicious},
             status_code=200,
-            message=f"Khatabook entry marked as {'suspicious' if request.is_suspicious else 'not suspicious'}",
+            message=(
+                f"Khatabook entry marked as "
+                f"{'suspicious' if request.is_suspicious else 'not suspicious'}"
+            ),
         ).model_dump()
     except Exception as e:
         db.rollback()

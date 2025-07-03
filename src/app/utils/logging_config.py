@@ -14,6 +14,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 
 class TimestampedFormatter(logging.Formatter):
@@ -36,8 +37,8 @@ class TimestampedFormatter(logging.Formatter):
 
 
 def setup_logging(
-    log_level: str = None,
-    log_dir: str = None,
+    log_level: Optional[str] = None,
+    log_dir: Optional[str] = None,
     app_name: str = "ipm",
     max_file_size: int = 10 * 1024 * 1024,  # 10MB
     backup_count: int = 5,
@@ -46,8 +47,10 @@ def setup_logging(
     Set up centralized logging configuration.
 
     Args:
-        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL). If None, uses LOG_LEVEL env var or defaults to INFO
-        log_dir: Directory where log files will be stored. If None, uses LOG_DIR env var or defaults to /app/logs
+        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+        If None, uses LOG_LEVEL env var or defaults to INFO
+        log_dir: Directory where log files will be stored.
+        If None, uses LOG_DIR env var or defaults to /app/logs
         app_name: Application name for log file naming
         max_file_size: Maximum size of each log file before rotation (bytes)
         backup_count: Number of backup files to keep
@@ -169,7 +172,7 @@ def setup_logging(
     }
 
 
-def get_logger(name: str = None) -> logging.Logger:
+def get_logger(name: Optional[str] = None) -> logging.Logger:
     """
     Get a logger instance with the specified name.
 

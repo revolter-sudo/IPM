@@ -1,6 +1,7 @@
 # src/app/notification/notification_service.py
 
 import logging
+from typing import Optional
 
 import firebase_admin
 from firebase_admin import credentials, messaging
@@ -22,7 +23,9 @@ def check_or_up_firebase_app():
         firebase_admin.initialize_app(cred)
 
 
-def send_push_notification(topic: str, title: str, body: str, data: dict = None):
+def send_push_notification(
+    topic: str, title: str, body: str, data: Optional[dict] = None
+):
     """
     Send a push notification to a single device via FCM.
     :param registration_token: The device's FCM token

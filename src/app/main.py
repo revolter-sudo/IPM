@@ -72,7 +72,7 @@ app.add_middleware(
         "http://localhost:3000",  # For local development
         "http://localhost:8000",  # For local development
     ],
-    allow_origin_regex="https://.*\.netlify\.app",  # Allow all Netlify subdomains
+    allow_origin_regex=r"https://.*\.netlify\.app",  # Allow all Netlify subdomains
     allow_credentials=True,
     allow_methods=[
         "GET",
@@ -97,7 +97,8 @@ async def add_process_time_header(request: Request, call_next):
 
     # Log incoming request
     api_logger.info(
-        f"Request: {request.method} {request.url.path} - Client: {request.client.host if request.client else 'unknown'}"
+        f"Request: {request.method} {request.url.path} - Client: "
+        f"{request.client.host if request.client else 'unknown'}"
     )
 
     response = await call_next(request)
@@ -106,13 +107,15 @@ async def add_process_time_header(request: Request, call_next):
 
     # Log response with timing
     api_logger.info(
-        f"Response: {request.method} {request.url.path} - Status: {response.status_code} - Time: {process_time:.4f}s"
+        f"Response: {request.method} {request.url.path} - Status: "
+        f"{response.status_code} - Time: {process_time:.4f}s"
     )
 
     # Log slow requests as warnings
     if process_time > 1.0:  # Log requests taking more than 1 second
         logger.warning(
-            f"Slow request detected: {request.method} {request.url.path} took {process_time:.4f}s"
+            f"Slow request detected: {request.method} {request.url.path} took "
+            f"{process_time:.4f}s"
         )
 
     return response
@@ -125,7 +128,7 @@ async def add_process_time_header(request: Request, call_next):
 # app.mount("/uploads", StaticFiles(directory="src/app/uploads"), name="uploads")
 
 # Make sure /app/uploads exists in the container
-os.makedirs(UPLOADS_DIR, exist_ok=True)
+os.makedirs(UPLOADS_DIR or "uploads", exist_ok=True)
 
 # Mount /uploads so that all subdirectories
 # (including /payments) are accessible

@@ -139,7 +139,7 @@ def upload_user_photo(
 
         # 2) Create a unique filename or use the original filename
         #    e.g. "abc1234_filename.jpg"
-        file_ext = os.path.splitext(file.filename)[1]
+        file_ext = os.path.splitext(file.filename or "")[1]
         unique_filename = f"{str(uuid4())}{file_ext}"
         file_path = os.path.join(upload_dir, unique_filename)
 
@@ -897,7 +897,9 @@ def register_and_outside_user(data: OutsideUserLogin, db: Session = Depends(get_
         db.refresh(user_data)
         return AuthServiceResponse(
             data=None,
-            message="We have received your request, our team will reach out to you soon.",
+            message=(
+                "We have received your request. " "Our team will reach out to you soon."
+            ),
             status_code=201,
         )
     except Exception as e:
@@ -912,7 +914,7 @@ def list_outside_users(
     db: Session = Depends(get_db), current_user: User = Depends(superadmin_required)
 ):
     """
-    List all outside users who have registered through the register_and_outside_user endpoint.
+    List all outside users who have registered.
     Only accessible by SuperAdmin users.
     """
     try:

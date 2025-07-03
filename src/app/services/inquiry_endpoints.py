@@ -24,7 +24,11 @@ inquiry_router = APIRouter(prefix="/inquiries", tags=["Inquiries"])
     "",
     response_model=dict,
     summary="Create New Inquiry",
-    description="Create a new inquiry. Validates that the same phone number doesn't have multiple inquiries for the same project type.",
+    description=(
+        "Create a new inquiry."
+        "Validates that the same phone number doesn't have multiple inquiries"
+        "for the same project type."
+    ),
 )
 def create_inquiry(
     inquiry_data: InquiryCreateRequest,
@@ -37,7 +41,8 @@ def create_inquiry(
     - Name, state, and city cannot be empty
     - Same phone number can only have one inquiry per project type
 
-    Returns a success message: "Thank you for your interest, our team will reach out to you soon."
+    Returns a success message:
+    "Thank you for your interest, our team will reach out to you soon."
     """
     try:
         logger.info(f"Creating inquiry for customer: {inquiry_data.name}")

@@ -2,7 +2,7 @@
 import os
 import shutil
 from typing import Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import UploadFile
 from sqlalchemy.orm import Session, joinedload
@@ -66,7 +66,8 @@ def create_khatabook_entry_service(
         current_available_balance = user_balance_record.balance - total_spent
         new_available_balance = current_available_balance - amount
 
-        # ✅ DON'T update user_balance_record.balance - it should only track received amounts
+        # DON'T update user_balance_record.balance
+        # it should only track received amounts
         # user_balance_record.balance stays the same!
 
         # Create the Khatabook entry with the new available balance
@@ -76,7 +77,7 @@ def create_khatabook_entry_service(
             person_id=data.get("person_id"),
             expense_date=data.get("expense_date"),
             created_by=user_id,
-            balance_after_entry=new_available_balance,  # Available balance after this expense
+            balance_after_entry=new_available_balance,
             project_id=data.get("project_id"),
             payment_mode=data.get("payment_mode"),
             entry_type=KHATABOOK_ENTRY_TYPE_DEBIT,
@@ -349,9 +350,15 @@ def save_uploaded_file(upload_file: UploadFile, folder: str) -> str:
     """
     upload_dir = os.path.join("src", "app", "uploads", folder)
     os.makedirs(upload_dir, exist_ok=True)
-    file_location = os.path.join(upload_dir, upload_file.filename)
+
+    # Safely get file extension, even if filename is None
+    file_ext = os.path.splitext(upload_file.filename or "")[1]
+    unique_name = f"{uuid4()}{file_ext}"
+    file_location = os.path.join(upload_dir, unique_name)
+
     with open(file_location, "wb") as f:
         shutil.copyfileobj(upload_file.file, f)
+
     return file_location
 
 

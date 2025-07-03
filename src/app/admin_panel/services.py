@@ -104,7 +104,8 @@ def create_default_config_service(item_id: UUID, admin_amount: float) -> Default
 
 def update_default_config_service(item_id: UUID, admin_amount: float) -> DefaultConfig:
     """
-    Update the default configuration by creating a new entry and marking the old one as deleted.
+    Update the default configuration by
+    creating a new entry and marking the old one as deleted.
     """
     return create_default_config_service(item_id, admin_amount)
 
@@ -175,7 +176,7 @@ def create_multiple_project_item_mappings(
         db: Database session
         item_ids: List of item UUIDs to map
         project_id: Project UUID to map items to
-        item_balances: Optional list of balances for each item (must match length of item_ids)
+        item_balances: Optional list of balances for each item
 
     Returns:
         List of created or updated ProjectItemMap objects
@@ -354,7 +355,7 @@ def create_multiple_user_item_mappings(
         db: Database session
         user_id: User UUID to map items to
         item_ids: List of item UUIDs to map
-        item_balances: Optional list of balances for each item (must match length of item_ids)
+        item_balances: Optional list of balances for each item
 
     Returns:
         List of created or updated UserItemMap objects

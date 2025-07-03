@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -18,7 +19,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from src.app.database.database import Base
-from sqlalchemy import UniqueConstraint
+
 
 class Khatabook(Base):
     __tablename__ = "khatabook_entries"
@@ -61,7 +62,10 @@ class Khatabook(Base):
     project = relationship("Project", foreign_keys=[project_id], lazy="joined")
 
     def __repr__(self):
-        return f"<Khatabook(id={self.id}, uuid={self.uuid}, amount={self.amount}, expense_date={self.expense_date})>"
+        return (
+            f"<Khatabook(id={self.id}, uuid={self.uuid}, "
+            f"amount={self.amount}, expense_date={self.expense_date})>"
+        )
 
 
 class KhatabookFile(Base):
@@ -262,7 +266,10 @@ class ProjectPO(Base):
     )
 
     def __repr__(self):
-        return f"<ProjectPO(id={self.id}, project_id={self.project_id}, amount={self.amount})>"
+        return (
+            f"<ProjectPO(id={self.id}, project_id={self.project_id}, "
+            f"amount={self.amount})>"
+        )
 
 
 class ProjectPOItem(Base):
@@ -368,7 +375,10 @@ class Payment(Base):
     )
 
     def __repr__(self):
-        return f"<Payment(id={self.id}, amount={self.amount}, self_payment={self.self_payment}, status={self.status})>"
+        return (
+            f"<Payment(id={self.id}, amount={self.amount}, "
+            f"self_payment={self.self_payment}, status={self.status})>"
+        )
 
 
 class PaymentEditHistory(Base):
@@ -391,7 +401,10 @@ class PaymentEditHistory(Base):
     payment = relationship("Payment", back_populates="edit_histories")
 
     def __repr__(self):
-        return f"<PaymentEditHistory(old={self.old_amount}, new={self.new_amount}, remarks={self.remarks})>"
+        return (
+            f"<PaymentEditHistory(old={self.old_amount}, new={self.new_amount}, "
+            f"remarks={self.remarks})>"
+        )
 
 
 class PaymentStatusHistory(Base):
@@ -412,7 +425,7 @@ class PaymentStatusHistory(Base):
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
 
-    # Relationship back to Payment so we can do payment_status_history.payment to navigate
+    # Relationship back to Payment so we can do payment_status_history.
     payment = relationship("Payment", back_populates="status_entries")
 
     def __repr__(self):
@@ -441,7 +454,10 @@ class PaymentFile(Base):
     payment = relationship("Payment", back_populates="payment_files")
 
     def __repr__(self):
-        return f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, file_path={self.file_path}, is_approval_upload={self.is_approval_upload})>"
+        return (
+            f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, "
+            f"file_path={self.file_path},is_approval_upload={self.is_approval_upload})>"
+        )
 
 
 class ProjectBalance(Base):
@@ -460,7 +476,10 @@ class ProjectBalance(Base):
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
     def __repr__(self):
-        return f"<ProjectBalance(project_id={self.project_id}, adjustment={self.adjustment}, type={self.balance_type})>"
+        return (
+            f"<ProjectBalance(project_id={self.project_id}, "
+            f"adjustment={self.adjustment}, type={self.balance_type})>"
+        )
 
 
 class Item(Base):
@@ -538,7 +557,10 @@ class KhatabookBalance(Base):
     user = relationship("User", foreign_keys=[user_uuid])
 
     def __repr__(self):
-        return f"<KhatabookBalance(id={self.id}, user_uuid={self.user_uuid}, balance={self.balance})>"
+        return (
+            f"<KhatabookBalance(id={self.id}, user_uuid={self.user_uuid}, "
+            f"balance={self.balance})>"
+        )
 
 
 class BalanceDetail(Base):
@@ -663,7 +685,10 @@ class InvoiceItem(Base):
     invoice = relationship("Invoice", back_populates="invoice_items")
 
     def __repr__(self):
-        return f"<InvoiceItem(invoice_id={self.invoice_id}, item_name={self.item_name}, basic_value={self.basic_value})>"
+        return (
+            f"<InvoiceItem(invoice_id={self.invoice_id}, item_name={self.item_name}, "
+            f"basic_value={self.basic_value})>"
+        )
 
 
 class InvoicePayment(Base):
@@ -689,7 +714,10 @@ class InvoicePayment(Base):
     invoice = relationship("Invoice", back_populates="invoice_payments")
 
     def __repr__(self):
-        return f"<InvoicePayment(id={self.id}, invoice_id={self.invoice_id}, amount={self.amount})>"
+        return (
+            f"<InvoicePayment(id={self.id}, invoice_id={self.invoice_id}, "
+            f"amount={self.amount})>"
+        )
 
 
 class UserItemMap(Base):
@@ -723,7 +751,10 @@ class DefaultConfig(Base):
     item = relationship("Item")
 
     def __repr__(self):
-        return f"<DefaultConfig(uuid={self.uuid}, item_id={self.item_id}, admin_amount={self.admin_amount})>"
+        return (
+            f"<DefaultConfig(uuid={self.uuid}, item_id={self.item_id}, "
+            f"admin_amount={self.admin_amount})>"
+        )
 
 
 class ProjectUserItemMap(Base):
@@ -839,4 +870,7 @@ class InquiryData(Base):
     is_deleted = Column(Boolean, nullable=False, default=False)
 
     def __repr__(self):
-        return f"<InquiryData(name={self.name}, phone_number={self.phone_number}, project_type={self.project_type})>"
+        return (
+            f"<InquiryData(name={self.name}, phone_number={self.phone_number}, "
+            f"project_type={self.project_type})>"
+        )

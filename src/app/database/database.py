@@ -33,7 +33,7 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]
 
 # SQLAlchemy setup with optimized connection pooling
 engine = create_engine(
