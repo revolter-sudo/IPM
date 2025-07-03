@@ -36,8 +36,7 @@ class CreatePerson(BaseModel):
     name: str = Field(
         ..., max_length=50, description="Name must be at most 50 characters"
     )
-    account_number: Optional[str] = Field(
-        None,
+    account_number: str = Field(
         min_length=8,
         max_length=18,
         pattern=r"^\d+$",
@@ -45,14 +44,12 @@ class CreatePerson(BaseModel):
             "Account number must be 8 to 16 digits long and contain only numbers"
         ),
     )
-    ifsc_code: Optional[str] = Field(
-        None,
+    ifsc_code: str = Field(
         min_length=11,
         max_length=11,
         description="IFSC code must be exactly 11 characters long",
     )
-    phone_number: Optional[str] = Field(
-        None,
+    phone_number: str = Field(
         min_length=10,
         max_length=10,
         description="Phone number must be exactly 10 digits",
