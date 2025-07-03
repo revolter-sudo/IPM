@@ -2205,6 +2205,20 @@ def create_item(
     db: Session = Depends(get_db)
 ):
     try:
+
+        # check if an item with the same name already exists
+        existing_item = db.query(Item).filter(
+            Item.name == name
+            # Item.is_deleted.is_(False)
+            ).first()
+        
+        if existing_item:
+            return PaymentServiceResponse(
+                data=None,
+                message="An item with this name already exists.",
+                status_code=400
+            ).model_dump()
+
         new_item = Item(
             name=name,
             category=category,
