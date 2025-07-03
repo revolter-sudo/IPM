@@ -1,6 +1,7 @@
 import time
 from contextvars import ContextVar
-from typing import Dict, List
+from types import TracebackType
+from typing import Dict, List, Optional, Type
 
 from src.app.utils.logging_config import get_performance_logger
 
@@ -13,16 +14,21 @@ class QueryPerformanceTracker:
     A context manager to track query execution time.
     """
 
-    def __init__(self, query_name: str):
+    def __init__(self, query_name: str) -> None:
         self.query_name = query_name
-        self.start_time = None
+        self.start_time: Optional[float] = None  # ✅ Type hint for mypy
 
-    def __enter__(self):
+    def __enter__(self) -> "QueryPerformanceTracker":
         self.start_time = time.time()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.start_time:
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> Optional[bool]:
+        if self.start_time is not None:
             execution_time = time.time() - self.start_time
             stats = query_stats.get()
 
@@ -38,6 +44,8 @@ class QueryPerformanceTracker:
                 perf_logger.warning(
                     f"Slow query detected: {self.query_name} took {execution_time:.4f}s"
                 )
+
+        return None  # ✅ Required return to avoid mypy error
 
 
 def get_query_stats() -> Dict[str, Dict[str, float]]:
@@ -68,7 +76,7 @@ def get_query_stats() -> Dict[str, Dict[str, float]]:
     return result
 
 
-def reset_query_stats():
+def reset_query_stats() -> None:
     """
     Reset the query statistics.
     """

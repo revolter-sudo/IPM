@@ -17,8 +17,8 @@ from fastapi.security import (
     HTTPBearer,
     OAuth2PasswordBearer,
 )
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+from jose import JWTError, jwt  # type: ignore
+from passlib.context import CryptContext  # type: ignore
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 

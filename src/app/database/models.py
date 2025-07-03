@@ -61,7 +61,7 @@ class Khatabook(Base):
     )
     project = relationship("Project", foreign_keys=[project_id], lazy="joined")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<Khatabook(id={self.id}, uuid={self.uuid}, "
             f"amount={self.amount}, expense_date={self.expense_date})>"
@@ -83,7 +83,7 @@ class KhatabookFile(Base):
     khatabook_entry = relationship("Khatabook", back_populates="files")
     is_deleted = Column(Boolean, nullable=False, default=False)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<KhatabookFile(id={self.id}, file_path={self.file_path})>"
 
 
@@ -104,7 +104,7 @@ class KhatabookItem(Base):
     item = relationship("Item", back_populates="khatabook_items")
     is_deleted = Column(Boolean, nullable=False, default=False)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<KhatabookItem(khatabook_id={self.khatabook_id}, item_id={self.item_id})>"
         )
@@ -190,7 +190,7 @@ class Person(Base):
         "Person", back_populates="parent", cascade="all, delete-orphan"
     )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<Person(id={self.id}, name={self.name}, user_id={self.user_id})>"
 
 
@@ -233,7 +233,7 @@ class Project(Base):
         "ProjectPO", back_populates="project", cascade="all, delete-orphan"
     )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<Project(id={self.id}, uuid={self.uuid}, name={self.name})>"
 
 
@@ -265,7 +265,7 @@ class ProjectPO(Base):
         "ProjectPOItem", back_populates="project_po", cascade="all, delete-orphan"
     )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<ProjectPO(id={self.id}, project_id={self.project_id}, "
             f"amount={self.amount})>"
@@ -303,7 +303,7 @@ class Log(Base):
     )
     is_deleted = Column(Boolean, nullable=False, default=False)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<Log(id={self.id}, uuid={self.uuid}, "
             f"entity={self.entity}, action={self.action})>"
@@ -374,7 +374,7 @@ class Payment(Base):
         order_by="PaymentEditHistory.updated_at",
     )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<Payment(id={self.id}, amount={self.amount}, "
             f"self_payment={self.self_payment}, status={self.status})>"
@@ -400,7 +400,7 @@ class PaymentEditHistory(Base):
     # Relationship back to Payment
     payment = relationship("Payment", back_populates="edit_histories")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<PaymentEditHistory(old={self.old_amount}, new={self.new_amount}, "
             f"remarks={self.remarks})>"
@@ -428,7 +428,7 @@ class PaymentStatusHistory(Base):
     # Relationship back to Payment so we can do payment_status_history.
     payment = relationship("Payment", back_populates="status_entries")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<PaymentStatusHistory(id={self.id}, "
             f"payment_id={self.payment_id}, status={self.status})>"
@@ -453,7 +453,7 @@ class PaymentFile(Base):
 
     payment = relationship("Payment", back_populates="payment_files")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<PaymentFile(id={self.id}, payment_id={self.payment_id}, "
             f"file_path={self.file_path},is_approval_upload={self.is_approval_upload})>"
@@ -475,7 +475,7 @@ class ProjectBalance(Base):
     description = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<ProjectBalance(project_id={self.project_id}, "
             f"adjustment={self.adjustment}, type={self.balance_type})>"
@@ -501,7 +501,7 @@ class Item(Base):
     )
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<Item(id={self.id}, name={self.name}, category={self.category})>"
 
     project_items = relationship(
@@ -540,7 +540,7 @@ class PaymentItem(Base):
     payment = relationship("Payment", back_populates="payment_items")
     item = relationship("Item", back_populates="payments")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<PaymentItem(payment_id={self.payment_id}, item_id={self.item_id})>"
 
 
@@ -556,7 +556,7 @@ class KhatabookBalance(Base):
 
     user = relationship("User", foreign_keys=[user_uuid])
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<KhatabookBalance(id={self.id}, user_uuid={self.user_uuid}, "
             f"balance={self.balance})>"
@@ -580,7 +580,7 @@ class Priority(Base):
     priority = Column(String(50), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<Priority(id={self.id}, uuid={self.uuid}, priority={self.priority})>"
 
 
@@ -599,7 +599,7 @@ class ProjectUserMap(Base):
     project = relationship("Project", back_populates="project_user_map")
     user = relationship("User", back_populates="project_user_map")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<ProjectUserMap(project_id={self.project_id}, user_id={self.user_id})>"
 
 
@@ -619,7 +619,7 @@ class ProjectItemMap(Base):
     project = relationship("Project")
     item = relationship("Item")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<ProjectItemMap(project_id={self.project_id}, item_id={self.item_id})>"
 
 
@@ -664,7 +664,7 @@ class Invoice(Base):
         "InvoiceItem", back_populates="invoice", cascade="all, delete-orphan"
     )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<Invoice(id={self.id}, amount={self.amount}, status={self.status})>"
 
 
@@ -684,7 +684,7 @@ class InvoiceItem(Base):
 
     invoice = relationship("Invoice", back_populates="invoice_items")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<InvoiceItem(invoice_id={self.invoice_id}, item_name={self.item_name}, "
             f"basic_value={self.basic_value})>"
@@ -713,7 +713,7 @@ class InvoicePayment(Base):
     # Relationships
     invoice = relationship("Invoice", back_populates="invoice_payments")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<InvoicePayment(id={self.id}, invoice_id={self.invoice_id}, "
             f"amount={self.amount})>"
@@ -733,7 +733,7 @@ class UserItemMap(Base):
     user = relationship("User", back_populates="user_items")
     item = relationship("Item", back_populates="user_items")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<UserItemMap(user_id={self.user_id}, item_id={self.item_id})>"
 
 
@@ -750,7 +750,7 @@ class DefaultConfig(Base):
     # Relationship to Item
     item = relationship("Item")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<DefaultConfig(uuid={self.uuid}, item_id={self.item_id}, "
             f"admin_amount={self.admin_amount})>"
@@ -869,7 +869,7 @@ class InquiryData(Base):
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<InquiryData(name={self.name}, phone_number={self.phone_number}, "
             f"project_type={self.project_type})>"

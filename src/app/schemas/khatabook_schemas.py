@@ -48,13 +48,12 @@ class KhatabookFileOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
-    @field_validator("download_url")
-    def build_download_url(cls, v, info):
+    @field_validator("download_url", mode="before")
+    def build_download_url(cls, v: Optional[str], info: Any) -> Optional[str]:
         values = info.data
         file_id = values.get("id")
         if file_id is None:
             return None
-        # E.g. some default path. Real usage might depend on a request context
         return f"/khatabook/files/{file_id}/download"
 
 

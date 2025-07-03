@@ -8,7 +8,7 @@ class NotificationServiceResponse(BaseModel):
     message: str
     status_code: int
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
             "data": self.data,
             "message": self.message,

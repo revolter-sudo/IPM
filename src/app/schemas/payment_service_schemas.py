@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -63,7 +63,8 @@ class CreatePerson(BaseModel):
     parent_id: Optional[UUID] = None
 
     @field_validator("account_number")
-    def validate_account_number(cls, v):
+    @classmethod
+    def validate_account_number(cls: Type, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
         if not v.isdigit():
@@ -108,7 +109,8 @@ class UpdatePerson(BaseModel):
     parent_id: Optional[UUID] = None
 
     @field_validator("account_number")
-    def validate_account_number(cls, v):
+    @classmethod
+    def validate_account_number(cls: Type, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
         if not v.isdigit():
@@ -206,7 +208,7 @@ class PaymentServiceResponse(BaseModel):
     message: str
     status_code: int
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
             "data": self.data,
             "message": self.message,

@@ -1,11 +1,11 @@
 import os
 import time
 
-import firebase_admin
-import redis
+import firebase_admin  # type: ignore
+import redis  # type: ignore
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware  # Add CORS import
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -13,7 +13,8 @@ from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_sqlalchemy import DBSessionMiddleware
 from firebase_admin import credentials
-
+from fastapi.responses import RedirectResponse
+from typing import Callable
 from src.app.admin_panel.endpoints import admin_app
 from src.app.database.database import settings
 from src.app.services.auth_service import auth_router
@@ -92,7 +93,7 @@ app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 
 # Performance middleware to track request timing and log API requests
 @app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
+async def add_process_time_header(request: Request, call_next: Callable[[Request], Response]) -> Response:
     start_time = time.time()
 
     # Log incoming request
@@ -161,7 +162,7 @@ if not firebase_admin._apps:
 
 # Initialize Redis cache on startup
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     try:
         redis_host = os.getenv("REDIS_HOST", "localhost")
         redis_port = int(os.getenv("REDIS_PORT", "6379"))
@@ -176,7 +177,7 @@ async def startup_event():
         # Fallback to in-memory cache if Redis is not available
         logger.warning(f"Redis connection failed: {str(e)}. Using in-memory cache.")
         try:
-            from fastapi_cache.backends.memory import InMemoryBackend
+            from fastapi_cache.backends.memory import InMemoryBackend  # type: ignore
 
             FastAPICache.init(InMemoryBackend(), prefix="ipm-cache")
             logger.info("In-memory cache initialized as fallback")
@@ -184,20 +185,18 @@ async def startup_event():
             logger.error("Failed to initialize fallback cache. Cache will be disabled.")
 
 
-@app.get("/")
-async def root():
-    from fastapi.responses import RedirectResponse
-
+@app.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
     return RedirectResponse(url="/admin/docs")
 
 
 @app.get("/healthcheck")
-def healthcheck():
+def healthcheck() -> dict:
     return {"status": "ok"}
 
 
 @app.get("/performance")
-def performance_stats():
+def performance_stats() -> dict:
     """Return performance statistics for monitoring."""
     from src.app.middleware.performance import get_query_stats
 

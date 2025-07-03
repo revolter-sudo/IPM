@@ -1,7 +1,9 @@
+from typing import Generator
+
 from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 
 # Configuration
@@ -49,7 +51,7 @@ Base = declarative_base()
 
 
 # DB Dependency
-def get_db():
+def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db

@@ -39,7 +39,7 @@ class InquiryCreateRequest(BaseModel):
     )
 
     @field_validator("phone_number")
-    def validate_phone_number(cls, value):
+    def validate_phone_number(cls, value: Any) -> str:
         # Remove any non-digit characters for validation
         digits_only = "".join(filter(str.isdigit, value))
 
@@ -48,23 +48,22 @@ class InquiryCreateRequest(BaseModel):
         if len(digits_only) > 15:
             raise ValueError("Phone number must not exceed 15 digits")
 
-        # Return the cleaned phone number (digits only)
         return digits_only
 
     @field_validator("name")
-    def validate_name(cls, value):
+    def validate_name(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("Name cannot be empty or just whitespace")
         return value.strip()
 
     @field_validator("state")
-    def validate_state(cls, value):
+    def validate_state(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("State cannot be empty or just whitespace")
         return value.strip()
 
     @field_validator("city")
-    def validate_city(cls, value):
+    def validate_city(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("City cannot be empty or just whitespace")
         return value.strip()
@@ -100,14 +99,14 @@ class InquiryServiceResponse(BaseModel):
     message: str
     status_code: int
 
-    def model_dump(self):
+    def as_dict(self) -> dict[str, Any]:
         return {
             "data": self.data,
             "message": self.message,
             "status_code": self.status_code,
         }
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
             "data": self.data,
             "message": self.message,

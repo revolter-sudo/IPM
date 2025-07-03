@@ -33,7 +33,7 @@ class UserCreate(BaseModel):
     person: CreatePerson
 
     @field_validator("phone")
-    def validate_phone(cls, value):
+    def validate_phone(cls, value: int) -> int:
         if len(str(value)) != 10:
             raise ValueError("Phone number must be between 10")
         return value
@@ -48,7 +48,7 @@ class UserEdit(BaseModel):
     person: Optional[UpdatePerson] = None
 
     @field_validator("phone")
-    def validate_phone(cls, value):
+    def validate_phone(cls, value: Optional[int]) -> Optional[int]:
         if value is not None and len(str(value)) != 10:
             raise ValueError("Phone number must be exactly 10 digits")
         return value
@@ -78,7 +78,7 @@ class UserResponse(BaseModel):
     role: str
     photo_path: Any
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert the Pydantic model instance into a dictionary.
         """
@@ -96,7 +96,7 @@ class AuthServiceResponse(BaseModel):
     message: str
     status_code: int
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
             "data": self.data,
             "message": self.message,

@@ -1,7 +1,7 @@
 from typing import Optional
 from uuid import uuid4
 
-import logger
+import logger  # type: ignore
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 

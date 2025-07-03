@@ -16,7 +16,7 @@ class ProjectResponse(BaseModel):
     actual_balance: float = 0.0
     created_at: datetime
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert the Pydantic model instance into a dictionary.
         """
@@ -190,7 +190,7 @@ class ProjectServiceResponse(BaseModel):
     message: str
     status_code: int
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
             "data": self.data,
             "message": self.message,
