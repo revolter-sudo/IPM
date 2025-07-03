@@ -2205,10 +2205,10 @@ def create_item(
     db: Session = Depends(get_db)
 ):
     try:
-
+        normalized_name = name.strip().lower()
         # check if an item with the same name already exists
         existing_item = db.query(Item).filter(
-            Item.name == name
+            func.lower(Item.name) == normalized_name
             # Item.is_deleted.is_(False)
             ).first()
         
