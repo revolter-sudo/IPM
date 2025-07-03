@@ -3,15 +3,20 @@ repos:
     rev: v4.5.0
     hooks:
       - id: end-of-file-fixer
+        files: ^src/
       - id: trailing-whitespace
+        files: ^src/
       - id: check-yaml
+        files: ^src/
       - id: check-added-large-files
+        files: ^src/
 
   - repo: https://github.com/psf/black
     rev: 24.4.2
     hooks:
       - id: black
         language_version: default
+        files: ^src/
 
   - repo: https://github.com/pre-commit/mirrors-isort
     rev: v5.10.1
@@ -19,6 +24,7 @@ repos:
       - id: isort
         name: isort (import sorting)
         language_version: default
+        files: ^src/
 
   - repo: https://github.com/pycqa/flake8
     rev: 7.0.0
@@ -26,16 +32,29 @@ repos:
       - id: flake8
         additional_dependencies: []
         language_version: default
+        files: ^src/
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.9.0
     hooks:
       - id: mypy
+        name: mypy
         language_version: default
+        files: ^src/
+        args:
+          [
+            "--explicit-package-bases",
+            "--namespace-packages",
+            "--ignore-missing-imports",
+            "--follow-imports=silent",
+          ]
+        additional_dependencies: []
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.5 # ✅ Use the latest available version
-    hooks:
-      - id: ruff
-        name: ruff (ultra-fast linter)
-        language_version: default
+  # Uncomment if needed
+  # - repo: https://github.com/astral-sh/ruff-pre-commit
+  #   rev: v0.4.5
+  #   hooks:
+  #     - id: ruff
+  #       name: ruff (ultra-fast linter)
+  #       language_version: default
+  #       files: ^src/

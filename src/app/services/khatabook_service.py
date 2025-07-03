@@ -321,7 +321,7 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
                 "uuid": str(entry.uuid),
                 "amount": entry.amount,
                 "remarks": entry.remarks,
-                "balance_after_entry": entry.balance_after_entry,  # <-- include the snapshot
+                "balance_after_entry": entry.balance_after_entry,  # include snapshot
                 "person": (
                     {"uuid": str(entry.person.uuid), "name": entry.person.name}
                     if entry.person

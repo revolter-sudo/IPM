@@ -201,6 +201,79 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
 
 
 # Routes
+# @auth_router.post("/register", tags=["Users"], status_code=status.HTTP_201_CREATED)
+# def register_user(
+#     user: UserCreate,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(superadmin_required),
+# ) -> dict:
+#     db_user = (
+#         db.query(User)
+#         .filter(
+#             and_(
+#                 User.phone == user.phone,
+#                 User.is_deleted.is_(False),
+#                 User.is_active.is_(True),
+#             )
+#         )
+#         .first()
+#     )
+#     if db_user:
+#         return AuthServiceResponse(
+#             data=None, status_code=400, message="Phone already registered"
+#         ).model_dump()
+#     hashed_password = get_password_hash(user.password)
+#     new_user = User(
+#         name=user.name,
+#         phone=user.phone,
+#         password_hash=hashed_password,
+#         role=user.role.value,
+#         is_deleted=False,
+#         is_active=True,
+#     )
+#     db.add(new_user)
+#     db.flush()
+
+#     # Try to find existing person by phone_number or account_number
+#     existing_person = (
+#         db.query(Person)
+#         .filter(
+#             (Person.phone_number == user.person.phone_number)
+#             & (Person.account_number == user.person.account_number)
+#         )
+#         .first()
+#     )
+
+#     if existing_person:
+#         # Link existing person to new user
+#         existing_person.user_id = new_user.uuid
+#         db.add(existing_person)
+#         db.commit()
+#         db.refresh(new_user)
+#         db.refresh(existing_person)
+#         person_to_return = existing_person
+#     else:
+#         # Create new person as before
+#         new_person = Person(
+#             name=user.person.name,
+#             phone_number=user.person.phone_number,
+#             account_number=user.person.account_number,
+#             ifsc_code=user.person.ifsc_code,
+#             user_id=new_user.uuid,
+#         )
+#         db.add(new_person)
+#         db.commit()
+#         db.refresh(new_user)
+#         db.refresh(new_person)
+#         person_to_return = new_person
+
+#     access_token = create_access_token(data={"sub": str(new_user.uuid)})
+#     response = {"access_token": access_token, "token_type": "bearer"}
+#     return AuthServiceResponse(
+#         data=response, message="User reginstered successfully", status_code=201
+#     ).model_dump()
+
+
 @auth_router.post("/register", tags=["Users"], status_code=status.HTTP_201_CREATED)
 def register_user(
     user: UserCreate,
@@ -222,6 +295,7 @@ def register_user(
         return AuthServiceResponse(
             data=None, status_code=400, message="Phone already registered"
         ).model_dump()
+
     hashed_password = get_password_hash(user.password)
     new_user = User(
         name=user.name,
@@ -245,15 +319,12 @@ def register_user(
     )
 
     if existing_person:
-        # Link existing person to new user
         existing_person.user_id = new_user.uuid
         db.add(existing_person)
         db.commit()
         db.refresh(new_user)
         db.refresh(existing_person)
-        person_to_return = existing_person
     else:
-        # Create new person as before
         new_person = Person(
             name=user.person.name,
             phone_number=user.person.phone_number,
@@ -265,12 +336,11 @@ def register_user(
         db.commit()
         db.refresh(new_user)
         db.refresh(new_person)
-        person_to_return = new_person
 
     access_token = create_access_token(data={"sub": str(new_user.uuid)})
     response = {"access_token": access_token, "token_type": "bearer"}
     return AuthServiceResponse(
-        data=response, message="User reginstered successfully", status_code=201
+        data=response, message="User registered successfully", status_code=201
     ).model_dump()
 
 

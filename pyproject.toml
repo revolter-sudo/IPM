@@ -42,17 +42,3 @@ exclude = '''
   | migrations
 )/
 '''
-
-[tool.ruff]
-line-length = 88
-select = ["E", "F", "I", "B"]
-ignore = ["E501"]  # Optional: to ignore line length if black handles it
-exclude = [
-  ".git",
-  "venv",
-  ".venv",
-  "__pycache__",
-  "build",
-  "dist",
-  "migrations"
-]

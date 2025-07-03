@@ -116,9 +116,12 @@ def create_payment(
 ):
     """
     Creates a new Payment record in the database.
-    If self_payment=True, automatically sets Payment.person to current_user's Person UUID.
-    Otherwise, uses the person field from the request if supplied.
-    Links items, uploads files, creates PaymentStatusHistory, and adjusts project balance.
+    If self_payment=True, automatically sets Payment.
+    person to current_user's Person UUID.
+    Otherwise,
+    uses the person field from the request if supplied.
+    Links items, uploads files, creates PaymentStatusHistory,
+    and adjusts project balance.
     """
     try:
         request_data = json.loads(request)
@@ -132,19 +135,6 @@ def create_payment(
             return PaymentServiceResponse(
                 status_code=404, data=None, message="Project not found."
             ).model_dump()
-
-        # If it's a self-payment, overwrite the `person` field with current_user's Person (if any)
-        # so you don't rely on the client to supply a person UUID
-        # if payment_request.self_payment:
-        #     if not current_user.person:
-        #         # If user does not have a linked Person row, decide how to handle:
-        #         return PaymentServiceResponse(
-        #             status_code=400,
-        #             data=None,
-        #             message="Cannot create self-payment because current user has no linked Person record."
-        #         ).model_dump()
-        #     # Force the Payment.person to the current_user’s Person.uuid
-        #     payment_request.person = current_user.person.uuid
 
         # Create Payment
         new_payment = Payment(
@@ -314,7 +304,8 @@ def can_edit_payment(status_history: List[str], current_user_role: str) -> bool:
     if current_user_role in [UserRole.SITE_ENGINEER, UserRole.SUB_CONTRACTOR]:
         return False
 
-    # Project Manager, Admin, Accountant, SuperAdmin can edit in any status except transferred or declined
+    # ProjectManager Admin,Accountant,SuperAdmin
+    # can edit any status except transferred/declined
     if current_user_role in [
         UserRole.PROJECT_MANAGER,
         UserRole.ADMIN,
@@ -357,7 +348,7 @@ def create_khatabook_entry_for_self_payment(
             person_id=payment.person,  # The person receiving the payment
             expense_date=payment.transferred_date or datetime.now(),
             created_by=payment.created_by,
-            balance_after_entry=balance_after_entry,  # Balance after the payment was added
+            balance_after_entry=balance_after_entry,  # Balance after payment added
             project_id=payment.project_id,
             payment_mode="Bank Transfer",  # Default payment mode for approved payments
             entry_type=KHATABOOK_ENTRY_TYPE_CREDIT,  # Self payment entries are Credit
@@ -367,7 +358,8 @@ def create_khatabook_entry_for_self_payment(
         db.flush()
 
         logger.info(
-            f"Created khatabook entry {khatabook_entry.uuid} for self payment {payment.uuid}"
+            f"Created khatabook entry {khatabook_entry.uuid} for self payment "
+            f"{payment.uuid}"
         )
         return True
 
@@ -378,7 +370,7 @@ def create_khatabook_entry_for_self_payment(
         return False
 
 
-# ========================== Payments API Started =======================================================================
+# ========================== Payments API Started ====================================
 # region Payments API
 
 
@@ -809,7 +801,8 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
                         else None
                     ),
                     files=file_urls,
-                    # items=[ItemDetail(uuid=item["uuid"], name=item["name"]) for item in items_data],
+                    # items=[ItemDetail(uuid=item["uuid"],
+                    # name=item["name"]) for item in items_data],
                     items=item_names,
                     remarks=payment.remarks,
                     status_history=[StatusDatePair(**h) for h in data["statuses"]],
@@ -867,9 +860,9 @@ def get_all_payments(
 ):
     """
     Three modes:
-    1) recent=True            → last 5 payments (excl. transferred / declined) newest‑first
-    2) pending_request=True   → role queue:   approved → verified → requested
-    3) default                → full list, newest‑first
+    1) recent=True  → last 5 payments (excl. transferred / declined) newest‑first
+    2) pending_request=True → role queue:   approved → verified → requested
+    3) default              → full list, newest‑first
 
     In every mode we:
       • build an *ordered* list of UUIDs (with pagination)
@@ -891,7 +884,10 @@ def get_all_payments(
         return [by_id[u] for u in selected_uuids if u in by_id]
 
     def calculate_total_request_amount(db):
-        """Calculate total amount of all payments with status requested, approved, verified, or transferred"""
+        """
+        Calculate total amount of all payments
+        with status requested, approved, verified, or transferred
+        """
         # Get all payments with the specified statuses, regardless of pagination
         query = db.query(func.sum(Payment.amount)).filter(
             Payment.is_deleted.is_(False),
@@ -943,7 +939,10 @@ def get_all_payments(
         return query.scalar() or 0.0
 
     def calculate_total_pending_amount(db):
-        """Calculate total amount of all payments with status requested, approved, or verified (excluding transferred)"""
+        """
+        Calculate total amount of all payments
+        with status requested, approved, or verified (excluding transferred)
+        """
         # Get all payments with the specified statuses, regardless of pagination
         query = db.query(func.sum(Payment.amount)).filter(
             Payment.is_deleted.is_(False),
@@ -1089,7 +1088,7 @@ def get_all_payments(
             status_code=200,
         ).model_dump()
 
-    # ------------------------------------------------------------------ 2) PENDING‑REQUEST MODE
+    # ------------------------------------------------- 2) PENDING‑REQUEST MODE
     if pending_request:
         role_status_map = {
             UserRole.ACCOUNTANT.value: ["approved", "verified", "requested"],
@@ -1274,7 +1273,7 @@ def get_all_payments(
 
 
 # endregion
-# ========================== Payments API Finished =======================================================================
+# ========================== Payments API Finished ==================================
 
 
 @payment_router.delete("")
@@ -1470,7 +1469,8 @@ def approve_payment(
 ):
     """
     Approve payment and optionally upload files (pdf, images, etc.) related to approval.
-    If the status resolves to 'transferred', we must provide bank_uuid to deduct from that bank,
+    If the status resolves to 'transferred',
+    we must provide bank_uuid to deduct from that bank,
     and also store which bank was used in Payment.deducted_from_bank_uuid.
 
     IMPORTANT CHANGE:
@@ -1499,7 +1499,9 @@ def approve_payment(
             ).model_dump()
 
         # 3) Get the next status from the role -> status mapping
-        #    e.g., Project Manager -> "verified", Admin -> "approved", Accountant -> "transferred"
+        # e.g., Project Manager -> "verified",
+        # Admin -> "approved",
+        # Accountant -> "transferred"
         status = constants.RoleStatusMapping.get(current_user.role)
         if not status:
             return PaymentServiceResponse(
@@ -1514,7 +1516,8 @@ def approve_payment(
         )
         db.add(payment_status)
 
-        # 5) Only update payment table’s 'status' if `status` is ahead of the current payment.status
+        # 5) Only update payment table’s 'status' if `status` is
+        # ahead of the current payment.status
         status_order_map = {
             "requested": 1,
             "verified": 2,
@@ -1546,7 +1549,8 @@ def approve_payment(
             # For self-payment logic
             if payment.self_payment:
                 logger.info(
-                    f"Processing self payment {payment.uuid} for user {payment.created_by}"
+                    f"Processing self payment {payment.uuid} for user "
+                    f"{payment.created_by}"
                 )
 
                 user_balance = (
@@ -2390,7 +2394,10 @@ def list_items(
         elif list_tag not in (None, "payment", "khatabook"):
             return PaymentServiceResponse(
                 data=None,
-                message="Undefined value of list_tag. Allowed values: ['payment', 'khatabook', null]",
+                message=(
+                    "Undefined value of list_tag. Allowed values: "
+                    "['payment', 'khatabook', null]"
+                ),
                 status_code=400,
             ).model_dump()
 
@@ -2911,7 +2918,7 @@ def update_item_group(
                 "uuid": str(group.uuid),
                 "group_name": group.item_groups,
                 "updated_by": current_user.name,
-                "updated_at": group.created_at.isoformat(),  # or updated_at if available
+                "updated_at": group.created_at.isoformat(),  # updated_at if available
             },
             message="Item group updated successfully.",
             status_code=200,
