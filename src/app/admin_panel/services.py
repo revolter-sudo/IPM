@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import func
@@ -40,7 +40,7 @@ def get_default_config_service() -> dict:
         if not item_data:
             response = {"admin_amount": constants.ACCOUNTANT_LIMIT}
         else:
-            response = {
+            response: dict[str, Any] = {
                 "item": {
                     "name": item_data.name,
                     "uuid": item_data.uuid,
