@@ -1445,6 +1445,85 @@ def get_project_pos(
             message=f"An error occurred while fetching project POs: {str(e)}"
         ).model_dump()
 
+@project_router.get(
+        "/pos",
+        tags=["Project POs"],
+        status_code=status.HTTP_200_OK,
+        description="fetch all pos"
+)
+def list_all_pos(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        # Get all project UUIDs user can see
+        if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, UserRole.ACCOUNTANT.value]:
+            pos = db.query(ProjectPO).filter(ProjectPO.is_deleted.is_(False)).order_by(ProjectPO.id.desc()).all()
+        else:
+            project_ids = (
+                db.query(ProjectUserMap.project_id)
+                .filter(ProjectUserMap.user_id == current_user.uuid)
+                .all()
+            )
+            project_uuids = [pid for (pid,) in project_ids]
+            pos = (
+                db.query(ProjectPO)
+                .filter(ProjectPO.project_id.in_(project_uuids), ProjectPO.is_deleted.is_(False))
+                .order_by(ProjectPO.id.desc())
+                .all()
+            )
+
+        data = []
+        for po in pos:
+            # Invoices for this PO (if any)
+            invoices = (
+                db.query(Invoice)
+                .filter(
+                    Invoice.project_po_id == po.uuid,
+                    Invoice.is_deleted.is_(False)
+                )
+                .order_by(Invoice.id.asc())
+                .all()
+            )
+            invoices_list = [
+                {
+                    "uuid": str(inv.uuid),
+                    "invoice_number": inv.invoice_number,
+                    "invoice_date": inv.invoice_date.isoformat() if inv.invoice_date else None,
+                    "amount": inv.amount,
+                    "total_paid_amount": inv.total_paid_amount,
+                    "payment_status": inv.payment_status,
+                    "status": inv.status,
+                    "file_path": constants.HOST_URL + "/" + inv.file_path if inv.file_path else None,
+                }
+                for inv in invoices
+            ]
+            data.append({
+                "uuid": str(po.uuid),
+                "po_number": po.po_number,
+                "client_name": po.client_name,
+                "amount": po.amount,
+                "description": po.description,
+                "po_date": po.po_date.strftime("%Y-%m-%d") if po.po_date else None,
+                "file_path": constants.HOST_URL + "/" + po.file_path if po.file_path else None,
+                "created_by": str(po.created_by),
+                "created_at": po.created_at.strftime("%Y-%m-%d %H:%M:%S") if po.created_at else None,
+                "invoices": invoices_list  # Will be [] if none
+            })
+
+        return ProjectServiceResponse(
+            data=data,
+            message="POs fetched successfully.",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        logger.error(f"Error in list_all_pos API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while fetching POs."
+        ).model_dump()
+
 @project_router.put(
     "/{project_id}/pos/{po_id}",
     tags=["Project POs"],
@@ -1452,7 +1531,7 @@ def get_project_pos(
 )
 def update_project_po(
     po_id: UUID,
-    po_data: ProjectPOUpdateSchema,  # <- We'll define this schema below
+    po_data: ProjectPOUpdateSchema,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

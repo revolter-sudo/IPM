@@ -1,7 +1,7 @@
 import os
 import json
 from collections import defaultdict
-from fastapi import FastAPI, Body
+from fastapi import FastAPI, Body, Response
 from fastapi_sqlalchemy import DBSessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from src.app.database.database import settings
@@ -1803,15 +1803,13 @@ def upload_single_invoice_for_po(
     invoice_file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    response: Response = None,  # Add this
 ):
     try:
-        import json
-        from datetime import datetime
-
-        # Parse the JSON
         try:
             item = json.loads(invoice)
         except json.JSONDecodeError:
+            response.status_code = 400
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
@@ -1824,6 +1822,7 @@ def upload_single_invoice_for_po(
             Project.is_deleted.is_(False)
         ).first()
         if not project:
+            response.status_code = 404
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
@@ -1837,16 +1836,33 @@ def upload_single_invoice_for_po(
             ProjectPO.is_deleted.is_(False)
         ).first()
         if not po:
+            response.status_code = 404
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
                 message="PO not found under this project"
+            ).model_dump()
+        
+        # Check if invoice number already exists
+        invoice_number = item.get("invoice_number")
+        existing_invoice = (
+            db.query(Invoice)
+            .filter(Invoice.invoice_number == invoice_number)
+            .first()
+        )
+        if existing_invoice:
+            response.status_code = 400
+            return ProjectServiceResponse(
+                data=None,
+                status_code=400,
+                message="Please enter a unique invoice number. This invoice number already exists."
             ).model_dump()
 
         # Parse due_date
         try:
             due_date = datetime.strptime(item["due_date"], "%Y-%m-%d")
         except (KeyError, ValueError):
+            response.status_code = 400
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
@@ -1859,6 +1875,7 @@ def upload_single_invoice_for_po(
             try:
                 invoice_date = datetime.strptime(item["invoice_date"], "%Y-%m-%d").date()
             except ValueError:
+                response.status_code = 400
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
@@ -1881,7 +1898,7 @@ def upload_single_invoice_for_po(
             project_id=project.uuid,
             project_po_id=po_id,
             client_name=item.get("client_name"),
-            invoice_number=item.get("invoice_number"),
+            invoice_number=invoice_number,
             invoice_date=invoice_date,
             amount=item.get("amount"),
             description=item.get("description"),
@@ -1917,6 +1934,7 @@ def upload_single_invoice_for_po(
 
         db.commit()
 
+        # Success—201 status remains default (set in decorator)
         return ProjectServiceResponse(
             data={
                 "uuid": str(new_invoice.uuid),
@@ -1932,6 +1950,9 @@ def upload_single_invoice_for_po(
 
     except Exception as e:
         db.rollback()
+        # Always set 500 in response
+        if response:
+            response.status_code = 500
         logger.error(f"Error in upload_single_invoice_for_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
@@ -2012,12 +2033,14 @@ def upload_multiple_invoices_for_po(
     invoice_files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    response: Response = None,  # Add response!
 ):
     try:
         # Parse and validate input
         try:
             invoice_list = json.loads(invoices)
         except json.JSONDecodeError:
+            response.status_code = 400
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
@@ -2025,18 +2048,20 @@ def upload_multiple_invoices_for_po(
             ).model_dump()
 
         if not isinstance(invoice_list, list):
+            response.status_code = 400
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
                 message="Invoices must be a list of invoice objects"
             ).model_dump()
-
+        
         # Validate project
         project = db.query(Project).filter(
             Project.uuid == project_id,
             Project.is_deleted.is_(False)
         ).first()
         if not project:
+            response.status_code = 404
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
@@ -2050,11 +2075,35 @@ def upload_multiple_invoices_for_po(
             ProjectPO.project_id == project_id
         ).first()
         if not po:
+            response.status_code = 404
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
                 message="PO not found under this project"
             ).model_dump()
+
+        # Check for duplicate invoice numbers in DB
+        for idx, item in enumerate(invoice_list):
+            invoice_number = item.get("invoice_number")
+            if not invoice_number:
+                response.status_code = 400
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message=f"Missing invoice_number at index {idx}"
+                ).model_dump()
+            existing_invoice = (
+                db.query(Invoice)
+                .filter(Invoice.invoice_number == invoice_number)
+                .first()
+            )
+            if existing_invoice:
+                response.status_code = 400
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message=f"Please enter a unique invoice number. The invoice number '{invoice_number}' already exists (at index {idx})."
+                ).model_dump()
 
         created_invoices = []
 
@@ -2063,6 +2112,7 @@ def upload_multiple_invoices_for_po(
             try:
                 due_date = datetime.strptime(item["due_date"], "%Y-%m-%d")
             except (KeyError, ValueError):
+                response.status_code = 400
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
@@ -2075,6 +2125,7 @@ def upload_multiple_invoices_for_po(
                 try:
                     invoice_date = datetime.strptime(item["invoice_date"], "%Y-%m-%d").date()
                 except ValueError:
+                    response.status_code = 400
                     return ProjectServiceResponse(
                         data=None,
                         status_code=400,
@@ -2152,6 +2203,8 @@ def upload_multiple_invoices_for_po(
 
     except Exception as e:
         db.rollback()
+        if response:
+            response.status_code = 500
         logger.error(f"Error in upload_multiple_invoices_for_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
