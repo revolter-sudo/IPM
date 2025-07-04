@@ -68,14 +68,14 @@ def create_inquiry_service(
 
         # Convert to response format
         inquiry_response = InquiryResponse(
-            uuid=new_inquiry.uuid,
-            name=new_inquiry.name,
-            phone_number=new_inquiry.phone_number,
-            project_type=new_inquiry.project_type,
-            state=new_inquiry.state,
-            city=new_inquiry.city,
-            created_at=new_inquiry.created_at,
-            is_deleted=new_inquiry.is_deleted,
+            uuid=new_inquiry.uuid,  # type: ignore
+            name=new_inquiry.name,  # type: ignore
+            phone_number=new_inquiry.phone_number,  # type: ignore
+            project_type=new_inquiry.project_type,  # type: ignore
+            state=new_inquiry.state,    # type: ignore
+            city=new_inquiry.city,  # type: ignore
+            created_at=new_inquiry.created_at,  # type: ignore
+            is_deleted=new_inquiry.is_deleted,  # type: ignore
         )
 
         return InquiryServiceResponse(
@@ -146,14 +146,14 @@ def get_inquiries_service(
         for inquiry in inquiries:
             inquiry_responses.append(
                 InquiryResponse(
-                    uuid=inquiry.uuid,
-                    name=inquiry.name,
-                    phone_number=inquiry.phone_number,
-                    project_type=inquiry.project_type,
-                    state=inquiry.state,
-                    city=inquiry.city,
-                    created_at=inquiry.created_at,
-                    is_deleted=inquiry.is_deleted,
+                    uuid=inquiry.uuid,  # type: ignore
+                    name=inquiry.name,  # type: ignore
+                    phone_number=inquiry.phone_number,  # type: ignore
+                    project_type=inquiry.project_type,  # type: ignore
+                    state=inquiry.state,    # type: ignore
+                    city=inquiry.city,  # type: ignore
+                    created_at=inquiry.created_at,  # type: ignore
+                    is_deleted=inquiry.is_deleted,  # type: ignore
                 )
             )
 
@@ -207,14 +207,14 @@ def get_inquiry_by_uuid_service(
             )
 
         inquiry_response = InquiryResponse(
-            uuid=inquiry.uuid,
-            name=inquiry.name,
-            phone_number=inquiry.phone_number,
-            project_type=inquiry.project_type,
-            state=inquiry.state,
-            city=inquiry.city,
-            created_at=inquiry.created_at,
-            is_deleted=inquiry.is_deleted,
+            uuid=inquiry.uuid,  # type: ignore
+            name=inquiry.name,  # type: ignore
+            phone_number=inquiry.phone_number,  # type: ignore
+            project_type=inquiry.project_type,  # type: ignore
+            state=inquiry.state,    # type: ignore
+            city=inquiry.city,  # type: ignore
+            created_at=inquiry.created_at,  # type: ignore
+            is_deleted=inquiry.is_deleted,  # type: ignore
         )
 
         return InquiryServiceResponse(

@@ -37,10 +37,11 @@ def get_default_config_service() -> dict:
             db.query(Item).filter(func.lower(Item.name) == "site expense").first()
         )
 
+        response: dict[str, Any]
         if not item_data:
             response = {"admin_amount": constants.ACCOUNTANT_LIMIT}
         else:
-            response: dict[str, Any] = {
+            response = {
                 "item": {
                     "name": item_data.name,
                     "uuid": item_data.uuid,
@@ -85,7 +86,7 @@ def create_default_config_service(item_id: UUID, admin_amount: float) -> Default
             db.query(DefaultConfig).filter(DefaultConfig.is_deleted.is_(False)).all()
         )
         for config in existing_configs:
-            config.is_deleted = True
+            config.is_deleted = True  # type: ignore
 
         # Create a new default config
         new_config = DefaultConfig(item_id=item_id, admin_amount=admin_amount)
@@ -110,7 +111,7 @@ def update_default_config_service(item_id: UUID, admin_amount: float) -> Default
     return create_default_config_service(item_id, admin_amount)
 
 
-def create_project_user_mapping(db: Session, user_id: UUID, project_id: UUID):
+def create_project_user_mapping(db: Session, user_id: UUID, project_id: UUID) -> ProjectUserMap:
     # Check if mapping already exists
     existing_mapping = (
         db.query(ProjectUserMap)
@@ -135,7 +136,7 @@ def create_project_user_mapping(db: Session, user_id: UUID, project_id: UUID):
 
 def create_project_item_mapping(
     db: Session, item_id: UUID, project_id: UUID, item_balance: Optional[float] = None
-):
+) -> ProjectItemMap:
     # Check if mapping already exists
     existing_mapping = (
         db.query(ProjectItemMap)
@@ -146,7 +147,7 @@ def create_project_item_mapping(
     )
     if existing_mapping:
         if item_balance is not None:  # Only update balance if provided
-            existing_mapping.item_balance = item_balance
+            existing_mapping.item_balance = item_balance # type: ignore
             db.commit()
             db.refresh(existing_mapping)
         return existing_mapping
@@ -168,7 +169,7 @@ def create_multiple_project_item_mappings(
     item_ids: List[UUID],
     project_id: UUID,
     item_balances: Optional[List[float]] = None,
-):
+) -> List[ProjectItemMap]:
     """
     Map multiple items to a project at once.
 
@@ -201,7 +202,7 @@ def create_multiple_project_item_mappings(
 
         if existing_mapping:
             if balance is not None:  # Only update balance if provided
-                existing_mapping.item_balance = balance
+                existing_mapping.item_balance = balance # type: ignore
             mappings.append(existing_mapping)
         else:
             # Create new mapping
@@ -225,21 +226,9 @@ def create_multiple_project_item_mappings(
 
 def sync_project_item_mappings(
     db: Session, item_data_list: List[dict], project_id: UUID
-):
+) -> dict[str, object]:
     """
     Synchronize project-item mappings based on the provided list.
-    This function will:
-    1. Add new mappings for items not already mapped to the project
-    2. Update balances for existing mappings
-    3. Remove mappings for items that are in the database but not in the provided list
-
-    Args:
-        db: Database session
-        item_data_list: List of dictionaries with item_id and balance
-        project_id: Project UUID to sync items with
-
-    Returns:
-        Dict containing added, updated, and removed mapping counts
     """
     # Extract item IDs and balances from the input data
     item_ids = []
@@ -289,7 +278,7 @@ def sync_project_item_mappings(
         existing_mapping = next(
             m for m in existing_mappings if m.item_id == item_ids[i]
         )
-        existing_mapping.item_balance = item_balances[i]
+        existing_mapping.item_balance = item_balances[i]  # type: ignore[assignment]
         updated_mappings.append(existing_mapping)
 
     # Remove mappings not in the provided list
@@ -316,7 +305,7 @@ def sync_project_item_mappings(
 
 def create_user_item_mapping(
     db: Session, user_id: UUID, item_id: UUID, item_balance: Optional[float] = None
-):
+) -> ProjectItemMap:
     # Check if mapping already exists
     existing_mapping = (
         db.query(UserItemMap)
@@ -325,7 +314,7 @@ def create_user_item_mapping(
     )
     if existing_mapping:
         if item_balance is not None:  # Only update balance if provided
-            existing_mapping.item_balance = item_balance
+            existing_mapping.item_balance = item_balance    # type: ignore
             db.commit()
             db.refresh(existing_mapping)
         return existing_mapping
@@ -347,7 +336,7 @@ def create_multiple_user_item_mappings(
     user_id: UUID,
     item_ids: List[UUID],
     item_balances: Optional[List[float]] = None,
-):
+) -> List[ProjectUserMap]:
     """
     Map multiple items to a user at once.
 
@@ -377,7 +366,7 @@ def create_multiple_user_item_mappings(
 
         if existing_mapping:
             if balance is not None:  # Only update balance if provided
-                existing_mapping.item_balance = balance
+                existing_mapping.item_balance = balance # type: ignore
             mappings.append(existing_mapping)
         else:
             # Create new mapping
@@ -401,7 +390,7 @@ def create_multiple_user_item_mappings(
 
 def create_multiple_project_user_mappings(
     db: Session, project_id: UUID, user_ids: List[UUID]
-):
+) -> List[ProjectUserMap]:
     """
     Map multiple users to a project at once.
 
@@ -445,7 +434,7 @@ def create_multiple_project_user_mappings(
     return mappings
 
 
-def sync_project_user_mappings(db: Session, user_ids: List[UUID], project_id: UUID):
+def sync_project_user_mappings(db: Session, user_ids: List[UUID], project_id: UUID) -> dict[str, object]:
     """
     Synchronize project-user mappings based on the provided list.
     This function will:
@@ -505,7 +494,7 @@ def sync_project_user_mappings(db: Session, user_ids: List[UUID], project_id: UU
     }
 
 
-def remove_project_item_mapping(db: Session, item_id: UUID, project_id: UUID):
+def remove_project_item_mapping(db: Session, item_id: UUID, project_id: UUID) -> bool:
     """
     Remove an item mapping from a project.
 
@@ -533,7 +522,7 @@ def remove_project_item_mapping(db: Session, item_id: UUID, project_id: UUID):
     return True
 
 
-def remove_project_user_mapping(db: Session, user_id: UUID, project_id: UUID):
+def remove_project_user_mapping(db: Session, user_id: UUID, project_id: UUID) -> bool:
     """
     Remove a user mapping from a project.
 
@@ -561,7 +550,7 @@ def remove_project_user_mapping(db: Session, user_id: UUID, project_id: UUID):
     return True
 
 
-def remove_user_item_mapping(db: Session, user_id: UUID, item_id: UUID):
+def remove_user_item_mapping(db: Session, user_id: UUID, item_id: UUID) -> bool:
     """
     Remove an item mapping from a user.
 
@@ -589,7 +578,7 @@ def remove_user_item_mapping(db: Session, user_id: UUID, item_id: UUID):
 
 def sync_project_user_item_mappings(
     db: Session, project_id: UUID, user_id: UUID, item_ids: List[UUID]
-):
+) -> dict[str, object]:
     """
     Synchronize project-user-item mappings based on the provided list.
     This function will:

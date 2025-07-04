@@ -639,7 +639,7 @@ def apply_accountant_amount_restriction(
     return query
 
 
-def group_query_results(results):
+def group_query_results(results) -> dict:
     """
     Groups Payment rows by Payment.uuid, collecting status history and edit history
     in the same manner as the old logic.
@@ -717,7 +717,7 @@ def group_query_results(results):
     return grouped_data
 
 
-def assemble_payments_response(grouped_data, db: Session, current_user: User):
+def assemble_payments_response(grouped_data, db: Session, current_user: User) -> dict:
     """
     Assembles the final list of payment response objects,
     including status histories and edit histories.
@@ -857,7 +857,7 @@ def get_all_payments(
     page: Optional[int] = Query(
         None, ge=1, description="Page number (10 rows per page, omit/null = all)"
     ),
-):
+) -> dict:
     """
     Three modes:
     1) recent=True  → last 5 payments (excl. transferred / declined) newest‑first
@@ -871,19 +871,19 @@ def get_all_payments(
     """
 
     # ------------------------------------------------------------------ helpers
-    def paginate(q):
+    def paginate(q) -> dict:
         """return (uuid_list_in_order, total_count) after optional pagination"""
         total = q.count()
         if page:
             q = q.offset((page - 1) * 10).limit(10)
         return [r[0] for r in q.all()], total
 
-    def order_records(selected_uuids, assembled_records):
+    def order_records(selected_uuids, assembled_records) -> dict:
         """Preserve the SQL ordering after JSON assembly"""
         by_id = {rec["uuid"]: rec for rec in assembled_records}
         return [by_id[u] for u in selected_uuids if u in by_id]
 
-    def calculate_total_request_amount(db):
+    def calculate_total_request_amount(db) -> dict:
         """
         Calculate total amount of all payments
         with status requested, approved, verified, or transferred
@@ -938,7 +938,7 @@ def get_all_payments(
 
         return query.scalar() or 0.0
 
-    def calculate_total_pending_amount(db):
+    def calculate_total_pending_amount(db) -> dict:
         """
         Calculate total amount of all payments
         with status requested, approved, or verified (excluding transferred)
@@ -1281,7 +1281,7 @@ def delete_payment(
     payment_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
         if not payment:
@@ -1327,7 +1327,7 @@ def delete_payment(
 
 def notify_payment_status_update(
     amount: int, status: str, user: User, payment_user: UUID, db: Session
-):
+) -> dict:
     roles_to_notify = [
         UserRole.ACCOUNTANT.value,
         UserRole.ADMIN.value,
@@ -1378,7 +1378,7 @@ def cancel_payment_status(
     payment_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         if current_user.role not in [
             UserRole.PROJECT_MANAGER.value,
@@ -1466,7 +1466,7 @@ def approve_payment(
     files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Approve payment and optionally upload files (pdf, images, etc.) related to approval.
     If the status resolves to 'transferred',
@@ -1760,7 +1760,7 @@ def decline_payment(
     remarks: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         """Decline a payment request with optional remarks."""
 
@@ -1848,7 +1848,7 @@ def decline_payment(
 def create_person(
     request_data: CreatePerson,
     db: Session = Depends(get_db),
-):
+) -> dict:
     try:
         if request_data.account_number:
             existing_person = (
@@ -1954,7 +1954,7 @@ def update_person(
     person_id: UUID,
     request_data: UpdatePerson,
     db: Session = Depends(get_db),
-):
+) -> dict:
     """
     Partially update a Person's details
     (account_number, ifsc_code, phone_number, upi_number, parent_id, etc.)
@@ -2168,7 +2168,7 @@ def get_all_persons(
     ifsc_code: str = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Fetch all parent persons with children eagerly loaded
         persons = (
@@ -2185,7 +2185,7 @@ def get_all_persons(
         def matches(person: Person) -> bool:
             """Returns True if this person or any child matches the filter."""
 
-            def match(p: Person):
+            def match(p: Person) -> bool:
                 return all(
                     [
                         (not name or name.lower() in (p.name or "").lower()),
@@ -2254,7 +2254,7 @@ def delete_person(
     person_uuid: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         person = db.query(Person).filter(Person.uuid == person_uuid).first()
 
@@ -2291,7 +2291,7 @@ def create_item(
     list_tag: Optional[ItemListTag] = None,
     category: Optional[str] = None,
     db: Session = Depends(get_db),
-):
+) -> dict:
     try:
         new_item = Item(
             name=name,
@@ -2378,7 +2378,7 @@ def list_items(
     category: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-):
+) -> dict:
     try:
         query = db.query(Item).order_by(desc(Item.id))
 
@@ -2464,7 +2464,7 @@ def update_item(
     payload: UpdateItemSchema,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Update an existing Item's details:
       - name
@@ -2525,7 +2525,7 @@ def update_item(
 
 
 @payment_router.delete("/items/{item_uuid}", tags=["Items"], status_code=200)
-def delete_item(item_uuid: UUID, db: Session = Depends(get_db)):
+def delete_item(item_uuid: UUID, db: Session = Depends(get_db)) -> dict:
     try:
         item = db.query(Item).filter(Item.uuid == item_uuid).first()
 
@@ -2551,7 +2551,7 @@ def delete_item(item_uuid: UUID, db: Session = Depends(get_db)):
 
 
 @payment_router.post("/priority", status_code=201)
-def create_priority(priority_name: str, db: Session = Depends(get_db)):
+def create_priority(priority_name: str, db: Session = Depends(get_db)) -> dict:
     new_priority = Priority(priority=priority_name)
     db.add(new_priority)
     db.commit()
@@ -2566,7 +2566,7 @@ def create_priority(priority_name: str, db: Session = Depends(get_db)):
 
 
 @payment_router.get("/priority", status_code=200)
-def list_priorities(db: Session = Depends(get_db)):
+def list_priorities(db: Session = Depends(get_db)) -> dict:
     priorities = db.query(Priority).filter(Priority.is_deleted.is_(False)).all()
     response = [{"uuid": str(p.uuid), "priority": p.priority} for p in priorities]
     return PaymentServiceResponse(
@@ -2579,7 +2579,7 @@ def create_item_category(
     category: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         category_clean = category.strip()
 
@@ -2638,7 +2638,7 @@ def create_item_category(
 @payment_router.get("/item-categories", tags=["Item Categories"], status_code=200)
 def get_all_item_categories(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
-):
+) -> dict:
     try:
         categories = (
             db.query(ItemCategories)
@@ -2672,7 +2672,7 @@ def update_item_category(
     new_category: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         category = (
             db.query(ItemCategories)
@@ -2730,7 +2730,7 @@ def delete_item_category(
     category_uuid: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         category = (
             db.query(ItemCategories)
@@ -2768,7 +2768,7 @@ def create_item_group(
     group_name: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # If current_user is None or not authenticated
         if not current_user or not getattr(current_user, "uuid", None):
@@ -2835,7 +2835,7 @@ def create_item_group(
 @payment_router.get("/items/groups", tags=["Item Groups"], status_code=200)
 def get_all_item_groups(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
-):
+) -> dict:
     try:
         groups = db.query(ItemGroups).filter(ItemGroups.is_deleted.is_(False)).all()
 
@@ -2873,7 +2873,7 @@ def update_item_group(
     new_group_name: str = Body(..., embed=True),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         group = (
             db.query(ItemGroups)
@@ -2938,7 +2938,7 @@ def delete_item_group(
     group_uuid: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         group = (
             db.query(ItemGroups)

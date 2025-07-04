@@ -29,7 +29,7 @@ def _e164(indian_number: int) -> str:
 @sms_service_router.post("/forgot_password/request_otp", tags=["SMS Service"])
 def forgot_password_request_otp(
     payload: ForgotPasswordOTPRequest, db: Session = Depends(get_db)
-):
+) -> dict:
     user = (
         db.query(User)
         .filter(User.phone == payload.phone, User.is_deleted.is_(False))
@@ -77,7 +77,7 @@ def forgot_password_request_otp(
 
 
 @sms_service_router.post("/forgot_password/verify_otp", tags=["SMS Service"])
-def verify_otp(payload: ForgotPasswordOTPVerifyOnly, db: Session = Depends(get_db)):
+def verify_otp(payload: ForgotPasswordOTPVerifyOnly, db: Session = Depends(get_db)) -> dict:
     if not check_otp(_e164(payload.phone), payload.otp):
         return AuthServiceResponse(
             data=None, status_code=400, message="Invalid or expired OTP"
@@ -102,7 +102,7 @@ def verify_otp(payload: ForgotPasswordOTPVerifyOnly, db: Session = Depends(get_d
 
 
 @sms_service_router.post("/forgot_password/reset_password", tags=["SMS Service"])
-def reset_password(payload: ForgotPasswordResetOnly, db: Session = Depends(get_db)):
+def reset_password(payload: ForgotPasswordResetOnly, db: Session = Depends(get_db)) -> dict:
     user = (
         db.query(User)
         .filter(User.uuid == payload.uuid, User.is_deleted.is_(False))

@@ -34,7 +34,7 @@ def create_inquiry(
     inquiry_data: InquiryCreateRequest,
     response: Response,
     db: Session = Depends(get_db),
-):
+) -> dict:
     """
     Create a new inquiry with the following validations:
     - Phone number must be 10-15 digits
@@ -93,7 +93,7 @@ def get_inquiries(
     ),
     state: Optional[str] = Query(None, description="Filter by state"),
     city: Optional[str] = Query(None, description="Filter by city"),
-):
+) -> dict:
     """
     Get inquiries with optional filtering:
     - Filter by phone number (partial match)
@@ -148,7 +148,7 @@ def get_inquiries(
 )
 def get_inquiry_by_uuid(
     inquiry_uuid: UUID, response: Response, db: Session = Depends(get_db)
-):
+) -> dict:
     """
     Get a specific inquiry by UUID.
     Returns 404 if inquiry is not found or has been deleted.
@@ -190,7 +190,7 @@ def get_inquiry_by_uuid(
     summary="Get Available Project Types",
     description="Get list of all available project types",
 )
-def get_project_types(response: Response):
+def get_project_types(response: Response) -> dict:
     """
     Get all available project types for the inquiry form.
     """

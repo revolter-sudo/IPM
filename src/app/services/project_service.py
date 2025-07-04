@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 from uuid import UUID, uuid4
 
 from fastapi import (
@@ -61,13 +61,13 @@ balance_router = APIRouter(prefix="")
 
 
 def create_project_balance_entry(
-    db,
-    current_user,
+    db: Session,
+    current_user: User,
     project_id: UUID,
     adjustment: float,
     description: Optional[str] = None,
     balance_type: str = "actual",
-):
+) -> None:
     balance_entry = ProjectBalance(
         project_id=project_id,
         adjustment=adjustment,
@@ -75,14 +75,6 @@ def create_project_balance_entry(
         balance_type=balance_type,
     )
     db.add(balance_entry)
-    # log_entry = Log(
-    #         uuid=str(uuid4()),
-    #         entity="Project",
-    #         action="Aded Project Balance",
-    #         entity_id=project_id,
-    #         performed_by=current_user.uuid,
-    #     )
-    # db.add(log_entry)
     db.commit()
     db.refresh(balance_entry)
 
@@ -93,7 +85,7 @@ def update_project_balance(
     new_balance: float,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         project_balance = (
             db.query(ProjectBalance)
@@ -138,7 +130,7 @@ def update_project_balance(
 
 
 @project_router.get("/balance", tags=["Projects"], deprecated=True)
-def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)):
+def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)) -> dict:
     try:
         project = db.query(Project).filter(Project.uuid == project_uuid).first()
         if not project:
@@ -171,7 +163,7 @@ def adjust_project_balance(
     description: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         project = db.query(Project).filter(Project.uuid == project_uuid).first()
         if not project:
@@ -238,7 +230,7 @@ def create_project(
     ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Parse the request data from form
         request_data = json.loads(request)
@@ -375,7 +367,7 @@ def create_project(
 def list_all_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Fetch all projects visible to the current user.
 
@@ -555,7 +547,7 @@ def list_all_projects(
 
 
 @project_router.get("/project", status_code=status.HTTP_200_OK, tags=["Projects"])
-def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
+def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)) -> dict:
     try:
         project = (
             db.query(Project)
@@ -635,7 +627,7 @@ def update_project(
     payload: UpdateProjectSchema,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Update an existing Project's details:
       - name
@@ -723,24 +715,31 @@ def update_project(
         ).model_dump()
 
 
-def get_total_transferred_payments_sum(db):
+# def get_total_transferred_payments_sum(db) -> float:
+#     total_sum = (
+#         db.query(func.sum(Payment.amount))
+#         .filter(Payment.status == "transferred", Payment.is_deleted.is_(False))
+#         .scalar()
+#     )
+#     if total_sum:
+#         return total_sum
+#     else:
+#         return 0.0
+
+def get_total_transferred_payments_sum(db: Session) -> float:
     total_sum = (
         db.query(func.sum(Payment.amount))
         .filter(Payment.status == "transferred", Payment.is_deleted.is_(False))
         .scalar()
     )
-    if total_sum:
-        return total_sum
-    else:
-        return 0.0
-
+    return float(total_sum) if total_sum is not None else 0.0
 
 @balance_router.post("/bank", tags=["Bank Balance"])
 def add_bank(
     bank_data: BankCreateSchema,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Create a new bank/cash entry.
     Only Accountant or Super Admin can do this.
@@ -784,7 +783,7 @@ def edit_bank(
     bank_data: BankEditSchema,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Edit an existing bank/cash entry.
     Only Accountant or Super Admin can do this.
@@ -837,7 +836,7 @@ def get_bank_balance(
     bank_uuid: Optional[UUID] = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     If 'bank_uuid' is given, return that specific bank's details;
     otherwise, return all banks/cash accounts.
@@ -926,7 +925,7 @@ def delete_project(
     project_uuid: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Load project with relationships
         project = (
@@ -1036,7 +1035,7 @@ def add_project_po(
     po_document: Optional[UploadFile] = File(None, description="PO document file"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         po_request_data = json.loads(po_data)
         amount = po_request_data.get("amount")
@@ -1285,7 +1284,7 @@ def get_project_pos(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """Get all POs for a specific project."""
     try:
         # Validate project
@@ -1373,7 +1372,7 @@ def update_project_po(
     po_data: ProjectPOUpdateSchema,  # <- We'll define this schema below
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         po = (
             db.query(ProjectPO)
@@ -1456,7 +1455,7 @@ def delete_project_po(
     po_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """Delete a PO by its ID."""
     # Fetch PO
     po = db.query(ProjectPO).filter(ProjectPO.uuid == po_id).first()
@@ -1505,7 +1504,7 @@ def view_project_items_for_user(
     project_id: UUID,
     user_id: UUID,
     db: Session = Depends(get_db),
-):
+) -> dict:
     user = db.query(User).filter(User.uuid == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
@@ -1597,7 +1596,7 @@ def view_project_items_for_user(
     tags=["Location"],
     description="Get a list of all Indian states",
 )
-def get_all_states():
+def get_all_states() -> dict:
     states = list(LocationService._INDIA_STATES_CITIES.keys())
     return {
         "data": states,
@@ -1613,7 +1612,7 @@ def get_all_states():
 )
 def get_cities_by_state(
     state: str = Query(..., description="State name to get cities for")
-):
+) -> dict:
     normalized_state = state.strip().lower()
     matched_state = None
 
@@ -1656,7 +1655,7 @@ def create_company_info(
     logo_photo_file: Optional[UploadFile] = File(None, description="Company logo file"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
-):
+) -> dict:
     try:
         # Role check
         user_role = getattr(current_user, "role", None) or current_user.get("role")
@@ -1726,7 +1725,7 @@ def create_company_info(
     summary="Get all company info records",
     description="Fetches all company info entries including logo URL",
 )
-def get_all_company_info(db: Session = Depends(get_db)):
+def get_all_company_info(db: Session = Depends(get_db)) -> dict:
     try:
         companies = db.query(CompanyInfo).filter().all()
 

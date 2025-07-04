@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Optional,Union
 from uuid import UUID, uuid4
 
 from fastapi import (
@@ -17,8 +17,8 @@ from fastapi.security import (
     HTTPBearer,
     OAuth2PasswordBearer,
 )
-from jose import JWTError, jwt  # type: ignore
-from passlib.context import CryptContext  # type: ignore
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
@@ -63,22 +63,22 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 # Utility Functions
-def get_password_hash(password):
+def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def verify_password(plain_password, hashed_password):
+def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(data: dict):
+def create_access_token(data: dict) -> str:
     return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def get_current_user(
     db: Session = Depends(get_db),
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme),
-):
+) -> Union[User, dict]:
     token = credentials.credentials  # Extract token from Authorization header
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -112,7 +112,7 @@ def get_current_user(
         ).model_dump()
 
 
-def superadmin_required(current_user: User = Depends(get_current_user)):
+def superadmin_required(current_user: User = Depends(get_current_user)) -> Union[User, dict]:
     if current_user.role != UserRole.SUPER_ADMIN:
         return AuthServiceResponse(
             data=None, status_code=403, message="SuperAdmin privileges required"
@@ -125,7 +125,7 @@ def upload_user_photo(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Uploads a photo for the current user and updates `photo_path`.
     Returns the path/URL so the frontend can load it.
@@ -169,7 +169,7 @@ def upload_user_photo(
 
 
 @auth_router.post("/forgot_password", tags=["Users"])
-def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)) -> dict:
     """
     Resets a user's password, given a phone number and a new password.
     In production, you would typically verify OTP or email link, but
@@ -344,7 +344,7 @@ def register_user(
     ).model_dump()
 
 
-def check_or_add_token(user_id: UUID, fcm_token: str, device_id: int, db: Session):
+def check_or_add_token(user_id: UUID, fcm_token: str, device_id: int, db: Session) -> Optional[dict]:
     try:
         data = (
             db.query(UserTokenMap).filter(UserTokenMap.device_id == device_id).first()
@@ -427,7 +427,7 @@ def delete_user(
     user_uuid: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(superadmin_required),
-):
+) -> dict:
     try:
         user_data = (
             db.query(User)
@@ -471,7 +471,7 @@ def delete_user(
 
 
 @auth_router.post("/logout", status_code=status.HTTP_201_CREATED, tags=["Users"])
-def logout_user(user_data: UserLogout, db: Session = Depends(get_db)):
+def logout_user(user_data: UserLogout, db: Session = Depends(get_db)) -> dict:
     try:
         user = db.query(User).filter(User.uuid == user_data.user_id).first()
         # if not user:
@@ -505,7 +505,7 @@ def deactivate_user(
     user_uuid: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(superadmin_required),
-):
+) -> dict:
     try:
         user_data = (
             db.query(User)
@@ -558,7 +558,7 @@ def activate_user(
     user_uuid: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(superadmin_required),
-):
+) -> dict:
     try:
         user_data = (
             db.query(User)
@@ -604,7 +604,7 @@ def activate_user(
 
 
 @auth_router.get("/users", status_code=status.HTTP_200_OK, tags=["Users"])
-def list_all_active_users(db: Session = Depends(get_db)):
+def list_all_active_users(db: Session = Depends(get_db)) -> dict:
     try:
         users = (
             db.query(User)
@@ -699,7 +699,7 @@ def list_all_active_users(db: Session = Depends(get_db)):
 
 
 @auth_router.get("/user", tags=["Users"])
-def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
+def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)) -> dict:
     try:
         user = (
             db.query(User)
@@ -771,7 +771,7 @@ def edit_user(
     user_data: UserEdit,
     db: Session = Depends(get_db),
     current_user: User = Depends(superadmin_required),
-):
+) -> dict:
     """
     Edit user information including person data.
     Only superadmin can edit users.
@@ -900,7 +900,7 @@ def get_persons(
     current_user: User = Depends(get_current_user),
     name: Optional[str] = Query(None, description="Filter by name"),
     phone: Optional[str] = Query(None, description="Filter by phone number"),
-):
+) -> dict:
     """
     Get all persons with optional filters. This endpoint provides a simplified view
     of persons for frontend dropdowns and selections.
@@ -943,7 +943,7 @@ def get_persons(
 
 
 @auth_router.post("/register_and_save_user", tags=["non-user"])
-def register_and_outside_user(data: OutsideUserLogin, db: Session = Depends(get_db)):
+def register_and_outside_user(data: OutsideUserLogin, db: Session = Depends(get_db)) -> dict:
     phone = str(data.phone_number)
     existing = db.query(UserData).filter(UserData.phone_number == phone).first()
     if existing:
@@ -982,7 +982,7 @@ def register_and_outside_user(data: OutsideUserLogin, db: Session = Depends(get_
 @auth_router.get("/outside_users", status_code=status.HTTP_200_OK, tags=["non-user"])
 def list_outside_users(
     db: Session = Depends(get_db), current_user: User = Depends(superadmin_required)
-):
+) -> dict:
     """
     List all outside users who have registered.
     Only accessible by SuperAdmin users.
