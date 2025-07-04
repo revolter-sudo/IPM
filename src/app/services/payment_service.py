@@ -2072,9 +2072,91 @@ def update_person(
 #             status_code=500
 #         ).model_dump()
 
+        
+
+# @payment_router.get(
+#     "/persons", status_code=h_status.HTTP_200_OK, tags=["Payments"]
+# )
+# def get_all_persons(
+#     name: str = Query(None),
+#     phone_number: str = Query(None),
+#     account_number: str = Query(None),
+#     ifsc_code: str = Query(None),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     try:
+#         # Fetch all parent persons with children eagerly loaded
+#         persons = db.query(Person).options(
+#             joinedload(Person.children)
+#         ).filter(
+#             Person.is_deleted.is_(False),
+#             Person.parent_id.is_(None),
+#             or_(Person.user_id.is_(None), Person.user_id != current_user.uuid)
+#         ).all()
+
+#         def matches(person: Person) -> bool:
+#             """Returns True if this person or any child matches the filter."""
+#             def match(p: Person):
+#                 return all([
+#                     (not name or name.lower() in (p.name or "").lower()),
+#                     (not phone_number or p.phone_number == phone_number),
+#                     (not account_number or p.account_number == account_number),
+#                     (not ifsc_code or p.ifsc_code == ifsc_code)
+#                 ])
+
+#             if match(person):
+#                 return True
+#             for child in person.children:
+#                 if not child.is_deleted and match(child):
+#                     return True
+#             return False
+
+#         # Apply filters in Python
+#         filtered_persons = [person for person in persons if matches(person)]
+
+#         # Format result
+#         persons_data = []
+#         for person in filtered_persons:
+#             persons_data.append({
+#                 "uuid": person.uuid,
+#                 "name": person.name,
+#                 "account_number": person.account_number,
+#                 "ifsc_code": person.ifsc_code,
+#                 "phone_number": person.phone_number,
+#                 "parent_id": person.parent_id,
+#                 "upi_number": person.upi_number,
+#                 "secondary_accounts": [
+#                     {
+#                         "uuid": child.uuid,
+#                         "name": child.name,
+#                         "account_number": child.account_number,
+#                         "ifsc_code": child.ifsc_code,
+#                         "phone_number": child.phone_number,
+#                         "upi_number": child.upi_number
+#                     }
+#                     for child in person.children if not child.is_deleted
+#                 ]
+#             })
+
+#         return PaymentServiceResponse(
+#             data=persons_data,
+#             message="All persons info fetched successfully.",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         traceback.print_exc()
+#         return PaymentServiceResponse(
+#             data=None,
+#             message=f"An Error Occurred: {str(e)}",
+#             status_code=500
+#         ).model_dump()
 
 @payment_router.get(
-    "/persons", status_code=h_status.HTTP_200_OK, tags=["Payments"]
+    "/persons", 
+    status_code=h_status.HTTP_200_OK, 
+    tags=["Payments"]
 )
 def get_all_persons(
     name: str = Query(None),
@@ -2103,7 +2185,6 @@ def get_all_persons(
                     (not account_number or p.account_number == account_number),
                     (not ifsc_code or p.ifsc_code == ifsc_code)
                 ])
-
             if match(person):
                 return True
             for child in person.children:
@@ -2114,10 +2195,10 @@ def get_all_persons(
         # Apply filters in Python
         filtered_persons = [person for person in persons if matches(person)]
 
-        # Format result
         persons_data = []
-        for person in filtered_persons:
-            persons_data.append({
+
+        def format_account(person, is_primary, parent_obj=None, children=None):
+            return {
                 "uuid": person.uuid,
                 "name": person.name,
                 "account_number": person.account_number,
@@ -2125,19 +2206,51 @@ def get_all_persons(
                 "phone_number": person.phone_number,
                 "parent_id": person.parent_id,
                 "upi_number": person.upi_number,
-                "secondary_accounts": [
-                    {
+                "is_primary": is_primary,
+                "parent_account": parent_obj,
+                "child_accounts": children or []
+            }
+
+        for parent in filtered_persons:
+            # Gather children for the parent (secondary accounts)
+            child_accounts = []
+            for child in parent.children:
+                if not child.is_deleted:
+                    child_accounts.append({
                         "uuid": child.uuid,
                         "name": child.name,
                         "account_number": child.account_number,
                         "ifsc_code": child.ifsc_code,
                         "phone_number": child.phone_number,
                         "upi_number": child.upi_number
-                    }
-                    for child in person.children if not child.is_deleted
-                ]
-            })
+                    })
 
+            # Add parent ("primary") account
+            persons_data.append(format_account(
+                parent,
+                is_primary=True,
+                parent_obj=None,
+                children=child_accounts
+            ))
+
+            # Add each child ("secondary") account as top-level
+            for child in parent.children:
+                if not child.is_deleted:
+                    parent_obj = {
+                        "uuid": parent.uuid,
+                        "name": parent.name,
+                        "account_number": parent.account_number,
+                        "ifsc_code": parent.ifsc_code,
+                        "phone_number": parent.phone_number,
+                        "upi_number": parent.upi_number
+                    }
+                    persons_data.append(format_account(
+                        child,
+                        is_primary=False,
+                        parent_obj=parent_obj,
+                        children=[]
+                    ))
+                    
         return PaymentServiceResponse(
             data=persons_data,
             message="All persons info fetched successfully.",
