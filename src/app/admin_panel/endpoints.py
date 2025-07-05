@@ -114,7 +114,7 @@ admin_app.add_middleware(
         "Get the current default configuration " "(admin amount and site expense item)"
     ),
 )
-def get_default_config():
+def get_default_config() -> dict:
     try:
         default_config = get_default_config_service()
         return AdminPanelResponse(
@@ -141,7 +141,7 @@ def create_default_config(
     config_data: DefaultConfigCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
 
         if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
@@ -202,7 +202,7 @@ def update_default_config(
     config_data: DefaultConfigUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Check if user has permission
         if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
@@ -254,7 +254,7 @@ def map_user_to_project(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
@@ -318,7 +318,7 @@ def map_multiple_users_to_project(
     user_ids: List[UUID] = Body(..., embed=True),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+)-> dict:
     """
     Map multiple users to a project at once.
 
@@ -406,7 +406,7 @@ def map_item_to_project(
     item_balance: float = Body(..., embed=True),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
@@ -480,7 +480,7 @@ def map_multiple_items_to_project(
     ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Map multiple items to a project at once.
 
@@ -586,7 +586,7 @@ def map_item_to_user(
     item_balance: Optional[float] = None,  # Changed to Optional with None default
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
@@ -651,7 +651,7 @@ def map_multiple_items_to_user(
     ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Map multiple items to a user at once.
 
@@ -752,7 +752,7 @@ def remove_item_from_project(
     item_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
@@ -812,7 +812,7 @@ def remove_user_from_project(
     user_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
@@ -872,7 +872,7 @@ def remove_item_from_user(
     item_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
@@ -925,7 +925,7 @@ def get_user_items(
     user_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Verify user exists
         user = db.query(User).filter(User.uuid == user_id).first()
@@ -967,7 +967,7 @@ def get_user_items(
         ).model_dump()
 
 
-def get_project_items(db: Session, project_id: UUID, current_user: User = None):
+def get_project_items(db: Session, project_id: UUID, current_user: User = None) -> dict:
     try:
         # Query ProjectItemMap joined with Item to get item UUID and name
         # Use a subquery to handle duplicates by taking the most recent mapping
@@ -1020,7 +1020,7 @@ def get_project_items_list(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
 
         project = db.query(Project).filter(Project.uuid == project_id).first()
@@ -1082,7 +1082,7 @@ def get_project_users(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
 
     try:
         project = db.query(Project).filter(Project.uuid == project_id).first()
@@ -1144,7 +1144,7 @@ def get_user_projects(
     user_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
 
     try:
         user = db.query(User).filter(User.uuid == user_id).first()
@@ -1212,7 +1212,7 @@ def get_user_details(
     user_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Allow only privileged roles to use this API
         if current_user.role not in [
@@ -1338,7 +1338,7 @@ def get_user_project_items_old(
     user_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Verify user exists
         user = db.query(User).filter(User.uuid == user_id).first()
@@ -1466,7 +1466,7 @@ def upload_single_invoice_for_po(
     invoice_file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         import json
         from datetime import datetime
@@ -1682,7 +1682,7 @@ def upload_multiple_invoices_for_po(
     invoice_files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Parse and validate input
         try:
@@ -1866,7 +1866,7 @@ def update_invoice_status(
     ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Update the status of an invoice (e.g., mark as received).
     """
@@ -1930,7 +1930,7 @@ def list_invoices(
     status: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     List all invoices, optionally filtered by project_id and/or status.
     """
@@ -1992,7 +1992,7 @@ def get_invoice(
     invoice_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Get details of a specific invoice.
     """
@@ -2079,7 +2079,7 @@ def update_invoice(
     update_request: InvoiceUpdateRequest = Body(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # ✅ Role Check
         if current_user.role not in [
@@ -2206,7 +2206,7 @@ def delete_invoice(
     invoice_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Soft delete an invoice.
     """
@@ -2272,7 +2272,7 @@ def get_invoices_by_po(
     po_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Validate PO exists
         po = (
@@ -2379,7 +2379,7 @@ def create_multiple_invoice_payments(
     payment_request: MultiInvoicePaymentRequest = Body(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # ✅ Role check
         if current_user.role not in [
@@ -2514,7 +2514,7 @@ def get_invoice_payments(
     invoice_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Validate invoice exists
         invoice = (
@@ -2666,7 +2666,7 @@ def delete_invoice_payment(
     payment_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Soft delete an invoice payment and update invoice totals and status.
     """
@@ -2778,7 +2778,7 @@ def get_all_khatabook_entries_admin(
     payment_mode: Optional[str] = Query(None, description="Payment mode"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Get all khatabook entries with optional filtering.
     Only accessible to admin and super admin users.
@@ -2950,7 +2950,7 @@ def get_all_khatabook_entries_admin(
 def get_all_item_analytics(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Get analytics data for all items across all projects.
     Returns per-project grouped data:
@@ -3066,7 +3066,7 @@ def get_project_item_analytics(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Get analytics data for items in a specific project.
     Returns item name, estimation (balance added when assigned)
@@ -3202,7 +3202,7 @@ def get_project_payment_analytics(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Get analytics data for payments in a specific project.
     Returns count, total amount, and percentage of payments by status.
@@ -3331,7 +3331,7 @@ def get_all_logs(
     end_date: Optional[datetime] = Query(None, description="End date (YYYY-MM-DD)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Get all logs of user operations with filtering options.
     Only admin and super admin can access all logs.
@@ -3423,7 +3423,7 @@ def get_user_project_items(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
@@ -3488,7 +3488,7 @@ def sync_project_user_item_map(
     payload: ProjectUserItemMapCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     if current_user.role not in [
         UserRole.SUPER_ADMIN.value,
         UserRole.ADMIN.value,
@@ -3646,7 +3646,7 @@ def view_project_items_for_user(
     project_id: UUID,
     user_id: UUID,
     db: Session = Depends(get_db),
-):
+) -> dict:
     user = db.query(User).filter(User.uuid == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
@@ -3726,7 +3726,7 @@ def view_project_items_for_user(
 @admin_app.put("/projects/{project_id}/items", tags=["update_items_balance"])
 def update_project_items(
     project_id: UUID, payload: ProjectItemUpdateRequest, db: Session = Depends(get_db)
-):
+) -> dict:
     updated_items = []
     for item in payload.items:
         mapping = (
@@ -3769,7 +3769,7 @@ def get_project_invoice_analytics(
     project_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Permission check
         if current_user.role not in [
@@ -3912,7 +3912,7 @@ def get_project_invoice_analytics(
 def get_dashboard_project_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         from datetime import datetime, timedelta
 
@@ -4023,7 +4023,7 @@ def map_items_to_item_group(
     ),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
 
         # Authorization
@@ -4135,7 +4135,7 @@ def get_items_by_group(
     group_uuid: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
 
         # Authorization
@@ -4228,7 +4228,7 @@ def unmap_item_from_group(
     item_uuid: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
 
         # Authorization
@@ -4286,7 +4286,7 @@ def create_salary(
     payload: SalaryCreateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Authorization
         if current_user.role not in [
@@ -4363,7 +4363,7 @@ def update_salary(
     payload: SalaryUpdateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Verify user role
         if current_user.role not in [
@@ -4426,7 +4426,7 @@ def get_all_salary(
     amount: Optional[float] = Query(None, description="Filter by exact salary amount"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # Role validation
         if current_user.role not in [
@@ -4502,7 +4502,7 @@ def delete_salary_record(
     salary_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         # 🛡️ Role-based access control
         if current_user.role not in [

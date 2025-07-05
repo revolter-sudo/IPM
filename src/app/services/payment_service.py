@@ -5,7 +5,7 @@ import traceback
 import uuid
 from collections import defaultdict
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from uuid import UUID, uuid4
 
 from fastapi import (
@@ -73,7 +73,7 @@ logger = logging.getLogger(__name__)
 payment_router = APIRouter(prefix="/payments", tags=["Payments"])
 
 
-def notify_create_payment(amount: int, user: User, db: Session):
+def notify_create_payment(amount: int, user: User, db: Session) -> dict:
     try:
         roles_to_notify = [
             UserRole.ACCOUNTANT.value,
@@ -113,7 +113,7 @@ def create_payment(
     files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Creates a new Payment record in the database.
     If self_payment=True, automatically sets Payment.
@@ -228,7 +228,7 @@ def update_payment_amount(
     db: Session = Depends(get_db),
     # <--- If you want to store who updated
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     # Fetch existing payment
     payment = db.query(Payment).filter(Payment.uuid == payment_uuid).first()
     if not payment:
@@ -272,7 +272,7 @@ def update_payment_amount(
     ).model_dump()
 
 
-def get_parent_account_data(person_id: UUID, db):
+def get_parent_account_data(person_id: UUID, db) -> Optional[Dict[str, Any]]:
     try:
         person = (
             db.query(Person)
@@ -374,7 +374,7 @@ def create_khatabook_entry_for_self_payment(
 # region Payments API
 
 
-def build_recent_subquery(db: Session, current_user: User, recent: bool):
+def build_recent_subquery(db: Session, current_user: User, recent: bool) -> dict:
     """
     Builds a subquery of Payment UUIDs if `recent` is True.
     Restricts site_eng / sub_con to only see their own Payment records.
@@ -400,7 +400,7 @@ def build_recent_subquery(db: Session, current_user: User, recent: bool):
     return base_q.subquery()
 
 
-def build_main_payments_query(db: Session, pending_request: bool):
+def build_main_payments_query(db: Session, pending_request: bool) -> dict:
     """
     Builds the main query that pulls Payment + joined entities, plus
     the columns we need for status/edit histories, person data, etc.
@@ -481,7 +481,7 @@ def build_main_payments_query(db: Session, pending_request: bool):
     return query
 
 
-def get_user_project_ids(db: Session, user_uuid: UUID):
+def get_user_project_ids(db: Session, user_uuid: UUID) -> dict:
     """
     Get a list of project IDs that the user is assigned to.
     Returns a list of project UUIDs.
@@ -494,7 +494,7 @@ def get_user_project_ids(db: Session, user_uuid: UUID):
     return [mapping[0] for mapping in project_mappings]
 
 
-def apply_role_restrictions(query, current_user: User, db: Optional[Session] = None):
+def apply_role_restrictions(query, current_user: User, db: Optional[Session] = None) -> dict:
     """
     Apply role-based restrictions to the query:
     - Super Admin, Admin, Accountant: see all payments

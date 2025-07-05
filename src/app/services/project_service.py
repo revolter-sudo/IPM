@@ -1654,7 +1654,7 @@ def create_company_info(
     company_data: str = Form(..., description="JSON string with company info"),
     logo_photo_file: Optional[UploadFile] = File(None, description="Company logo file"),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: User =Depends(get_current_user),
 ) -> dict:
     try:
         # Role check
@@ -1765,7 +1765,7 @@ def get_all_company_info(db: Session = Depends(get_db)) -> dict:
     description="Fetch a specific company info entry",
     deprecated=True,
 )
-def get_company_info_by_uuid(uuid: UUID, db: Session = Depends(get_db)):
+def get_company_info_by_uuid(uuid: UUID, db: Session = Depends(get_db)) -> dict:
     try:
         company = db.query(CompanyInfo).filter(CompanyInfo.uuid == uuid).first()
 
@@ -1822,8 +1822,8 @@ def update_company_info(
         None, description="New logo or document"
     ),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
+    current_user: User = Depends(get_current_user),
+) -> dict:
     try:
         # Role check
         user_role = getattr(current_user, "role", None) or current_user.get("role")

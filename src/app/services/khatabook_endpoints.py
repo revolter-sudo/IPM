@@ -50,9 +50,9 @@ def save_uploaded_file(upload_file: UploadFile) -> str:
 async def create_khatabook_entry(
     data: str = Form(...),
     files: Optional[List[UploadFile]] = File(None),
-    db=Depends(get_db),
+    db: Session =Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     try:
         parsed_data = json.loads(data)
         file_paths = [save_uploaded_file(f) for f in files] if files else []
@@ -78,7 +78,7 @@ def update_khatabook_entry(
     data: str = Form(...),
     files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
-):
+) -> dict:
     try:
         parsed_data = json.loads(data)
         file_paths = [save_uploaded_file(f) for f in files] if files else []
@@ -101,7 +101,7 @@ def update_khatabook_entry(
 @khatabook_router.get("")
 def get_all_khatabook_entries(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
-):
+) -> dict:
     # Check if current_user is a dictionary (error response)
     if isinstance(current_user, dict):
         # Return the error response directly
@@ -156,7 +156,7 @@ def mark_suspicious(
     request: MarkSuspiciousRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Mark a khatabook entry as suspicious or not suspicious.
     Only admin and super admin users can mark entries as suspicious.
@@ -213,7 +213,7 @@ def export_khatabook_data(
     payment_mode: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Export khatabook entries to Excel.
 
@@ -482,7 +482,7 @@ def hard_delete_khatabook_entry(
     khatabook_uuid: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Hard delete a khatabook entry.
     Only admin and super admin users can hard delete entries.
@@ -524,7 +524,7 @@ def soft_delete_khatabook_entry(
     khatabook_uuid: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
+) -> dict:
     """
     Soft delete a khatabook entry.
     Only ADMIN and SUPER_ADMIN users can perform this action.
