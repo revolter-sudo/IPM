@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Optional, Any, List, Dict
 from uuid import UUID
 from datetime import date
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class PaymentStatus(str, Enum):
@@ -34,13 +34,15 @@ class PaymentRequest(BaseModel):
 
 class CreatePerson(BaseModel):
     name: str = Field(..., max_length=50, description="Name must be at most 50 characters")
-    account_number: str = Field(
+    account_number: Optional[str] = Field(
+        None,
         min_length=8,
         max_length=18,
         pattern=r'^\d+$',
         description="Account number must be 8 to 16 digits long and contain only numbers",
     )
-    ifsc_code: str = Field(
+    ifsc_code: Optional[str] = Field(
+        None,
         min_length=11,
         max_length=11,
         description="IFSC code must be exactly 11 characters long",
@@ -68,7 +70,25 @@ class CreatePerson(BaseModel):
         if len(v) < 8 or len(v) > 18:
             raise ValueError("Account number must be between 8 and 18 digits")
         return v
+    
+    # @root_validator
+    # def account_ifsc_combo(cls, values):
+    #     acc = values.get("account_number")
+    #     ifsc = values.get("ifsc_code")
+    #     if acc or ifsc:
+    #         if not acc or not ifsc:
+    #             raise ValueError("If either account number or IFSC code is provided, both must be filled.")
+    #     return values
 
+    @model_validator(mode="after")
+    def account_ifsc_combo(self):
+        acc = self.account_number
+        ifsc = self.ifsc_code
+        if acc and not ifsc:
+            raise ValueError("You have entered the account number but forgot to enter the IFSC code.")
+        if ifsc and not acc:
+            raise ValueError("You have entered the IFSC code but forgot to enter the account number.")
+        return self
 
 class UpdatePerson(BaseModel):
     name: Optional[str] = Field(None, max_length=50, description="Name must be at most 50 characters")
