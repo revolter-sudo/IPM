@@ -199,6 +199,64 @@ def hard_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     db.commit()
     return result > 0
 
+# def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
+
+#     """
+#     Soft delete a khatabook entry by setting is_deleted to True.
+
+#     Args:
+#         db: Database session
+#         kb_uuid: UUID of the khatabook entry
+
+#     Returns:
+#         True if the entry was deleted, False if the entry doesn't exist
+#     """
+#     kb_entry = db.query(Khatabook).filter(
+#         Khatabook.uuid == kb_uuid,
+#         Khatabook.is_deleted.is_(False)
+#     ).first()
+#     if not kb_entry:
+#         return False
+
+#     kb_entry.is_deleted = True
+#     db.commit()
+#     return True
+
+def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
+    """
+    Soft delete a khatabook entry by setting is_deleted=True.
+    Also soft deletes related files and item mappings.
+
+    Args:
+        db: Database session
+        kb_uuid: UUID of the khatabook entry
+
+    Returns:
+        True if the entry was marked as deleted, False if the entry doesn't exist
+    """
+    # Fetch the khatabook entry
+    khatabook = db.query(Khatabook).filter(Khatabook.uuid == kb_uuid, Khatabook.is_deleted.is_(False)).first()
+    if not khatabook:
+        return False
+
+    # Mark related files as deleted
+    db.query(KhatabookFile).filter(
+        KhatabookFile.khatabook_id == kb_uuid,
+        KhatabookFile.is_deleted.is_(False)
+    ).update({KhatabookFile.is_deleted: True})
+
+    # Mark related item mappings as deleted
+    db.query(KhatabookItem).filter(
+        KhatabookItem.khatabook_id == kb_uuid,
+        KhatabookItem.is_deleted.is_(False)
+    ).update({KhatabookItem.is_deleted: True})
+
+    # Mark the main khatabook as deleted
+    khatabook.is_deleted = True
+
+    db.commit()
+    return True
+
 
 def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
     entries = (
@@ -214,7 +272,7 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
             Khatabook.is_deleted.is_(False),
             Khatabook.created_by == user_id
         )
-        .order_by(Khatabook.id.desc())
+        .order_by(Khatabook.expense_date.desc())
         .all()
     )
 

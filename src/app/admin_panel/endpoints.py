@@ -1,6 +1,7 @@
 import os
 import json
-from fastapi import FastAPI, Body
+from collections import defaultdict
+from fastapi import FastAPI, Body, Response
 from fastapi_sqlalchemy import DBSessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from src.app.database.database import settings
@@ -1802,15 +1803,13 @@ def upload_single_invoice_for_po(
     invoice_file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    response: Response = None,  # Add this
 ):
     try:
-        import json
-        from datetime import datetime
-
-        # Parse the JSON
         try:
             item = json.loads(invoice)
         except json.JSONDecodeError:
+            response.status_code = 400
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
@@ -1823,6 +1822,7 @@ def upload_single_invoice_for_po(
             Project.is_deleted.is_(False)
         ).first()
         if not project:
+            response.status_code = 404
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
@@ -1836,16 +1836,33 @@ def upload_single_invoice_for_po(
             ProjectPO.is_deleted.is_(False)
         ).first()
         if not po:
+            response.status_code = 404
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
                 message="PO not found under this project"
+            ).model_dump()
+        
+        # Check if invoice number already exists
+        invoice_number = item.get("invoice_number")
+        existing_invoice = (
+            db.query(Invoice)
+            .filter(Invoice.invoice_number == invoice_number)
+            .first()
+        )
+        if existing_invoice:
+            response.status_code = 400
+            return ProjectServiceResponse(
+                data=None,
+                status_code=400,
+                message="Please enter a unique invoice number. This invoice number already exists."
             ).model_dump()
 
         # Parse due_date
         try:
             due_date = datetime.strptime(item["due_date"], "%Y-%m-%d")
         except (KeyError, ValueError):
+            response.status_code = 400
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
@@ -1858,6 +1875,7 @@ def upload_single_invoice_for_po(
             try:
                 invoice_date = datetime.strptime(item["invoice_date"], "%Y-%m-%d").date()
             except ValueError:
+                response.status_code = 400
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
@@ -1880,7 +1898,7 @@ def upload_single_invoice_for_po(
             project_id=project.uuid,
             project_po_id=po_id,
             client_name=item.get("client_name"),
-            invoice_number=item.get("invoice_number"),
+            invoice_number=invoice_number,
             invoice_date=invoice_date,
             amount=item.get("amount"),
             description=item.get("description"),
@@ -1916,6 +1934,7 @@ def upload_single_invoice_for_po(
 
         db.commit()
 
+        # Success—201 status remains default (set in decorator)
         return ProjectServiceResponse(
             data={
                 "uuid": str(new_invoice.uuid),
@@ -1931,6 +1950,9 @@ def upload_single_invoice_for_po(
 
     except Exception as e:
         db.rollback()
+        # Always set 500 in response
+        if response:
+            response.status_code = 500
         logger.error(f"Error in upload_single_invoice_for_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
@@ -2011,12 +2033,14 @@ def upload_multiple_invoices_for_po(
     invoice_files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    response: Response = None,  # Add response!
 ):
     try:
         # Parse and validate input
         try:
             invoice_list = json.loads(invoices)
         except json.JSONDecodeError:
+            response.status_code = 400
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
@@ -2024,18 +2048,20 @@ def upload_multiple_invoices_for_po(
             ).model_dump()
 
         if not isinstance(invoice_list, list):
+            response.status_code = 400
             return ProjectServiceResponse(
                 data=None,
                 status_code=400,
                 message="Invoices must be a list of invoice objects"
             ).model_dump()
-
+        
         # Validate project
         project = db.query(Project).filter(
             Project.uuid == project_id,
             Project.is_deleted.is_(False)
         ).first()
         if not project:
+            response.status_code = 404
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
@@ -2049,11 +2075,35 @@ def upload_multiple_invoices_for_po(
             ProjectPO.project_id == project_id
         ).first()
         if not po:
+            response.status_code = 404
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
                 message="PO not found under this project"
             ).model_dump()
+
+        # Check for duplicate invoice numbers in DB
+        for idx, item in enumerate(invoice_list):
+            invoice_number = item.get("invoice_number")
+            if not invoice_number:
+                response.status_code = 400
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message=f"Missing invoice_number at index {idx}"
+                ).model_dump()
+            existing_invoice = (
+                db.query(Invoice)
+                .filter(Invoice.invoice_number == invoice_number)
+                .first()
+            )
+            if existing_invoice:
+                response.status_code = 400
+                return ProjectServiceResponse(
+                    data=None,
+                    status_code=400,
+                    message=f"Please enter a unique invoice number. The invoice number '{invoice_number}' already exists (at index {idx})."
+                ).model_dump()
 
         created_invoices = []
 
@@ -2062,6 +2112,7 @@ def upload_multiple_invoices_for_po(
             try:
                 due_date = datetime.strptime(item["due_date"], "%Y-%m-%d")
             except (KeyError, ValueError):
+                response.status_code = 400
                 return ProjectServiceResponse(
                     data=None,
                     status_code=400,
@@ -2074,6 +2125,7 @@ def upload_multiple_invoices_for_po(
                 try:
                     invoice_date = datetime.strptime(item["invoice_date"], "%Y-%m-%d").date()
                 except ValueError:
+                    response.status_code = 400
                     return ProjectServiceResponse(
                         data=None,
                         status_code=400,
@@ -2151,6 +2203,8 @@ def upload_multiple_invoices_for_po(
 
     except Exception as e:
         db.rollback()
+        if response:
+            response.status_code = 500
         logger.error(f"Error in upload_multiple_invoices_for_po API: {str(e)}")
         return ProjectServiceResponse(
             data=None,
@@ -3365,6 +3419,111 @@ def get_all_khatabook_entries_admin(
         ).model_dump()
 
 
+# @admin_app.get(
+#     "/item-analytics",
+#     tags=["Analytics"],
+#     description="Get item analytics data for all projects (estimation vs current expense)"
+# )
+# def get_all_item_analytics(
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """
+#     Get analytics data for all items across all projects.
+#     Returns per-project grouped data:
+#     - Item name
+#     - Estimation (balance added when assigned)
+#     - Current expense (sum of transferred payments)
+#     - Sorted by estimation descending within each project
+#     """
+#     try:
+#         # Check permissions
+#         if current_user.role not in [
+#             UserRole.SUPER_ADMIN.value,
+#             UserRole.ADMIN.value
+#         ]:
+#             return AdminPanelResponse(
+#                 data=None,
+#                 message="Only admin and super admin can access all item analytics",
+#                 status_code=403
+#             ).model_dump()
+
+#         # Subquery to get latest ProjectItemMap entry per (project, item)
+#         subquery = (
+#             db.query(
+#                 ProjectItemMap.project_id,
+#                 ProjectItemMap.item_id,
+#                 func.max(ProjectItemMap.id).label('max_id')
+#             )
+#             .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
+#             .subquery()
+#         )
+
+#         all_items = (
+#             db.query(ProjectItemMap, Item, Project)
+#             .join(subquery, ProjectItemMap.id == subquery.c.max_id)
+#             .join(Item, ProjectItemMap.item_id == Item.uuid)
+#             .join(Project, ProjectItemMap.project_id == Project.uuid)
+#             .filter(Project.is_deleted.is_(False))
+#             .all()
+#         )
+
+#         if not all_items:
+#             return AdminPanelResponse(
+#                 data={"items_analytics": []},
+#                 message="No items found in any project",
+#                 status_code=200
+#             ).model_dump()
+
+#         # Group items per project
+#         project_wise_items = defaultdict(list)
+
+#         for project_item, item, project in all_items:
+#             estimation = project_item.item_balance or 0.0
+
+#             current_expense = (
+#                 db.query(func.sum(Payment.amount))
+#                 .join(PaymentItem, Payment.uuid == PaymentItem.payment_id)
+#                 .filter(
+#                     PaymentItem.item_id == item.uuid,
+#                     Payment.project_id == project.uuid,
+#                     Payment.status == PaymentStatus.TRANSFERRED.value,
+#                     Payment.is_deleted.is_(False),
+#                     PaymentItem.is_deleted.is_(False)
+#                 )
+#                 .scalar() or 0.0
+#             )
+
+#             project_wise_items[project.name].append({
+#                 "uuid": item.uuid,
+#                 "item_name": item.name,
+#                 "estimation": estimation,
+#                 "current_expense": current_expense
+#             })
+
+#         # Sort each project's item list by estimation
+#         items_analytics = []
+#         for project_name, items in project_wise_items.items():
+#             sorted_items = sorted(items, key=lambda x: x["current_expense"], reverse=True)
+#             items_analytics.append({
+#                 "project_name": project_name,
+#                 "items": sorted_items
+#             })
+
+#         return AdminPanelResponse(
+#             data={"items_analytics": items_analytics},
+#             message="Item analytics fetched successfully",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         logger.error(f"Error in get_all_item_analytics API: {str(e)}")
+#         return AdminPanelResponse(
+#             data=None,
+#             message=f"An error occurred while fetching item analytics: {str(e)}",
+#             status_code=500
+#         ).model_dump()
+
 @admin_app.get(
     "/item-analytics",
     tags=["Analytics"],
@@ -3376,10 +3535,14 @@ def get_all_item_analytics(
 ):
     """
     Get analytics data for all items across all projects.
-    Returns item name, estimation (balance added when assigned), and current expense (sum of transferred payments).
+    Returns per-project grouped data:
+    - Item name
+    - Estimation (balance added when assigned)
+    - Current expense (sum of transferred payments)
+    - Sorted by expense + estimation descending within each project
     """
     try:
-        # Check if user has permission
+        # Check permissions
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value
@@ -3390,9 +3553,7 @@ def get_all_item_analytics(
                 status_code=403
             ).model_dump()
 
-        # Get all unique items with their balances from all projects
-        # Use a subquery to get the latest/most recent ProjectItemMap entry for each (project_id, item_id) pair
-        # This handles potential duplicates by taking the most recent mapping
+        # Subquery to get latest ProjectItemMap entry per (project, item)
         subquery = (
             db.query(
                 ProjectItemMap.project_id,
@@ -3413,22 +3574,18 @@ def get_all_item_analytics(
         )
 
         if not all_items:
-            # Return empty analytics if no items found
             return AdminPanelResponse(
-                data={
-                    "items_analytics": []
-                },
+                data={"items_analytics": []},
                 message="No items found in any project",
                 status_code=200
             ).model_dump()
 
-        # Prepare items analytics
-        items_analytics = []
+        # Group items per project
+        project_wise_items = defaultdict(list)
+
         for project_item, item, project in all_items:
-            # Get estimation (balance added when assigned)
             estimation = project_item.item_balance or 0.0
 
-            # Get current expense (sum of transferred payments for this item in this specific project)
             current_expense = (
                 db.query(func.sum(Payment.amount))
                 .join(PaymentItem, Payment.uuid == PaymentItem.payment_id)
@@ -3442,27 +3599,35 @@ def get_all_item_analytics(
                 .scalar() or 0.0
             )
 
-            items_analytics.append({
+            project_wise_items[project.name].append({
                 "uuid": item.uuid,
                 "item_name": item.name,
-                "project_name": project.name,
                 "estimation": estimation,
                 "current_expense": current_expense
             })
 
-        # Sort by estimation in descending order
-        items_analytics.sort(key=lambda x: x["estimation"], reverse=True)
-        
-        # Prepare response
-        response_data = {
-            "items_analytics": items_analytics
-        }
+        # Apply sorting to each project's items
+        items_analytics = []
+        for project_name, items in project_wise_items.items():
+            sorted_items = sorted(
+                items,
+                key=lambda x: (
+                    0 if x["current_expense"] > 0 or x["estimation"] > 0 else 1,
+                    -x["current_expense"],
+                    -x["estimation"]
+                )
+            )
+            items_analytics.append({
+                "project_name": project_name,
+                "items": sorted_items
+            })
 
         return AdminPanelResponse(
-            data=response_data,
+            data={"items_analytics": items_analytics},
             message="Item analytics fetched successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         logger.error(f"Error in get_all_item_analytics API: {str(e)}")
         return AdminPanelResponse(
@@ -3471,6 +3636,122 @@ def get_all_item_analytics(
             status_code=500
         ).model_dump()
 
+
+# @admin_app.get(
+#     "/projects/{project_id}/item-analytics",
+#     tags=["Analytics"],
+#     description="Get item analytics data for a specific project (estimation vs current expense)"
+# )
+# def get_project_item_analytics(
+#     project_id: UUID,
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """
+#     Get analytics data for items in a specific project.
+#     Returns item name, estimation (balance added when assigned), and current expense (sum of transferred payments).
+#     """
+#     try:
+#         # Check if user has permission
+#         if current_user.role not in [
+#             UserRole.SUPER_ADMIN.value,
+#             UserRole.ADMIN.value,
+#             UserRole.PROJECT_MANAGER.value
+#         ]:
+#             return AdminPanelResponse(
+#                 data=None,
+#                 message="Only admin, super admin, or project manager can access item analytics",
+#                 status_code=403
+#             ).model_dump()
+
+#         # Check if project exists
+#         project = db.query(Project).filter(Project.uuid == project_id, Project.is_deleted.is_(False)).first()
+#         if not project:
+#             return AdminPanelResponse(
+#                 data=None,
+#                 message="Project not found",
+#                 status_code=404
+#             ).model_dump()
+
+#         # Get all unique items mapped to this project with their balances
+#         # Use a subquery to handle potential duplicates by taking the most recent mapping
+#         subquery = (
+#             db.query(
+#                 ProjectItemMap.project_id,
+#                 ProjectItemMap.item_id,
+#                 func.max(ProjectItemMap.id).label('max_id')
+#             )
+#             .filter(ProjectItemMap.project_id == project_id)
+#             .group_by(ProjectItemMap.project_id, ProjectItemMap.item_id)
+#             .subquery()
+#         )
+
+#         project_items = (
+#             db.query(ProjectItemMap, Item)
+#             .join(subquery, ProjectItemMap.id == subquery.c.max_id)
+#             .join(Item, ProjectItemMap.item_id == Item.uuid)
+#             .all()
+#         )
+
+#         if not project_items:
+#             # Return empty analytics if no items found
+#             return AdminPanelResponse(
+#                 data={
+#                     "project_id": str(project_id),
+#                     "project_name": project.name,
+#                     "items_analytics": []
+#                 },
+#                 message="No items found for this project",
+#                 status_code=200
+#             ).model_dump()
+
+#         # Prepare items analytics
+#         items_analytics = []
+#         for project_item, item in project_items:
+#             # Get estimation (balance added when assigned)
+#             estimation = project_item.item_balance or 0.0
+
+#             # Get current expense (sum of transferred payments for this item)
+#             # Use a more direct approach to get the sum of payment amounts
+#             current_expense = (
+#                 db.query(func.sum(Payment.amount))
+#                 .join(PaymentItem, Payment.uuid == PaymentItem.payment_id)
+#                 .filter(
+#                     PaymentItem.item_id == item.uuid,
+#                     Payment.project_id == project_id,
+#                     Payment.status == PaymentStatus.TRANSFERRED.value,
+#                     Payment.is_deleted.is_(False),
+#                     PaymentItem.is_deleted.is_(False)
+#                 )
+#                 .scalar() or 0.0
+#             )
+
+#             items_analytics.append({
+#                 "uuid": item.uuid,
+#                 "item_name": item.name,
+#                 "estimation": estimation,
+#                 "current_expense": current_expense
+#             })
+
+#         # Prepare response
+#         response_data = {
+#             "project_id": str(project_id),
+#             "project_name": project.name,
+#             "items_analytics": items_analytics
+#         }
+
+#         return AdminPanelResponse(
+#             data=response_data,
+#             message="Item analytics fetched successfully",
+#             status_code=200
+#         ).model_dump()
+#     except Exception as e:
+#         logger.error(f"Error in get_project_item_analytics API: {str(e)}")
+#         return AdminPanelResponse(
+#             data=None,
+#             message=f"An error occurred while fetching item analytics: {str(e)}",
+#             status_code=500
+#         ).model_dump()
 
 @admin_app.get(
     "/projects/{project_id}/item-analytics",
@@ -3509,7 +3790,6 @@ def get_project_item_analytics(
             ).model_dump()
 
         # Get all unique items mapped to this project with their balances
-        # Use a subquery to handle potential duplicates by taking the most recent mapping
         subquery = (
             db.query(
                 ProjectItemMap.project_id,
@@ -3529,7 +3809,6 @@ def get_project_item_analytics(
         )
 
         if not project_items:
-            # Return empty analytics if no items found
             return AdminPanelResponse(
                 data={
                     "project_id": str(project_id),
@@ -3543,11 +3822,8 @@ def get_project_item_analytics(
         # Prepare items analytics
         items_analytics = []
         for project_item, item in project_items:
-            # Get estimation (balance added when assigned)
             estimation = project_item.item_balance or 0.0
 
-            # Get current expense (sum of transferred payments for this item)
-            # Use a more direct approach to get the sum of payment amounts
             current_expense = (
                 db.query(func.sum(Payment.amount))
                 .join(PaymentItem, Payment.uuid == PaymentItem.payment_id)
@@ -3568,11 +3844,23 @@ def get_project_item_analytics(
                 "current_expense": current_expense
             })
 
-        # Prepare response
+        # Sort:
+        # - first by whether it has any value (non-zero current_expense or estimation)
+        # - then by current_expense desc
+        # - then by estimation desc
+        sorted_items_analytics = sorted(
+            items_analytics,
+            key=lambda x: (
+                0 if x["current_expense"] > 0 or x["estimation"] > 0 else 1,  # 0 = has value, 1 = both zero
+                -x["current_expense"],
+                -x["estimation"]
+            )
+        )
+
         response_data = {
             "project_id": str(project_id),
             "project_name": project.name,
-            "items_analytics": items_analytics
+            "items_analytics": sorted_items_analytics
         }
 
         return AdminPanelResponse(
@@ -3580,6 +3868,7 @@ def get_project_item_analytics(
             message="Item analytics fetched successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         logger.error(f"Error in get_project_item_analytics API: {str(e)}")
         return AdminPanelResponse(
@@ -3628,7 +3917,7 @@ def get_project_payment_analytics(
         # Get all payments for this project
         payments = db.query(Payment).filter(
             Payment.project_id == project_id,
-            Payment.is_deleted.is_(False)
+            Payment.is_deleted.is_(False),
         ).all()
 
         if not payments:
@@ -4201,6 +4490,22 @@ def get_project_invoice_analytics(
                 InvoicePayment.is_deleted.is_(False)
             ).order_by(InvoicePayment.payment_date.desc()).all()
 
+            # Prepare list of all payments for this invoice
+            payment_list = [
+                {
+                    "amount": payment.amount,
+                    "date": payment.payment_date.strftime("%Y-%m-%d") if payment.payment_date else None
+                }
+                for payment in payments
+            ]
+
+            # Determine latest payment date
+            latest_payment_date_str = None
+            if payments:
+                latest_payment_date = max(payment.payment_date for payment in payments)
+                latest_payment_date_str = latest_payment_date.strftime("%Y-%m-%d")
+
+
             # Determine is_late flag
             is_late = None
             if project.end_date:
@@ -4227,6 +4532,7 @@ def get_project_invoice_analytics(
                 invoice_due_date=invoice.due_date.strftime("%Y-%m-%d"),
                 payment_status=invoice.payment_status,
                 total_paid_amount=invoice.total_paid_amount,
+                payment_date=payment_list,
                 is_late=is_late
             ))
 
@@ -4235,7 +4541,7 @@ def get_project_invoice_analytics(
             project_id=project_id,
             project_name=project.name,
             project_end_date=project.end_date.strftime("%Y-%m-%d") if project.end_date else None,
-            invoices=invoice_analytics
+            invoices=invoice_analytics, 
         )
 
         return ProjectServiceResponse(
@@ -4287,9 +4593,12 @@ def get_dashboard_project_stats(
         recent_items = db.query(Item).filter(Item.created_at >= last_31_days).count()
 
         # ───── Total Revenue ─────
-        total_revenue = db.query(func.coalesce(func.sum(InvoicePayment.amount), 0)).scalar()
+        total_revenue = db.query(func.coalesce(func.sum(InvoicePayment.amount), 0)).filter(
+            InvoicePayment.is_deleted.is_(False)
+        ).scalar()
         recent_revenue = db.query(func.coalesce(func.sum(InvoicePayment.amount), 0)).filter(
-            InvoicePayment.payment_date >= last_31_days
+            InvoicePayment.payment_date >= last_31_days,
+            InvoicePayment.is_deleted.is_(False)
         ).scalar()
 
         # Growth %
