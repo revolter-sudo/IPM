@@ -1,5 +1,6 @@
 import os
 import traceback
+import time
 from typing import Optional, List
 from uuid import UUID
 import uuid
@@ -70,8 +71,12 @@ import json
 from collections import defaultdict
 
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from src.app.utils.logging_config import get_logger, get_database_logger, get_performance_logger
+
+# Use enhanced logging system
+logger = get_logger(__name__)
+db_logger = get_database_logger()
+perf_logger = get_performance_logger()
 
 payment_router = APIRouter(prefix="/payments", tags=["Payments"])
 
@@ -1430,6 +1435,8 @@ def approve_payment(
       payment.status.
     """
     try:
+        start_time = time.time()
+
         # 1) Check user role
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
@@ -1490,148 +1497,151 @@ def approve_payment(
 
         # If the status is 'transferred' (either new or existing), do the transfer logic
         if status == "transferred":
-            # Prevent re-processing already transferred payments
-            if payment.status == "transferred":
-                logger.warning(f"Payment {payment.uuid} already transferred. Skipping redundant transfer.")
-            else:
-                # Your transfer logic starts here
-                if not bank_uuid:
-                    return PaymentServiceResponse(
-                        data=None,
-                        message="Must provide bank_uuid when transferring payment.",
-                        status_code=400
-                    ).model_dump()
+            # We require the bank_uuid param for deduction
+            if not bank_uuid:
+                return PaymentServiceResponse(
+                    data=None,
+                    message="Must provide bank_uuid when transferring payment.",
+                    status_code=400
+                ).model_dump()
 
-                payment.transferred_date = datetime.now()
+            payment.transferred_date = datetime.now()
 
-                # For self-payment logic
-                if payment.self_payment:
-                    logger.info(f"Processing self payment {payment.uuid} for user {payment.created_by}")
+            # For self-payment logic
+            if payment.self_payment:
+                self_payment_start = time.time()
+                db_logger.info(f"Processing self payment {payment.uuid} for user {payment.created_by}")
 
-                    user_balance = db.query(KhatabookBalance).filter(
-                        KhatabookBalance.user_uuid == payment.created_by
-                    ).first()
-
-                    old_balance = 0.0
-                    if not user_balance:
-                        logger.info(f"Creating new khatabook balance for user {payment.created_by}")
-                        user_balance = KhatabookBalance(
-                            user_uuid=payment.created_by,
-                            balance=0.0
-                        )
-                        db.add(user_balance)
-                    else:
-                        old_balance = user_balance.balance
-                        logger.info(f"User {payment.created_by} current balance: {old_balance}")
-
-                    # Increase the user's khatabook balance
-                    user_balance.balance += payment.amount
-                    new_balance = user_balance.balance
-
-                    # Flush to ensure balance update is persisted in this transaction
-                    db.flush()
-
-                    logger.info(
-                        f"Updated user {payment.created_by} balance from "
-                        f"{old_balance} to {new_balance} (added {payment.amount})"
-                    )
-
-                    # Get the last khatabook entry's balance_after_entry to
-                    # maintain consistency
-                    last_entry = db.query(Khatabook).filter(
-                        Khatabook.created_by == payment.created_by,
-                        Khatabook.is_deleted.is_(False)
-                    ).order_by(Khatabook.created_at.desc()).first()
-
-                    # Calculate balance_after_entry as last entry's balance +
-                    # payment amount
-                    last_balance_after_entry = (
-                        last_entry.balance_after_entry if last_entry else 0.0
-                    )
-                    balance_after_entry = last_balance_after_entry + payment.amount
-
-                    logger.info(
-                        f"Calculated balance_after_entry: "
-                        f"{last_balance_after_entry} + {payment.amount} = "
-                        f"{balance_after_entry}"
-                    )
-
-                    # Create khatabook entry for the self payment with correct
-                    # balance
-                    khatabook_created = create_khatabook_entry_for_self_payment(
-                        payment, db, balance_after_entry
-                    )
-                    if not khatabook_created:
-                        logger.warning(
-                            f"Failed to create khatabook entry for self payment "
-                            f"{payment.uuid}"
-                        )
-                    else:
-                        logger.info(
-                            f"Successfully created khatabook entry for self "
-                            f"payment {payment.uuid}"
-                        )
-
-                # Deduct from the chosen bank
-                balance_obj = db.query(BalanceDetail).filter(
-                    BalanceDetail.uuid == bank_uuid
+                user_balance = db.query(KhatabookBalance).filter(
+                    KhatabookBalance.user_uuid == payment.created_by
                 ).first()
-                if not balance_obj:
-                    return PaymentServiceResponse(
-                        data=None,
-                        message="No bank found for given bank_uuid.",
-                        status_code=404
-                    ).model_dump()
 
-                balance_obj.balance -= payment.amount
+                old_balance = 0.0
+                if not user_balance:
+                    db_logger.info(f"Creating new khatabook balance for user {payment.created_by}")
+                    user_balance = KhatabookBalance(
+                        user_uuid=payment.created_by,
+                        balance=0.0
+                    )
+                    db.add(user_balance)
+                else:
+                    old_balance = user_balance.balance
+                    db_logger.info(f"User {payment.created_by} current balance: {old_balance}")
 
-                # Record in Payment which bank/cash account was used
-                payment.deducted_from_bank_uuid = bank_uuid
+                # Increase the user's khatabook balance
+                user_balance.balance += payment.amount
+                new_balance = user_balance.balance
 
-                # Add to project's actual balance
-                project = db.query(Project).filter(Project.uuid == payment.project_id).first()
-                if project:
-                    project.actual_balance += payment.amount
-                    # Create project balance entry for actual balance
-                    create_project_balance_entry(
-                        db=db,
-                        project_id=payment.project_id,
-                        adjustment=payment.amount,
-                        description=f"Payment deduction for payment {payment.uuid}",
-                        current_user=current_user,
-                        balance_type="actual"
+                # Flush to ensure balance update is persisted in this transaction
+                db.flush()
+
+                db_logger.info(
+                    f"Updated user {payment.created_by} balance from "
+                    f"{old_balance} to {new_balance} (added {payment.amount})"
+                )
+
+                # Get the last khatabook entry's balance_after_entry to
+                # maintain consistency
+                last_entry = db.query(Khatabook).filter(
+                    Khatabook.created_by == payment.created_by,
+                    Khatabook.is_deleted.is_(False)
+                ).order_by(Khatabook.created_at.desc()).first()
+
+                # Calculate balance_after_entry as last entry's balance +
+                # payment amount
+                last_balance_after_entry = (
+                    last_entry.balance_after_entry if last_entry else 0.0
+                )
+                balance_after_entry = last_balance_after_entry + payment.amount
+
+                db_logger.info(
+                    f"Calculated balance_after_entry: "
+                    f"{last_balance_after_entry} + {payment.amount} = "
+                    f"{balance_after_entry}"
+                )
+
+                # Create khatabook entry for the self payment with correct
+                # balance
+                db_logger.info(f"Attempting to create khatabook entry for self payment {payment.uuid} with balance_after_entry: {balance_after_entry}")
+                khatabook_created = create_khatabook_entry_for_self_payment(
+                    payment, db, balance_after_entry
+                )
+                if not khatabook_created:
+                    db_logger.error(
+                        f"Failed to create khatabook entry for self payment "
+                        f"{payment.uuid}. Payment person: {payment.person}, "
+                        f"Self payment flag: {payment.self_payment}"
+                    )
+                else:
+                    db_logger.info(
+                        f"Successfully created khatabook entry for self "
+                        f"payment {payment.uuid}"
                     )
 
-                # Deduct from item balances if items are associated with this payment
-                payment_items = db.query(PaymentItem).filter(
-                    PaymentItem.payment_id == payment.uuid,
-                    PaymentItem.is_deleted.is_(False)
-                ).all()
+                # Log self-payment processing time
+                self_payment_time = time.time() - self_payment_start
+                perf_logger.info(f"Self payment processing took {self_payment_time:.4f}s")
 
-                for payment_item in payment_items:
-                    item = db.query(ProjectItemMap).filter(
-                        ProjectItemMap.project_id == payment.project_id,
-                        ProjectItemMap.item_id == payment_item.item_id
-                    ).first()
+            # Deduct from the chosen bank
+            balance_obj = db.query(BalanceDetail).filter(
+                BalanceDetail.uuid == bank_uuid
+            ).first()
+            if not balance_obj:
+                return PaymentServiceResponse(
+                    data=None,
+                    message="No bank found for given bank_uuid.",
+                    status_code=404
+                ).model_dump()
 
-                    if item:
-                        # Deduct the full payment amount from each item's balance
-                        # Initialize item_balance to 0 if it's None
-                        if item.item_balance is None:
-                            item.item_balance = 0
+            balance_obj.balance -= payment.amount
 
-                        # Update item balance by deducting the full payment amount
-                        item.item_balance -= payment.amount
+            # Record in Payment which bank/cash account was used
+            payment.deducted_from_bank_uuid = bank_uuid
 
-                        # Log the deduction
-                        log_entry = Log(
-                            uuid=str(uuid4()),
-                            entity="ProjectItemMap",
-                            action="DeductBalance",
-                            entity_id=item.uuid,
-                            performed_by=current_user.uuid,
-                        )
-                        db.add(log_entry)
+            # Add to project's actual balance
+            project = db.query(Project).filter(Project.uuid == payment.project_id).first()
+            if project:
+                project.actual_balance += payment.amount
+                # Create project balance entry for actual balance
+                create_project_balance_entry(
+                    db=db,
+                    project_id=payment.project_id,
+                    adjustment=payment.amount,
+                    description=f"Payment deduction for payment {payment.uuid}",
+                    current_user=current_user,
+                    balance_type="actual"
+                )
+
+            # Deduct from item balances if items are associated with this payment
+            payment_items = db.query(PaymentItem).filter(
+                PaymentItem.payment_id == payment.uuid,
+                PaymentItem.is_deleted.is_(False)
+            ).all()
+
+            for payment_item in payment_items:
+                item = db.query(ProjectItemMap).filter(
+                    ProjectItemMap.project_id == payment.project_id,
+                    ProjectItemMap.item_id == payment_item.item_id
+                ).first()
+
+                if item:
+                    # Deduct the full payment amount from each item's balance
+                    # Initialize item_balance to 0 if it's None
+                    if item.item_balance is None:
+                        item.item_balance = 0
+
+                    # Update item balance by deducting the full payment amount
+                    item.item_balance -= payment.amount
+
+                    # Log the deduction
+                    log_entry = Log(
+                        uuid=str(uuid4()),
+                        entity="ProjectItemMap",
+                        action="DeductBalance",
+                        entity_id=item.uuid,
+                        performed_by=current_user.uuid,
+                    )
+                    db.add(log_entry)
 
         # 6) Handle optional file uploads
         if files:
