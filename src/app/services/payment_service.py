@@ -2208,7 +2208,7 @@ def get_all_persons(
                 "upi_number": person.upi_number,
                 "is_primary": is_primary,
                 "parent_account": parent_obj,
-                "child_accounts": children or []
+                "secondary_accounts": children or []
             }
 
         for parent in filtered_persons:
@@ -2263,6 +2263,74 @@ def get_all_persons(
             data=None,
             message=f"An Error Occurred: {str(e)}",
             status_code=500
+        ).model_dump()
+
+@payment_router.put(
+    "/{person_uuid}/remove-from-parent",
+    tags=["Payments"],
+    status_code=200,
+    description="Removes the parent-child link for a given child person, making them an individual (no parent)."
+)
+def remove_child_from_parent(
+    person_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    Detach a child from its parent, making it an individual person.
+    Only admin/superadmin can perform this action.
+    """
+    if isinstance(current_user, dict):
+        return current_user
+
+    if current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]:
+        return PaymentServiceResponse(
+            data=None,
+            status_code=403,
+            message="Only admin and super admin can perform this action"
+        ).model_dump()
+
+    try:
+        # Fetch child person
+        child = db.query(Person).filter(Person.uuid == person_uuid, Person.is_deleted.is_(False)).first()
+        if not child:
+            return PaymentServiceResponse(
+                data=None,
+                status_code=404,
+                message="Child person not found"
+            ).model_dump()
+        if not child.parent_id:
+            return PaymentServiceResponse(
+                data=None,
+                status_code=400,
+                message="This person has no parent to detach from"
+            ).model_dump()
+
+        prev_parent_id = child.parent_id  # For audit, if needed
+
+        # Remove parent relationship
+        child.parent_id = None
+        db.commit()
+        db.refresh(child)
+
+        return PaymentServiceResponse(
+            data={
+                "uuid": str(child.uuid),
+                "name": child.name,
+                "parent_id": child.parent_id,
+                "previous_parent_id": str(prev_parent_id),
+                "message": "Person is now independent (no parent)."
+            },
+            status_code=200,
+            message="Child successfully detached from parent."
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while detaching child: {str(e)}"
         ).model_dump()
 
 
