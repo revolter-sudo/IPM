@@ -1097,7 +1097,7 @@ def get_all_payments(
               .filter(
                   Payment.is_deleted.is_(False),
                   Payment.status.notin_(
-                      ["transferred", "declined"])  # exclude first!
+                      [PaymentStatus.TRANSFERRED.value, PaymentStatus.DECLINED.value, PaymentStatus.KHATABOOK.value])  # exclude transferred, declined, and khatabook
             )
             .order_by(Payment.created_at.desc())
         )

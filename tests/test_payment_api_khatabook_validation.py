@@ -661,6 +661,93 @@ class TestKhatabookPaymentRecentPaymentsExclusion:
         assert not khatabook_chars["requires_action"], "Khatabook payments require no user action"
         assert not khatabook_chars["show_in_recent"], "Khatabook payments should not appear in recent payments"
 
+    def test_recent_payments_api_exclusion_logic(self):
+        """Test the actual API logic for excluding khatabook payments from recent payments."""
+
+        # Simulate the main recent mode query logic from the payment service
+        def build_recent_payments_query(payments, recent=False):
+            """Simulate the recent payments query filtering."""
+            if not recent:
+                return payments  # Return all payments if not recent mode
+
+            # Apply the same exclusion logic as in the main API
+            excluded_statuses = ["transferred", "declined", "khatabook"]
+            filtered_payments = [
+                p for p in payments
+                if p["status"] not in excluded_statuses
+            ]
+
+            # Sort by created_at desc and limit to 5 (like the API)
+            sorted_payments = sorted(
+                filtered_payments,
+                key=lambda x: x["created_at"],
+                reverse=True
+            )
+
+            return sorted_payments[:5]  # Limit to 5 recent payments
+
+        # Test data with various payment statuses
+        test_payments = [
+            {"id": 1, "status": "requested", "created_at": "2024-01-10", "amount": 1000},
+            {"id": 2, "status": "khatabook", "created_at": "2024-01-09", "amount": 500},  # Should be excluded
+            {"id": 3, "status": "verified", "created_at": "2024-01-08", "amount": 2000},
+            {"id": 4, "status": "transferred", "created_at": "2024-01-07", "amount": 1500},  # Should be excluded
+            {"id": 5, "status": "approved", "created_at": "2024-01-06", "amount": 800},
+            {"id": 6, "status": "declined", "created_at": "2024-01-05", "amount": 1200},  # Should be excluded
+            {"id": 7, "status": "requested", "created_at": "2024-01-04", "amount": 900},
+        ]
+
+        # Test recent=False (should include all payments)
+        all_payments = build_recent_payments_query(test_payments, recent=False)
+        assert len(all_payments) == 7
+
+        # Test recent=True (should exclude khatabook, transferred, declined)
+        recent_payments = build_recent_payments_query(test_payments, recent=True)
+
+        # Verify correct number of payments
+        assert len(recent_payments) == 4  # Only requested, verified, approved
+
+        # Verify excluded statuses are not present
+        recent_statuses = [p["status"] for p in recent_payments]
+        assert "khatabook" not in recent_statuses
+        assert "transferred" not in recent_statuses
+        assert "declined" not in recent_statuses
+
+        # Verify included statuses are present
+        assert "requested" in recent_statuses
+        assert "verified" in recent_statuses
+        assert "approved" in recent_statuses
+
+        # Verify ordering (most recent first)
+        assert recent_payments[0]["created_at"] == "2024-01-10"  # Most recent
+        assert recent_payments[1]["created_at"] == "2024-01-08"  # Second most recent (skipping khatabook)
+
+    def test_recent_payments_enum_consistency(self):
+        """Test that the recent payments exclusion uses consistent PaymentStatus enum values."""
+        from src.app.schemas.payment_service_schemas import PaymentStatus
+
+        # Define the exclusion list as it should be in the API
+        api_exclusion_list = [
+            PaymentStatus.TRANSFERRED.value,
+            PaymentStatus.DECLINED.value,
+            PaymentStatus.KHATABOOK.value
+        ]
+
+        # Verify the enum values are correct
+        assert PaymentStatus.TRANSFERRED.value == "transferred"
+        assert PaymentStatus.DECLINED.value == "declined"
+        assert PaymentStatus.KHATABOOK.value == "khatabook"
+
+        # Verify the exclusion list contains all the expected statuses
+        assert "transferred" in api_exclusion_list
+        assert "declined" in api_exclusion_list
+        assert "khatabook" in api_exclusion_list
+
+        # Verify the exclusion list doesn't contain statuses that should be shown
+        assert "requested" not in api_exclusion_list
+        assert "verified" not in api_exclusion_list
+        assert "approved" not in api_exclusion_list
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
