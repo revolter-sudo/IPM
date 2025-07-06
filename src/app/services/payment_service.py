@@ -253,6 +253,14 @@ def update_payment_amount(
             status_code=404
         ).model_dump()
 
+    # Prevent editing of khatabook payments
+    if payment.status == "khatabook":
+        return PaymentServiceResponse(
+            message="Khatabook payments cannot be edited.",
+            data=None,
+            status_code=400
+        ).model_dump()
+
     # If the new amount is different from the old, record it in PaymentEditHistory
     old_amount = payment.amount
     new_amount = payload.amount
@@ -316,14 +324,18 @@ def get_parent_account_data(person_id: UUID, db):
         ).model_dump()
 
 
-def can_edit_payment(status_history: List[str], current_user_role: str) -> bool:
+def can_edit_payment(status_history: List[str], current_user_role: str, payment_status: str = None) -> bool:
+    # Khatabook payments cannot be edited by anyone
+    if payment_status == "khatabook" or "khatabook" in status_history:
+        return False
+
     # SiteEngineer and SubContractor can never edit
     if current_user_role in [UserRole.SITE_ENGINEER, UserRole.SUB_CONTRACTOR]:
         return False
 
-    # Project Manager, Admin, Accountant, SuperAdmin can edit in any status except transferred or declined
+    # Project Manager, Admin, Accountant, SuperAdmin can edit in any status except transferred, declined, or khatabook
     if current_user_role in [UserRole.PROJECT_MANAGER, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
-        if any(status in [PaymentStatus.TRANSFERRED, PaymentStatus.DECLINED] for status in status_history):
+        if any(status in [PaymentStatus.TRANSFERRED, PaymentStatus.DECLINED, PaymentStatus.KHATABOOK] for status in status_history):
             return False
         return True
 
@@ -496,17 +508,60 @@ def apply_role_restrictions(query, current_user: User, db: Session = None):
     - Super Admin, Admin, Accountant: see all payments
     - Site Engineer, Sub Contractor: see only payments they created
     - Project Manager: see only payments from projects they're assigned to
+
+    Special handling for khatabook payments:
+    - Only visible to: creator, project manager of the project, admin, accountant, super admin
     """
+    from sqlalchemy import or_, and_
+
     if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
+        # Site Engineers and Sub Contractors can only see:
+        # 1. Regular payments they created
+        # 2. Khatabook payments they created
         query = query.filter(Payment.created_by == current_user.uuid)
+
     elif current_user.role == UserRole.PROJECT_MANAGER.value and db is not None:
-        # Project Managers can only see payments from projects they're assigned to
+        # Project Managers can see:
+        # 1. Regular payments from projects they're assigned to
+        # 2. Khatabook payments from projects they're assigned to
         project_ids = get_user_project_ids(db, current_user.uuid)
         if project_ids:
-            query = query.filter(Payment.project_id.in_(project_ids))
+            query = query.filter(
+                or_(
+                    # Regular payments from their projects
+                    and_(
+                        Payment.project_id.in_(project_ids),
+                        Payment.status != "khatabook"
+                    ),
+                    # Khatabook payments from their projects
+                    and_(
+                        Payment.project_id.in_(project_ids),
+                        Payment.status == "khatabook"
+                    )
+                )
+            )
         else:
             # If not assigned to any projects, don't show any payments
             query = query.filter(False)
+
+    elif current_user.role in [
+        UserRole.ADMIN.value,
+        UserRole.ACCOUNTANT.value,
+        UserRole.SUPER_ADMIN.value
+    ]:
+        # Admin, Accountant, Super Admin can see all payments including khatabook
+        pass  # No additional filtering needed
+
+    else:
+        # For any other roles, apply restrictive filtering
+        # They can only see regular payments they created (no khatabook access)
+        query = query.filter(
+            and_(
+                Payment.created_by == current_user.uuid,
+                Payment.status != "khatabook"
+            )
+        )
+
     return query
 
 
@@ -787,7 +842,7 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
                 payment_history=data["edits"]
             ).model_dump(),
             "priority_name": priority_name,
-            "edit": can_edit_payment(status_list, current_user.role),
+            "edit": can_edit_payment(status_list, current_user.role, payment.status),
             "decline_remark": payment.decline_remark,
             "approval_files": approval_files,
             # ---------- NEW KEYS ----------

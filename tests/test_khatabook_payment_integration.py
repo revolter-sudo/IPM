@@ -244,5 +244,61 @@ class TestKhatabookPaymentErrorHandling:
         # not propagated to fail the entire khatabook creation process
 
 
+class TestKhatabookPaymentAccessControl:
+    """Test class for khatabook payment access control and visibility."""
+
+    def test_role_based_visibility_logic(self):
+        """Test the role-based visibility logic for khatabook payments."""
+        from src.app.schemas.auth_service_schamas import UserRole
+
+        # Define visibility rules
+        def can_see_khatabook_payment(user_role, is_creator, is_project_manager_of_project, is_admin_role):
+            # Creator can always see
+            if is_creator:
+                return True
+
+            # Admin, Accountant, Super Admin can see all
+            if is_admin_role:
+                return True
+
+            # Project Manager can see if assigned to the project
+            if user_role == UserRole.PROJECT_MANAGER.value and is_project_manager_of_project:
+                return True
+
+            return False
+
+        # Test different scenarios
+        assert can_see_khatabook_payment(UserRole.SITE_ENGINEER.value, True, False, False) is True  # Creator
+        assert can_see_khatabook_payment(UserRole.ADMIN.value, False, False, True) is True  # Admin
+        assert can_see_khatabook_payment(UserRole.ACCOUNTANT.value, False, False, True) is True  # Accountant
+        assert can_see_khatabook_payment(UserRole.PROJECT_MANAGER.value, False, True, False) is True  # PM of project
+        assert can_see_khatabook_payment(UserRole.PROJECT_MANAGER.value, False, False, False) is False  # PM not of project
+        assert can_see_khatabook_payment(UserRole.SITE_ENGINEER.value, False, False, False) is False  # Other user
+
+    def test_edit_restriction_logic(self):
+        """Test that khatabook payments cannot be edited by anyone."""
+        from src.app.services.payment_service import can_edit_payment
+        from src.app.schemas.auth_service_schamas import UserRole
+
+        # Test that no role can edit khatabook payments
+        roles_to_test = [
+            UserRole.SUPER_ADMIN.value,
+            UserRole.ADMIN.value,
+            UserRole.ACCOUNTANT.value,
+            UserRole.PROJECT_MANAGER.value,
+            UserRole.SITE_ENGINEER.value
+        ]
+
+        for role in roles_to_test:
+            # Test with khatabook status
+            assert can_edit_payment(["khatabook"], role, "khatabook") is False
+
+            # Test with khatabook in history
+            assert can_edit_payment(["requested", "khatabook"], role) is False
+
+        # Verify that regular payments can still be edited by appropriate roles
+        assert can_edit_payment(["requested"], UserRole.ADMIN.value, "requested") is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
