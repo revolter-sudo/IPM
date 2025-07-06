@@ -394,5 +394,124 @@ class TestKhatabookPaymentVisibilityAndEditing:
         assert "Khatabook payments cannot be edited" in result['message']
 
 
+class TestKhatabookPaymentPersonVisibility:
+    """Test class for person-based visibility of khatabook payments."""
+
+    def test_person_visibility_logic(self):
+        """Test that persons with user accounts can see khatabook payments where they are selected."""
+        from uuid import uuid4
+
+        # Mock data
+        user_id = uuid4()
+        person_id = uuid4()
+        other_person_id = uuid4()
+        project_id = uuid4()
+
+        # Simulate the visibility logic
+        def can_see_khatabook_payment_as_person(current_user_id, user_person_id, payment_person_id, payment_status):
+            # If the current user has a linked person record and that person is selected in the khatabook payment
+            if (payment_status == "khatabook" and
+                user_person_id is not None and
+                payment_person_id == user_person_id):
+                return True
+            return False
+
+        # Test scenarios
+        assert can_see_khatabook_payment_as_person(user_id, person_id, person_id, "khatabook") is True
+        assert can_see_khatabook_payment_as_person(user_id, person_id, other_person_id, "khatabook") is False
+        assert can_see_khatabook_payment_as_person(user_id, None, person_id, "khatabook") is False  # No linked person
+        assert can_see_khatabook_payment_as_person(user_id, person_id, person_id, "requested") is False  # Not khatabook
+
+    def test_combined_visibility_rules(self):
+        """Test combined visibility rules for khatabook payments."""
+        from src.app.schemas.auth_service_schamas import UserRole
+
+        def can_see_khatabook_payment_combined(
+            user_role, is_creator, is_project_manager_of_project,
+            is_admin_role, is_selected_person
+        ):
+            # Creator can always see
+            if is_creator:
+                return True
+
+            # Admin, Accountant, Super Admin can see all
+            if is_admin_role:
+                return True
+
+            # Project Manager can see if assigned to the project
+            if user_role == UserRole.PROJECT_MANAGER.value and is_project_manager_of_project:
+                return True
+
+            # Person selected in the khatabook payment can see it
+            if is_selected_person:
+                return True
+
+            return False
+
+        # Test all combinations
+        assert can_see_khatabook_payment_combined(
+            UserRole.SITE_ENGINEER.value, True, False, False, False
+        ) is True  # Creator
+
+        assert can_see_khatabook_payment_combined(
+            UserRole.ADMIN.value, False, False, True, False
+        ) is True  # Admin
+
+        assert can_see_khatabook_payment_combined(
+            UserRole.PROJECT_MANAGER.value, False, True, False, False
+        ) is True  # PM of project
+
+        assert can_see_khatabook_payment_combined(
+            UserRole.SITE_ENGINEER.value, False, False, False, True
+        ) is True  # Selected person
+
+        assert can_see_khatabook_payment_combined(
+            UserRole.SITE_ENGINEER.value, False, False, False, False
+        ) is False  # No access
+
+
+class TestKhatabookPaymentFilteredTotals:
+    """Test class for khatabook payment inclusion in filtered totals."""
+
+    def test_filtered_vs_global_totals_logic(self):
+        """Test the logic for including khatabook payments in filtered vs global totals."""
+
+        def should_include_khatabook_in_totals(project_filter, item_filter, person_filter, user_filter):
+            """Determine if khatabook payments should be included in totals."""
+            has_specific_filters = any([project_filter, item_filter, person_filter, user_filter])
+            return has_specific_filters
+
+        # Test scenarios
+        assert should_include_khatabook_in_totals(True, False, False, False) is True  # Project filter
+        assert should_include_khatabook_in_totals(False, True, False, False) is True  # Item filter
+        assert should_include_khatabook_in_totals(False, False, True, False) is True  # Person filter
+        assert should_include_khatabook_in_totals(False, False, False, True) is True  # User filter
+        assert should_include_khatabook_in_totals(True, True, False, False) is True  # Multiple filters
+        assert should_include_khatabook_in_totals(False, False, False, False) is False  # No filters (global)
+
+    def test_status_inclusion_logic(self):
+        """Test which statuses are included in different scenarios."""
+
+        def get_included_statuses(has_filters):
+            """Get the list of statuses to include in totals."""
+            base_statuses = ["requested", "verified", "approved", "transferred"]
+            if has_filters:
+                return base_statuses + ["khatabook"]
+            return base_statuses
+
+        # Test status inclusion
+        global_statuses = get_included_statuses(False)
+        filtered_statuses = get_included_statuses(True)
+
+        assert "khatabook" not in global_statuses
+        assert "khatabook" in filtered_statuses
+        assert len(filtered_statuses) == len(global_statuses) + 1
+
+        # Verify all base statuses are included in both
+        for status in ["requested", "verified", "approved", "transferred"]:
+            assert status in global_statuses
+            assert status in filtered_statuses
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

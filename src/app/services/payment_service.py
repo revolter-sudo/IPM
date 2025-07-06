@@ -510,38 +510,95 @@ def apply_role_restrictions(query, current_user: User, db: Session = None):
     - Project Manager: see only payments from projects they're assigned to
 
     Special handling for khatabook payments:
-    - Only visible to: creator, project manager of the project, admin, accountant, super admin
+    - Only visible to: creator, project manager of the project, admin, accountant, super admin,
+      and the person selected in the khatabook payment (if they have a user account)
     """
     from sqlalchemy import or_, and_
+    from src.app.database.models import Person
 
     if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-        # Site Engineers and Sub Contractors can only see:
+        # Site Engineers and Sub Contractors can see:
         # 1. Regular payments they created
         # 2. Khatabook payments they created
-        query = query.filter(Payment.created_by == current_user.uuid)
+        # 3. Khatabook payments where they are the selected person
+        if db is not None:
+            # Get the person record linked to this user (if any)
+            user_person = db.query(Person).filter(
+                Person.user_id == current_user.uuid,
+                Person.is_deleted.is_(False)
+            ).first()
+
+            if user_person:
+                query = query.filter(
+                    or_(
+                        # Regular payments they created
+                        and_(
+                            Payment.created_by == current_user.uuid,
+                            Payment.status != "khatabook"
+                        ),
+                        # Khatabook payments they created
+                        and_(
+                            Payment.created_by == current_user.uuid,
+                            Payment.status == "khatabook"
+                        ),
+                        # Khatabook payments where they are the selected person
+                        and_(
+                            Payment.person == user_person.uuid,
+                            Payment.status == "khatabook"
+                        )
+                    )
+                )
+            else:
+                # No linked person, only see payments they created
+                query = query.filter(Payment.created_by == current_user.uuid)
+        else:
+            # No db session, fallback to basic filtering
+            query = query.filter(Payment.created_by == current_user.uuid)
 
     elif current_user.role == UserRole.PROJECT_MANAGER.value and db is not None:
         # Project Managers can see:
         # 1. Regular payments from projects they're assigned to
         # 2. Khatabook payments from projects they're assigned to
+        # 3. Khatabook payments where they are the selected person
         project_ids = get_user_project_ids(db, current_user.uuid)
+
+        # Get the person record linked to this user (if any)
+        user_person = db.query(Person).filter(
+            Person.user_id == current_user.uuid,
+            Person.is_deleted.is_(False)
+        ).first()
+
+        conditions = []
+
         if project_ids:
-            query = query.filter(
-                or_(
-                    # Regular payments from their projects
-                    and_(
-                        Payment.project_id.in_(project_ids),
-                        Payment.status != "khatabook"
-                    ),
-                    # Khatabook payments from their projects
-                    and_(
-                        Payment.project_id.in_(project_ids),
-                        Payment.status == "khatabook"
-                    )
+            # Regular payments from their projects
+            conditions.append(
+                and_(
+                    Payment.project_id.in_(project_ids),
+                    Payment.status != "khatabook"
                 )
             )
+            # Khatabook payments from their projects
+            conditions.append(
+                and_(
+                    Payment.project_id.in_(project_ids),
+                    Payment.status == "khatabook"
+                )
+            )
+
+        # Khatabook payments where they are the selected person
+        if user_person:
+            conditions.append(
+                and_(
+                    Payment.person == user_person.uuid,
+                    Payment.status == "khatabook"
+                )
+            )
+
+        if conditions:
+            query = query.filter(or_(*conditions))
         else:
-            # If not assigned to any projects, don't show any payments
+            # If not assigned to any projects and no linked person, don't show any payments
             query = query.filter(False)
 
     elif current_user.role in [
@@ -895,18 +952,33 @@ def get_all_payments(
         return [by_id[u] for u in selected_uuids if u in by_id]
 
     def calculate_total_request_amount(db):
-        """Calculate total amount of all payments with status requested, approved, verified, or transferred (excluding khatabook)"""
-        # Get all payments with the specified statuses, regardless of pagination
-        # Exclude khatabook payments from global totals
-        query = db.query(func.sum(Payment.amount)).filter(
-            Payment.is_deleted.is_(False),
-            Payment.status.in_([
-                PaymentStatus.REQUESTED.value,
-                PaymentStatus.APPROVED.value,
-                PaymentStatus.VERIFIED.value,
-                PaymentStatus.TRANSFERRED.value
-            ])
-        )
+        """Calculate total amount of payments with appropriate status filtering"""
+        # Check if any specific filters are applied (project, item, person, user)
+        has_specific_filters = any([project_id, item_id, person_id, from_uuid, to_uuid])
+
+        if has_specific_filters:
+            # When filtering by specific entities, include khatabook payments
+            query = db.query(func.sum(Payment.amount)).filter(
+                Payment.is_deleted.is_(False),
+                Payment.status.in_([
+                    PaymentStatus.REQUESTED.value,
+                    PaymentStatus.APPROVED.value,
+                    PaymentStatus.VERIFIED.value,
+                    PaymentStatus.TRANSFERRED.value,
+                    PaymentStatus.KHATABOOK.value  # Include khatabook when filtering
+                ])
+            )
+        else:
+            # Global totals exclude khatabook payments
+            query = db.query(func.sum(Payment.amount)).filter(
+                Payment.is_deleted.is_(False),
+                Payment.status.in_([
+                    PaymentStatus.REQUESTED.value,
+                    PaymentStatus.APPROVED.value,
+                    PaymentStatus.VERIFIED.value,
+                    PaymentStatus.TRANSFERRED.value
+                ])
+            )
 
         # Apply the same role-based restrictions as the main query
         query = apply_role_restrictions(query, current_user, db)
@@ -945,18 +1017,32 @@ def get_all_payments(
         return query.scalar() or 0.0
 
     def calculate_total_pending_amount(db):
-        """Calculate total amount of all payments with status requested, approved, or verified (excluding transferred and khatabook)"""
-        # Get all payments with the specified statuses, regardless of pagination
-        # Exclude khatabook payments from global totals
-        query = db.query(func.sum(Payment.amount)).filter(
-            Payment.is_deleted.is_(False),
-            Payment.status.in_([
-                PaymentStatus.REQUESTED.value,
-                PaymentStatus.APPROVED.value,
-                PaymentStatus.VERIFIED.value
-            ]),
-            # Payment.status != PaymentStatus.DECLINED.value  # Exclude declined
-        )
+        """Calculate total amount of pending payments with appropriate status filtering"""
+        # Check if any specific filters are applied (project, item, person, user)
+        has_specific_filters = any([project_id, item_id, person_id, from_uuid, to_uuid])
+
+        if has_specific_filters:
+            # When filtering by specific entities, include khatabook payments in pending calculation
+            # Note: khatabook payments are never truly "pending" but should be included in filtered totals
+            query = db.query(func.sum(Payment.amount)).filter(
+                Payment.is_deleted.is_(False),
+                Payment.status.in_([
+                    PaymentStatus.REQUESTED.value,
+                    PaymentStatus.APPROVED.value,
+                    PaymentStatus.VERIFIED.value,
+                    PaymentStatus.KHATABOOK.value  # Include khatabook when filtering
+                ])
+            )
+        else:
+            # Global pending totals exclude khatabook payments
+            query = db.query(func.sum(Payment.amount)).filter(
+                Payment.is_deleted.is_(False),
+                Payment.status.in_([
+                    PaymentStatus.REQUESTED.value,
+                    PaymentStatus.APPROVED.value,
+                    PaymentStatus.VERIFIED.value
+                ])
+            )
 
         # Apply the same role-based restrictions as the main query
         query = apply_role_restrictions(query, current_user, db)

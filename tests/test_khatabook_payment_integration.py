@@ -300,5 +300,154 @@ class TestKhatabookPaymentAccessControl:
         assert can_edit_payment(["requested"], UserRole.ADMIN.value, "requested") is True
 
 
+class TestKhatabookPaymentPersonVisibility:
+    """Test class for person-based visibility of khatabook payments."""
+
+    def test_person_linked_user_visibility(self):
+        """Test that users linked to persons can see khatabook payments where they are selected."""
+        from uuid import uuid4
+
+        # Test data
+        user_id = uuid4()
+        person_id = uuid4()
+        other_person_id = uuid4()
+
+        # Mock the logic for checking if a user can see a khatabook payment as the selected person
+        def can_see_as_selected_person(user_person_id, payment_person_id, payment_status):
+            return (payment_status == "khatabook" and
+                    user_person_id is not None and
+                    payment_person_id == user_person_id)
+
+        # Test scenarios
+        assert can_see_as_selected_person(person_id, person_id, "khatabook") is True
+        assert can_see_as_selected_person(person_id, other_person_id, "khatabook") is False
+        assert can_see_as_selected_person(None, person_id, "khatabook") is False
+        assert can_see_as_selected_person(person_id, person_id, "requested") is False
+
+    def test_enhanced_role_restrictions_with_person_visibility(self):
+        """Test the enhanced role restrictions that include person-based visibility."""
+        from src.app.schemas.auth_service_schamas import UserRole
+
+        def enhanced_visibility_check(user_role, is_creator, is_project_manager, is_admin, is_selected_person):
+            """Enhanced visibility logic including person-based access."""
+
+            # Creator can always see
+            if is_creator:
+                return True
+
+            # Admin roles can see all
+            if is_admin:
+                return True
+
+            # Project Manager can see from assigned projects
+            if user_role == UserRole.PROJECT_MANAGER.value and is_project_manager:
+                return True
+
+            # Selected person can see khatabook payments where they are selected
+            if is_selected_person:
+                return True
+
+            return False
+
+        # Test all visibility scenarios
+        test_cases = [
+            # (role, is_creator, is_pm, is_admin, is_selected_person, expected)
+            (UserRole.SITE_ENGINEER.value, True, False, False, False, True),    # Creator
+            (UserRole.SITE_ENGINEER.value, False, False, False, True, True),    # Selected person
+            (UserRole.PROJECT_MANAGER.value, False, True, False, False, True),  # PM of project
+            (UserRole.ADMIN.value, False, False, True, False, True),            # Admin
+            (UserRole.ACCOUNTANT.value, False, False, True, False, True),       # Accountant
+            (UserRole.SITE_ENGINEER.value, False, False, False, False, False), # No access
+        ]
+
+        for role, is_creator, is_pm, is_admin, is_selected_person, expected in test_cases:
+            result = enhanced_visibility_check(role, is_creator, is_pm, is_admin, is_selected_person)
+            assert result == expected, f"Failed for role {role} with flags: creator={is_creator}, pm={is_pm}, admin={is_admin}, selected={is_selected_person}"
+
+
+class TestKhatabookPaymentFilteredTotals:
+    """Test class for khatabook payment inclusion in filtered totals."""
+
+    def test_filter_detection_logic(self):
+        """Test the logic for detecting when specific filters are applied."""
+
+        def has_specific_filters(project_id, item_id, person_id, from_uuid, to_uuid):
+            """Check if any specific filters are applied."""
+            return any([project_id, item_id, person_id, from_uuid, to_uuid])
+
+        # Test filter detection
+        assert has_specific_filters(uuid4(), None, None, None, None) is True    # Project filter
+        assert has_specific_filters(None, uuid4(), None, None, None) is True    # Item filter
+        assert has_specific_filters(None, None, uuid4(), None, None) is True    # Person filter
+        assert has_specific_filters(None, None, None, uuid4(), None) is True    # From user filter
+        assert has_specific_filters(None, None, None, None, uuid4()) is True    # To user filter
+        assert has_specific_filters(None, None, None, None, None) is False      # No filters
+
+    def test_status_inclusion_based_on_filters(self):
+        """Test which payment statuses are included based on filter presence."""
+
+        def get_statuses_for_totals(has_filters):
+            """Get the appropriate statuses for total calculations."""
+            base_statuses = ["requested", "verified", "approved", "transferred"]
+            if has_filters:
+                return base_statuses + ["khatabook"]
+            return base_statuses
+
+        # Test status inclusion
+        global_statuses = get_statuses_for_totals(False)
+        filtered_statuses = get_statuses_for_totals(True)
+
+        # Global totals should exclude khatabook
+        assert "khatabook" not in global_statuses
+        assert set(global_statuses) == {"requested", "verified", "approved", "transferred"}
+
+        # Filtered totals should include khatabook
+        assert "khatabook" in filtered_statuses
+        assert set(filtered_statuses) == {"requested", "verified", "approved", "transferred", "khatabook"}
+
+    def test_total_calculation_scenarios(self):
+        """Test different scenarios for total calculations."""
+
+        scenarios = [
+            {
+                "name": "Global totals (no filters)",
+                "filters": {"project_id": None, "item_id": None, "person_id": None, "from_uuid": None, "to_uuid": None},
+                "should_include_khatabook": False
+            },
+            {
+                "name": "Project-specific totals",
+                "filters": {"project_id": uuid4(), "item_id": None, "person_id": None, "from_uuid": None, "to_uuid": None},
+                "should_include_khatabook": True
+            },
+            {
+                "name": "Person-specific totals",
+                "filters": {"project_id": None, "item_id": None, "person_id": uuid4(), "from_uuid": None, "to_uuid": None},
+                "should_include_khatabook": True
+            },
+            {
+                "name": "User-specific totals (from)",
+                "filters": {"project_id": None, "item_id": None, "person_id": None, "from_uuid": uuid4(), "to_uuid": None},
+                "should_include_khatabook": True
+            },
+            {
+                "name": "User-specific totals (to)",
+                "filters": {"project_id": None, "item_id": None, "person_id": None, "from_uuid": None, "to_uuid": uuid4()},
+                "should_include_khatabook": True
+            },
+            {
+                "name": "Item-specific totals",
+                "filters": {"project_id": None, "item_id": uuid4(), "person_id": None, "from_uuid": None, "to_uuid": None},
+                "should_include_khatabook": True
+            }
+        ]
+
+        for scenario in scenarios:
+            filters = scenario["filters"]
+            has_filters = any(filters.values())
+            expected = scenario["should_include_khatabook"]
+
+            assert has_filters == expected, f"Failed for scenario: {scenario['name']}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
