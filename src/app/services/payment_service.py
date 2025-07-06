@@ -388,7 +388,7 @@ def build_recent_subquery(db: Session, current_user: User, recent: bool):
     Restricts site_eng / sub_con to only see their own Payment records.
     Returns a subquery object.
     """
-    recent_status = [PaymentStatus.DECLINED.value, PaymentStatus.TRANSFERRED.value]
+    recent_status = [PaymentStatus.DECLINED.value, PaymentStatus.TRANSFERRED.value, PaymentStatus.KHATABOOK.value]
 
     base_q = db.query(Payment.uuid).filter(
         Payment.is_deleted.is_(False),
@@ -954,7 +954,13 @@ def get_all_payments(
     def calculate_total_request_amount(db):
         """Calculate total amount of payments with appropriate status filtering"""
         # Check if any specific filters are applied (project, item, person, user)
-        has_specific_filters = any([project_id, item_id, person_id, from_uuid, to_uuid])
+        has_specific_filters = any([
+            project_id is not None,
+            item_id is not None,
+            person_id is not None,
+            from_uuid is not None,
+            to_uuid is not None
+        ])
 
         if has_specific_filters:
             # When filtering by specific entities, include khatabook payments
@@ -1019,7 +1025,13 @@ def get_all_payments(
     def calculate_total_pending_amount(db):
         """Calculate total amount of pending payments with appropriate status filtering"""
         # Check if any specific filters are applied (project, item, person, user)
-        has_specific_filters = any([project_id, item_id, person_id, from_uuid, to_uuid])
+        has_specific_filters = any([
+            project_id is not None,
+            item_id is not None,
+            person_id is not None,
+            from_uuid is not None,
+            to_uuid is not None
+        ])
 
         if has_specific_filters:
             # When filtering by specific entities, include khatabook payments in pending calculation

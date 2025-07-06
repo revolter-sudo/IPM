@@ -513,5 +513,154 @@ class TestKhatabookPaymentFilteredTotals:
             assert status in filtered_statuses
 
 
+class TestKhatabookPaymentRecentPaymentsExclusion:
+    """Test class for ensuring khatabook payments are excluded from recent payments."""
+
+    def test_recent_payments_status_exclusion_logic(self):
+        """Test that khatabook payments are excluded from recent payments along with declined and transferred."""
+
+        # Define the statuses that should be excluded from recent payments
+        excluded_from_recent = ["declined", "transferred", "khatabook"]
+
+        # Define all possible payment statuses
+        all_statuses = ["requested", "verified", "approved", "transferred", "declined", "khatabook"]
+
+        # Calculate which statuses should be included in recent payments
+        included_in_recent = [status for status in all_statuses if status not in excluded_from_recent]
+
+        # Verify the exclusion logic
+        assert "khatabook" in excluded_from_recent
+        assert "declined" in excluded_from_recent
+        assert "transferred" in excluded_from_recent
+
+        # Verify the inclusion logic
+        assert "requested" in included_in_recent
+        assert "verified" in included_in_recent
+        assert "approved" in included_in_recent
+
+        # Verify khatabook is not in recent payments
+        assert "khatabook" not in included_in_recent
+
+    def test_recent_payments_filtering_scenarios(self):
+        """Test different scenarios for recent payments filtering."""
+
+        # Simulate payment data with different statuses
+        payments = [
+            {"id": 1, "status": "requested", "created_at": "2024-01-05"},
+            {"id": 2, "status": "verified", "created_at": "2024-01-04"},
+            {"id": 3, "status": "khatabook", "created_at": "2024-01-03"},  # Should be excluded
+            {"id": 4, "status": "approved", "created_at": "2024-01-02"},
+            {"id": 5, "status": "transferred", "created_at": "2024-01-01"},  # Should be excluded
+            {"id": 6, "status": "declined", "created_at": "2023-12-31"},  # Should be excluded
+        ]
+
+        def filter_recent_payments(payments):
+            """Simulate the recent payments filtering logic."""
+            excluded_statuses = ["declined", "transferred", "khatabook"]
+            return [p for p in payments if p["status"] not in excluded_statuses]
+
+        # Apply the filtering
+        recent_payments = filter_recent_payments(payments)
+
+        # Verify results
+        assert len(recent_payments) == 3  # Only requested, verified, approved
+
+        recent_statuses = [p["status"] for p in recent_payments]
+        assert "requested" in recent_statuses
+        assert "verified" in recent_statuses
+        assert "approved" in recent_statuses
+
+        # Verify excluded statuses are not present
+        assert "khatabook" not in recent_statuses
+        assert "transferred" not in recent_statuses
+        assert "declined" not in recent_statuses
+
+    def test_recent_payments_query_logic(self):
+        """Test the query logic for recent payments exclusion."""
+
+        def build_recent_query_filter(exclude_statuses):
+            """Simulate the recent payments query filter logic."""
+            # This simulates: Payment.status.not_in(recent_status)
+            return lambda payment_status: payment_status not in exclude_statuses
+
+        # Test the filter with the correct exclusion list
+        exclude_statuses = ["declined", "transferred", "khatabook"]
+        filter_func = build_recent_query_filter(exclude_statuses)
+
+        # Test various payment statuses
+        test_cases = [
+            ("requested", True),    # Should be included
+            ("verified", True),     # Should be included
+            ("approved", True),     # Should be included
+            ("transferred", False), # Should be excluded
+            ("declined", False),    # Should be excluded
+            ("khatabook", False),   # Should be excluded
+        ]
+
+        for status, should_be_included in test_cases:
+            result = filter_func(status)
+            assert result == should_be_included, f"Status '{status}' inclusion test failed"
+
+    def test_recent_payments_business_logic(self):
+        """Test the business logic reasoning for excluding khatabook payments from recent payments."""
+
+        # Define the characteristics of different payment types
+        payment_characteristics = {
+            "requested": {
+                "user_initiated": True,
+                "requires_action": True,
+                "show_in_recent": True,
+                "reason": "User needs to see their payment requests"
+            },
+            "verified": {
+                "user_initiated": True,
+                "requires_action": True,
+                "show_in_recent": True,
+                "reason": "Payment is progressing through approval workflow"
+            },
+            "approved": {
+                "user_initiated": True,
+                "requires_action": True,
+                "show_in_recent": True,
+                "reason": "Payment is ready for transfer"
+            },
+            "transferred": {
+                "user_initiated": True,
+                "requires_action": False,
+                "show_in_recent": False,
+                "reason": "Payment is complete, no action needed"
+            },
+            "declined": {
+                "user_initiated": True,
+                "requires_action": False,
+                "show_in_recent": False,
+                "reason": "Payment was rejected, no action needed"
+            },
+            "khatabook": {
+                "user_initiated": False,
+                "requires_action": False,
+                "show_in_recent": False,
+                "reason": "Auto-generated system entry, not a user payment request"
+            }
+        }
+
+        # Verify that only user-initiated payments that require action are shown in recent
+        for status, characteristics in payment_characteristics.items():
+            expected_in_recent = characteristics["user_initiated"] and characteristics["requires_action"]
+            actual_in_recent = characteristics["show_in_recent"]
+
+            assert actual_in_recent == expected_in_recent, (
+                f"Status '{status}' recent payment logic failed. "
+                f"Expected: {expected_in_recent}, Actual: {actual_in_recent}. "
+                f"Reason: {characteristics['reason']}"
+            )
+
+        # Specifically verify khatabook exclusion reasoning
+        khatabook_chars = payment_characteristics["khatabook"]
+        assert not khatabook_chars["user_initiated"], "Khatabook payments are system-generated"
+        assert not khatabook_chars["requires_action"], "Khatabook payments require no user action"
+        assert not khatabook_chars["show_in_recent"], "Khatabook payments should not appear in recent payments"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

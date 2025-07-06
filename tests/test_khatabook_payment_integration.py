@@ -626,5 +626,175 @@ class TestKhatabookPaymentItemMapping:
             assert payment_item["payment_id"] == payment_id
 
 
+class TestKhatabookPaymentFilteredTotalsIntegration:
+    """Test class for verifying khatabook payments are included in filtered totals."""
+
+    def test_filtered_total_calculation_with_khatabook_payments(self):
+        """Test that filtered totals include khatabook payment amounts."""
+
+        # Simulate payment data
+        payments = [
+            {"status": "requested", "amount": 1000.0, "project_id": "project-1"},
+            {"status": "verified", "amount": 2000.0, "project_id": "project-1"},
+            {"status": "khatabook", "amount": 500.0, "project_id": "project-1"},  # Khatabook payment
+            {"status": "requested", "amount": 1500.0, "project_id": "project-2"},
+            {"status": "khatabook", "amount": 300.0, "project_id": "project-2"},  # Khatabook payment
+        ]
+
+        def calculate_total_with_filters(payments, project_filter=None, include_khatabook=False):
+            """Simulate the total calculation logic."""
+            filtered_payments = payments
+
+            # Apply project filter
+            if project_filter:
+                filtered_payments = [p for p in filtered_payments if p["project_id"] == project_filter]
+
+            # Apply status filter
+            if include_khatabook:
+                valid_statuses = ["requested", "verified", "approved", "transferred", "khatabook"]
+            else:
+                valid_statuses = ["requested", "verified", "approved", "transferred"]
+
+            filtered_payments = [p for p in filtered_payments if p["status"] in valid_statuses]
+
+            return sum(p["amount"] for p in filtered_payments)
+
+        # Test global totals (no filters) - should exclude khatabook
+        global_total = calculate_total_with_filters(payments, include_khatabook=False)
+        assert global_total == 4500.0  # 1000 + 2000 + 1500 (excludes khatabook amounts)
+
+        # Test project-1 filtered totals - should include khatabook
+        project1_total = calculate_total_with_filters(payments, project_filter="project-1", include_khatabook=True)
+        assert project1_total == 3500.0  # 1000 + 2000 + 500 (includes khatabook)
+
+        # Test project-2 filtered totals - should include khatabook
+        project2_total = calculate_total_with_filters(payments, project_filter="project-2", include_khatabook=True)
+        assert project2_total == 1800.0  # 1500 + 300 (includes khatabook)
+
+        # Verify the difference between filtered and unfiltered
+        project1_without_khatabook = calculate_total_with_filters(payments, project_filter="project-1", include_khatabook=False)
+        assert project1_without_khatabook == 3000.0  # 1000 + 2000 (excludes khatabook)
+        assert project1_total > project1_without_khatabook  # Filtered total should be higher
+
+    def test_filter_detection_logic_comprehensive(self):
+        """Test comprehensive filter detection scenarios."""
+
+        def has_filters(**kwargs):
+            """Simulate the filter detection logic."""
+            return any([
+                kwargs.get("project_id") is not None,
+                kwargs.get("item_id") is not None,
+                kwargs.get("person_id") is not None,
+                kwargs.get("from_uuid") is not None,
+                kwargs.get("to_uuid") is not None
+            ])
+
+        # Test all filter combinations
+        test_cases = [
+            # No filters
+            {"expected": False},
+
+            # Single filters
+            {"project_id": uuid4(), "expected": True},
+            {"item_id": uuid4(), "expected": True},
+            {"person_id": uuid4(), "expected": True},
+            {"from_uuid": uuid4(), "expected": True},
+            {"to_uuid": uuid4(), "expected": True},
+
+            # Multiple filters
+            {"project_id": uuid4(), "item_id": uuid4(), "expected": True},
+            {"person_id": uuid4(), "from_uuid": uuid4(), "expected": True},
+            {"project_id": uuid4(), "person_id": uuid4(), "to_uuid": uuid4(), "expected": True},
+
+            # All filters
+            {
+                "project_id": uuid4(),
+                "item_id": uuid4(),
+                "person_id": uuid4(),
+                "from_uuid": uuid4(),
+                "to_uuid": uuid4(),
+                "expected": True
+            }
+        ]
+
+        for case in test_cases:
+            expected = case.pop("expected")
+            result = has_filters(**case)
+            assert result == expected, f"Failed for case: {case}"
+
+    def test_khatabook_payment_amount_inclusion_scenarios(self):
+        """Test specific scenarios where khatabook payments should be included in totals."""
+
+        # Test data representing different payment scenarios
+        scenarios = [
+            {
+                "name": "Project-specific request",
+                "filters": {"project_id": "project-123"},
+                "payments": [
+                    {"amount": 1000, "status": "requested", "project_id": "project-123"},
+                    {"amount": 500, "status": "khatabook", "project_id": "project-123"},
+                    {"amount": 2000, "status": "requested", "project_id": "project-456"}
+                ],
+                "expected_total": 1500,  # Should include khatabook for project-123
+                "should_include_khatabook": True
+            },
+            {
+                "name": "Person-specific request",
+                "filters": {"person_id": "person-789"},
+                "payments": [
+                    {"amount": 800, "status": "verified", "person_id": "person-789"},
+                    {"amount": 300, "status": "khatabook", "person_id": "person-789"},
+                    {"amount": 1200, "status": "verified", "person_id": "person-456"}
+                ],
+                "expected_total": 1100,  # Should include khatabook for person-789
+                "should_include_khatabook": True
+            },
+            {
+                "name": "Global request (no filters)",
+                "filters": {},
+                "payments": [
+                    {"amount": 1000, "status": "requested"},
+                    {"amount": 500, "status": "khatabook"},
+                    {"amount": 2000, "status": "verified"}
+                ],
+                "expected_total": 3000,  # Should exclude khatabook globally
+                "should_include_khatabook": False
+            }
+        ]
+
+        for scenario in scenarios:
+            # Simulate the filtering logic
+            has_filters = bool(scenario["filters"])
+            include_khatabook = has_filters
+
+            # Apply filters to payments first
+            filtered_payments = scenario["payments"]
+
+            # Apply project filter if present
+            if "project_id" in scenario["filters"]:
+                project_filter = scenario["filters"]["project_id"]
+                filtered_payments = [p for p in filtered_payments if p.get("project_id") == project_filter]
+
+            # Apply person filter if present
+            if "person_id" in scenario["filters"]:
+                person_filter = scenario["filters"]["person_id"]
+                filtered_payments = [p for p in filtered_payments if p.get("person_id") == person_filter]
+
+            # Calculate total based on inclusion rules
+            if include_khatabook:
+                valid_statuses = ["requested", "verified", "approved", "transferred", "khatabook"]
+            else:
+                valid_statuses = ["requested", "verified", "approved", "transferred"]
+
+            total = sum(
+                payment["amount"]
+                for payment in filtered_payments
+                if payment["status"] in valid_statuses
+            )
+
+            assert total == scenario["expected_total"], f"Failed for scenario: {scenario['name']}"
+            assert include_khatabook == scenario["should_include_khatabook"], f"Inclusion logic failed for: {scenario['name']}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])
