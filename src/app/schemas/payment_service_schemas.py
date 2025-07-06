@@ -11,6 +11,7 @@ class PaymentStatus(str, Enum):
     APPROVED = "approved"
     TRANSFERRED = "transferred"
     DECLINED = "declined"
+    KHATABOOK = "khatabook"
 
 
 class ItemListTag(str, Enum):

@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 from uuid import UUID
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
-from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Item, Project
+from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Item, Project, Payment, PaymentStatusHistory
 import os
 import shutil
 from src.app.database.models import KhatabookBalance
@@ -11,6 +11,66 @@ from sqlalchemy import and_
 from sqlalchemy.orm import joinedload
 from src.app.schemas import constants
 from src.app.schemas.constants import KHATABOOK_ENTRY_TYPE_DEBIT
+from src.app.utils.logging_config import get_database_logger
+
+# Initialize logger
+db_logger = get_database_logger()
+
+
+def create_payment_from_khatabook_entry(
+    db: Session,
+    khatabook_entry: Khatabook,
+    user_id: UUID
+) -> Optional[Payment]:
+    """
+    Creates a payment record from a khatabook entry when both project and person are specified.
+
+    Args:
+        db: Database session
+        khatabook_entry: The khatabook entry that was created
+        user_id: UUID of the user who created the khatabook entry
+
+    Returns:
+        Payment object if created successfully, None otherwise
+    """
+    try:
+        # Only create payment if both project_id and person_id are specified
+        if not khatabook_entry.project_id or not khatabook_entry.person_id:
+            db_logger.info(f"Skipping payment creation for khatabook entry {khatabook_entry.uuid}: missing project_id or person_id")
+            return None
+
+        db_logger.info(f"Creating payment record for khatabook entry {khatabook_entry.uuid}")
+
+        # Create payment record with khatabook status
+        payment = Payment(
+            amount=khatabook_entry.amount,
+            description=f"Auto-generated from khatabook entry - {khatabook_entry.remarks}" if khatabook_entry.remarks else "Auto-generated from khatabook entry",
+            project_id=khatabook_entry.project_id,
+            created_by=user_id,
+            status="khatabook",
+            person=khatabook_entry.person_id,
+            self_payment=False,  # Khatabook entries are not self payments
+            latitude=0.0,  # Default values for required fields
+            longitude=0.0
+        )
+
+        db.add(payment)
+        db.flush()  # Get the payment UUID
+
+        # Create payment status history entry
+        payment_status = PaymentStatusHistory(
+            payment_id=payment.uuid,
+            status="khatabook",
+            created_by=user_id
+        )
+        db.add(payment_status)
+
+        db_logger.info(f"Successfully created payment {payment.uuid} from khatabook entry {khatabook_entry.uuid}")
+        return payment
+
+    except Exception as e:
+        db_logger.error(f"Failed to create payment from khatabook entry {khatabook_entry.uuid}: {str(e)}")
+        raise
 
 
 def create_khatabook_entry_service(
@@ -96,7 +156,18 @@ def create_khatabook_entry_service(
             new_file = KhatabookFile(khatabook_id=kb_entry.uuid, file_path=f)
             db.add(new_file)
 
-        # 6. Commit all changes
+        # 6. Create payment record if both project and person are specified
+        payment_created = None
+        try:
+            payment_created = create_payment_from_khatabook_entry(db, kb_entry, user_id)
+            if payment_created:
+                db_logger.info(f"Payment {payment_created.uuid} created for khatabook entry {kb_entry.uuid}")
+        except Exception as e:
+            db_logger.error(f"Failed to create payment for khatabook entry {kb_entry.uuid}: {str(e)}")
+            # Don't fail the entire khatabook creation if payment creation fails
+            # Just log the error and continue
+
+        # 7. Commit all changes
         db.commit()
         db.refresh(kb_entry)
         return kb_entry

@@ -147,19 +147,6 @@ def create_payment(
                 message="Project not found."
             ).model_dump()
 
-        # If it's a self-payment, overwrite the `person` field with current_user's Person (if any)
-        # so you don't rely on the client to supply a person UUID
-        # if payment_request.self_payment:
-        #     if not current_user.person:
-        #         # If user does not have a linked Person row, decide how to handle:
-        #         return PaymentServiceResponse(
-        #             status_code=400,
-        #             data=None,
-        #             message="Cannot create self-payment because current user has no linked Person record."
-        #         ).model_dump()
-        #     # Force the Payment.person to the current_user’s Person.uuid
-        #     payment_request.person = current_user.person.uuid
-
         # Create Payment
         new_payment = Payment(
             amount=payment_request.amount,
@@ -853,8 +840,9 @@ def get_all_payments(
         return [by_id[u] for u in selected_uuids if u in by_id]
 
     def calculate_total_request_amount(db):
-        """Calculate total amount of all payments with status requested, approved, verified, or transferred"""
+        """Calculate total amount of all payments with status requested, approved, verified, or transferred (excluding khatabook)"""
         # Get all payments with the specified statuses, regardless of pagination
+        # Exclude khatabook payments from global totals
         query = db.query(func.sum(Payment.amount)).filter(
             Payment.is_deleted.is_(False),
             Payment.status.in_([
@@ -902,8 +890,9 @@ def get_all_payments(
         return query.scalar() or 0.0
 
     def calculate_total_pending_amount(db):
-        """Calculate total amount of all payments with status requested, approved, or verified (excluding transferred)"""
+        """Calculate total amount of all payments with status requested, approved, or verified (excluding transferred and khatabook)"""
         # Get all payments with the specified statuses, regardless of pagination
+        # Exclude khatabook payments from global totals
         query = db.query(func.sum(Payment.amount)).filter(
             Payment.is_deleted.is_(False),
             Payment.status.in_([
@@ -1460,6 +1449,14 @@ def approve_payment(
                 status_code=404
             ).model_dump()
 
+        # 2.1) Prevent approval of khatabook payments
+        if payment.status == "khatabook":
+            return PaymentServiceResponse(
+                data=None,
+                message="Khatabook payments cannot be approved or modified.",
+                status_code=400
+            ).model_dump()
+
         # 3) Get the next status from the role -> status mapping
         #    e.g., Project Manager -> "verified", Admin -> "approved", Accountant -> "transferred"
         status = constants.RoleStatusMapping.get(current_user.role)
@@ -1483,7 +1480,8 @@ def approve_payment(
             "requested": 1,
             "verified": 2,
             "approved": 3,
-            "transferred": 4
+            "transferred": 4,
+            "khatabook": 5  # Khatabook status is final and non-changeable
         }
 
         def get_order(s: str) -> int:
@@ -1733,6 +1731,14 @@ def decline_payment(
                 data=None,
                 message=constants.PAYMENT_NOT_FOUND,
                 status_code=404
+            ).model_dump()
+
+        # 2.1) Prevent decline of khatabook payments
+        if payment.status == "khatabook":
+            return PaymentServiceResponse(
+                data=None,
+                message="Khatabook payments cannot be declined or modified.",
+                status_code=400
             ).model_dump()
 
         # 3) Check if already declined
