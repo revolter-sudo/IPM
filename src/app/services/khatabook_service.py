@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 from uuid import UUID
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
-from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Item, Project, Payment, PaymentStatusHistory
+from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Item, Project, Payment, PaymentStatusHistory, PaymentItem
 import os
 import shutil
 from src.app.database.models import KhatabookBalance
@@ -64,6 +64,23 @@ def create_payment_from_khatabook_entry(
             created_by=user_id
         )
         db.add(payment_status)
+
+        # Map khatabook items to payment items
+        khatabook_items = db.query(KhatabookItem).filter(
+            KhatabookItem.khatabook_id == khatabook_entry.uuid
+        ).all()
+
+        if khatabook_items:
+            db_logger.info(f"Creating {len(khatabook_items)} payment items for payment {payment.uuid}")
+            for kb_item in khatabook_items:
+                payment_item = PaymentItem(
+                    payment_id=payment.uuid,
+                    item_id=kb_item.item_id
+                )
+                db.add(payment_item)
+            db_logger.info(f"Successfully created payment items for payment {payment.uuid}")
+        else:
+            db_logger.info(f"No items to map for khatabook entry {khatabook_entry.uuid}")
 
         db_logger.info(f"Successfully created payment {payment.uuid} from khatabook entry {khatabook_entry.uuid}")
         return payment

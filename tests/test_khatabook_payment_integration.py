@@ -7,8 +7,8 @@ from uuid import uuid4
 from unittest.mock import Mock, patch
 from sqlalchemy.orm import Session
 from src.app.database.models import (
-    Khatabook, Payment, PaymentStatusHistory, KhatabookBalance, 
-    User, Person, Project
+    Khatabook, Payment, PaymentStatusHistory, KhatabookBalance,
+    User, Person, Project, KhatabookItem, PaymentItem, Item
 )
 from src.app.services.khatabook_service import (
     create_khatabook_entry_service,
@@ -25,6 +25,7 @@ class TestKhatabookPaymentIntegration:
         """Create a mock database session."""
         db = Mock(spec=Session)
         db.query.return_value.filter.return_value.first.return_value = None
+        db.query.return_value.filter.return_value.all.return_value = []  # For khatabook items query
         db.add = Mock()
         db.flush = Mock()
         db.commit = Mock()
@@ -447,6 +448,182 @@ class TestKhatabookPaymentFilteredTotals:
             expected = scenario["should_include_khatabook"]
 
             assert has_filters == expected, f"Failed for scenario: {scenario['name']}"
+
+
+class TestKhatabookPaymentItemMapping:
+    """Test class for khatabook payment item mapping functionality."""
+
+    @pytest.fixture
+    def sample_user_id(self):
+        """Sample user ID for testing."""
+        return uuid4()
+
+    @pytest.fixture
+    def sample_project_id(self):
+        """Sample project ID for testing."""
+        return uuid4()
+
+    @pytest.fixture
+    def sample_person_id(self):
+        """Sample person ID for testing."""
+        return uuid4()
+
+    @pytest.fixture
+    def mock_db_with_items(self):
+        """Create a mock database session with item mapping."""
+        db = Mock(spec=Session)
+
+        # Mock khatabook items
+        mock_kb_item1 = Mock(spec=KhatabookItem)
+        mock_kb_item1.item_id = uuid4()
+        mock_kb_item2 = Mock(spec=KhatabookItem)
+        mock_kb_item2.item_id = uuid4()
+
+        db.query.return_value.filter.return_value.all.return_value = [mock_kb_item1, mock_kb_item2]
+        db.add = Mock()
+        db.flush = Mock()
+        return db, [mock_kb_item1, mock_kb_item2]
+
+    @pytest.fixture
+    def sample_khatabook_entry_with_items(self, sample_user_id, sample_project_id, sample_person_id):
+        """Create a sample khatabook entry with items."""
+        return Khatabook(
+            uuid=uuid4(),
+            amount=1000.0,
+            remarks="Test khatabook entry with items",
+            person_id=sample_person_id,
+            project_id=sample_project_id,
+            created_by=sample_user_id,
+            balance_after_entry=500.0,
+            payment_mode="Cash",
+            entry_type="Debit"
+        )
+
+    def test_create_payment_with_item_mapping(
+        self, mock_db_with_items, sample_khatabook_entry_with_items, sample_user_id
+    ):
+        """Test that payment creation includes item mapping from khatabook entry."""
+        mock_db, mock_kb_items = mock_db_with_items
+
+        # Act
+        result = create_payment_from_khatabook_entry(
+            mock_db, sample_khatabook_entry_with_items, sample_user_id
+        )
+
+        # Assert
+        assert result is not None
+        assert isinstance(result, Payment)
+
+        # Verify that khatabook items were queried
+        mock_db.query.assert_called()
+
+        # Verify that payment items were created (2 items + 1 payment + 1 status history = 4 add calls)
+        assert mock_db.add.call_count == 4  # Payment + PaymentStatusHistory + 2 PaymentItems
+
+        # Verify the payment items were created with correct item_ids
+        add_calls = mock_db.add.call_args_list
+        payment_item_calls = [call for call in add_calls if isinstance(call[0][0], type(PaymentItem()))]
+        assert len(payment_item_calls) == 2
+
+    def test_create_payment_without_items(
+        self, sample_user_id, sample_project_id, sample_person_id
+    ):
+        """Test that payment creation works when khatabook entry has no items."""
+        # Arrange
+        mock_db = Mock(spec=Session)
+        mock_db.query.return_value.filter.return_value.all.return_value = []  # No items
+        mock_db.add = Mock()
+        mock_db.flush = Mock()
+
+        khatabook_entry = Khatabook(
+            uuid=uuid4(),
+            amount=1000.0,
+            remarks="Test entry without items",
+            person_id=sample_person_id,
+            project_id=sample_project_id,
+            created_by=sample_user_id,
+            balance_after_entry=500.0,
+            payment_mode="Cash",
+            entry_type="Debit"
+        )
+
+        # Act
+        result = create_payment_from_khatabook_entry(mock_db, khatabook_entry, sample_user_id)
+
+        # Assert
+        assert result is not None
+        assert isinstance(result, Payment)
+
+        # Verify only payment and status history were created (no payment items)
+        assert mock_db.add.call_count == 2  # Payment + PaymentStatusHistory only
+
+    def test_item_mapping_logic(self):
+        """Test the logic for mapping khatabook items to payment items."""
+        # Test data
+        khatabook_id = uuid4()
+        payment_id = uuid4()
+        item_id_1 = uuid4()
+        item_id_2 = uuid4()
+
+        # Simulate the mapping logic
+        def create_payment_items(khatabook_items, payment_id):
+            payment_items = []
+            for kb_item in khatabook_items:
+                payment_item = {
+                    "payment_id": payment_id,
+                    "item_id": kb_item["item_id"]
+                }
+                payment_items.append(payment_item)
+            return payment_items
+
+        # Test with multiple items
+        khatabook_items = [
+            {"item_id": item_id_1},
+            {"item_id": item_id_2}
+        ]
+
+        payment_items = create_payment_items(khatabook_items, payment_id)
+
+        # Verify mapping
+        assert len(payment_items) == 2
+        assert payment_items[0]["payment_id"] == payment_id
+        assert payment_items[0]["item_id"] == item_id_1
+        assert payment_items[1]["payment_id"] == payment_id
+        assert payment_items[1]["item_id"] == item_id_2
+
+        # Test with no items
+        empty_payment_items = create_payment_items([], payment_id)
+        assert len(empty_payment_items) == 0
+
+    def test_item_mapping_preserves_relationships(self):
+        """Test that item mapping preserves the relationship between khatabook and payment items."""
+        # This test verifies the conceptual relationship
+        khatabook_entry_id = uuid4()
+        payment_id = uuid4()
+        item_ids = [uuid4(), uuid4(), uuid4()]
+
+        # Simulate khatabook items
+        khatabook_items = [
+            {"khatabook_id": khatabook_entry_id, "item_id": item_id}
+            for item_id in item_ids
+        ]
+
+        # Simulate payment items created from khatabook items
+        payment_items = [
+            {"payment_id": payment_id, "item_id": kb_item["item_id"]}
+            for kb_item in khatabook_items
+        ]
+
+        # Verify that all items are preserved
+        khatabook_item_ids = {kb_item["item_id"] for kb_item in khatabook_items}
+        payment_item_ids = {p_item["item_id"] for p_item in payment_items}
+
+        assert khatabook_item_ids == payment_item_ids
+        assert len(payment_items) == len(khatabook_items)
+
+        # Verify all payment items reference the correct payment
+        for payment_item in payment_items:
+            assert payment_item["payment_id"] == payment_id
 
 
 if __name__ == "__main__":
