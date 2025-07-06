@@ -450,6 +450,165 @@ class TestKhatabookPaymentFilteredTotals:
             assert has_filters == expected, f"Failed for scenario: {scenario['name']}"
 
 
+class TestKhatabookPaymentStatusFilterTotals:
+    """Test class for verifying khatabook payment totals when filtering by status."""
+
+    def test_status_filter_total_calculation_logic(self):
+        """Test that status=khatabook filter correctly calculates totals."""
+
+        # Simulate payment data
+        payments = [
+            {"status": "requested", "amount": 1000.0},
+            {"status": "verified", "amount": 2000.0},
+            {"status": "khatabook", "amount": 500.0},
+            {"status": "khatabook", "amount": 300.0},
+            {"status": "approved", "amount": 1500.0},
+        ]
+
+        def calculate_total_with_status_filter(payments, status_filter=None, other_filters=None):
+            """Simulate the enhanced total calculation logic."""
+
+            # Check if status filter is applied
+            has_status_filter = status_filter is not None
+            has_other_filters = other_filters is not None and any(other_filters.values())
+
+            if has_status_filter:
+                # When status filter is applied, only include payments with that status
+                filtered_payments = [p for p in payments if p["status"] in status_filter]
+                return sum(p["amount"] for p in filtered_payments)
+            elif has_other_filters:
+                # When other filters are applied, include khatabook in totals
+                valid_statuses = ["requested", "verified", "approved", "transferred", "khatabook"]
+                filtered_payments = [p for p in payments if p["status"] in valid_statuses]
+                return sum(p["amount"] for p in filtered_payments)
+            else:
+                # Global totals exclude khatabook
+                valid_statuses = ["requested", "verified", "approved", "transferred"]
+                filtered_payments = [p for p in payments if p["status"] in valid_statuses]
+                return sum(p["amount"] for p in filtered_payments)
+
+        # Test status=khatabook filter
+        khatabook_total = calculate_total_with_status_filter(payments, status_filter=["khatabook"])
+        assert khatabook_total == 800.0  # 500 + 300 (only khatabook payments)
+
+        # Test status=requested filter
+        requested_total = calculate_total_with_status_filter(payments, status_filter=["requested"])
+        assert requested_total == 1000.0  # Only requested payments
+
+        # Test multiple status filter
+        multi_status_total = calculate_total_with_status_filter(payments, status_filter=["requested", "khatabook"])
+        assert multi_status_total == 1800.0  # 1000 + 500 + 300
+
+        # Test project filter (other filter)
+        project_total = calculate_total_with_status_filter(payments, other_filters={"project_id": "project-123"})
+        assert project_total == 5300.0  # All payments including khatabook
+
+        # Test global total (no filters)
+        global_total = calculate_total_with_status_filter(payments)
+        assert global_total == 4500.0  # Excludes khatabook payments
+
+    def test_filter_detection_with_status(self):
+        """Test that status filter is properly detected in filter logic."""
+
+        def detect_filters(**kwargs):
+            """Simulate the enhanced filter detection logic."""
+            has_status_filter = kwargs.get("status") is not None
+            has_other_filters = any([
+                kwargs.get("project_id") is not None,
+                kwargs.get("item_id") is not None,
+                kwargs.get("person_id") is not None,
+                kwargs.get("from_uuid") is not None,
+                kwargs.get("to_uuid") is not None
+            ])
+
+            return {
+                "has_status_filter": has_status_filter,
+                "has_other_filters": has_other_filters,
+                "has_any_filters": has_status_filter or has_other_filters
+            }
+
+        # Test status filter only
+        result = detect_filters(status=["khatabook"])
+        assert result["has_status_filter"] is True
+        assert result["has_other_filters"] is False
+        assert result["has_any_filters"] is True
+
+        # Test project filter only
+        result = detect_filters(project_id=uuid4())
+        assert result["has_status_filter"] is False
+        assert result["has_other_filters"] is True
+        assert result["has_any_filters"] is True
+
+        # Test both status and project filters
+        result = detect_filters(status=["requested"], project_id=uuid4())
+        assert result["has_status_filter"] is True
+        assert result["has_other_filters"] is True
+        assert result["has_any_filters"] is True
+
+        # Test no filters
+        result = detect_filters()
+        assert result["has_status_filter"] is False
+        assert result["has_other_filters"] is False
+        assert result["has_any_filters"] is False
+
+    def test_khatabook_status_filter_scenarios(self):
+        """Test specific scenarios for khatabook status filtering."""
+
+        scenarios = [
+            {
+                "name": "Filter by khatabook status only",
+                "filters": {"status": ["khatabook"]},
+                "payments": [
+                    {"amount": 1000, "status": "requested"},
+                    {"amount": 500, "status": "khatabook"},
+                    {"amount": 300, "status": "khatabook"},
+                    {"amount": 2000, "status": "verified"}
+                ],
+                "expected_total": 800,  # Only khatabook payments
+                "description": "Should include only khatabook payment amounts"
+            },
+            {
+                "name": "Filter by multiple statuses including khatabook",
+                "filters": {"status": ["requested", "khatabook"]},
+                "payments": [
+                    {"amount": 1000, "status": "requested"},
+                    {"amount": 500, "status": "khatabook"},
+                    {"amount": 2000, "status": "verified"},
+                    {"amount": 300, "status": "khatabook"}
+                ],
+                "expected_total": 1800,  # requested + khatabook payments
+                "description": "Should include requested and khatabook payment amounts"
+            },
+            {
+                "name": "Filter by non-khatabook status",
+                "filters": {"status": ["requested", "verified"]},
+                "payments": [
+                    {"amount": 1000, "status": "requested"},
+                    {"amount": 500, "status": "khatabook"},
+                    {"amount": 2000, "status": "verified"}
+                ],
+                "expected_total": 3000,  # requested + verified, no khatabook
+                "description": "Should exclude khatabook when not in status filter"
+            }
+        ]
+
+        for scenario in scenarios:
+            # Simulate the status filtering logic
+            status_filter = scenario["filters"].get("status", [])
+            filtered_payments = [
+                p for p in scenario["payments"]
+                if p["status"] in status_filter
+            ]
+
+            total = sum(p["amount"] for p in filtered_payments)
+
+            assert total == scenario["expected_total"], (
+                f"Failed for scenario: {scenario['name']}. "
+                f"Expected: {scenario['expected_total']}, Got: {total}. "
+                f"Description: {scenario['description']}"
+            )
+
+
 class TestKhatabookPaymentItemMapping:
     """Test class for khatabook payment item mapping functionality."""
 

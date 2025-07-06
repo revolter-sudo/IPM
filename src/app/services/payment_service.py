@@ -953,17 +953,26 @@ def get_all_payments(
 
     def calculate_total_request_amount(db):
         """Calculate total amount of payments with appropriate status filtering"""
-        # Check if any specific filters are applied (project, item, person, user)
+        # Check if any specific filters are applied (project, item, person, user, status)
         has_specific_filters = any([
             project_id is not None,
             item_id is not None,
             person_id is not None,
             from_uuid is not None,
-            to_uuid is not None
+            to_uuid is not None,
+            status is not None  # Include status filter detection
         ])
 
-        if has_specific_filters:
-            # When filtering by specific entities, include khatabook payments
+        # Determine which statuses to include based on filtering context
+        if status is not None:
+            # When status filter is applied, use only the requested statuses
+            # This handles cases like ?status=khatabook correctly
+            query = db.query(func.sum(Payment.amount)).filter(
+                Payment.is_deleted.is_(False)
+                # Status filter will be applied later in the function
+            )
+        elif has_specific_filters:
+            # When filtering by other entities (project, item, person, user), include khatabook payments
             query = db.query(func.sum(Payment.amount)).filter(
                 Payment.is_deleted.is_(False),
                 Payment.status.in_([
@@ -971,7 +980,7 @@ def get_all_payments(
                     PaymentStatus.APPROVED.value,
                     PaymentStatus.VERIFIED.value,
                     PaymentStatus.TRANSFERRED.value,
-                    PaymentStatus.KHATABOOK.value  # Include khatabook when filtering
+                    PaymentStatus.KHATABOOK.value  # Include khatabook when filtering by entities
                 ])
             )
         else:
@@ -1024,17 +1033,26 @@ def get_all_payments(
 
     def calculate_total_pending_amount(db):
         """Calculate total amount of pending payments with appropriate status filtering"""
-        # Check if any specific filters are applied (project, item, person, user)
+        # Check if any specific filters are applied (project, item, person, user, status)
         has_specific_filters = any([
             project_id is not None,
             item_id is not None,
             person_id is not None,
             from_uuid is not None,
-            to_uuid is not None
+            to_uuid is not None,
+            status is not None  # Include status filter detection
         ])
 
-        if has_specific_filters:
-            # When filtering by specific entities, include khatabook payments in pending calculation
+        # Determine which statuses to include based on filtering context
+        if status is not None:
+            # When status filter is applied, use only the requested statuses for pending calculation
+            # Note: if status=khatabook, this will include khatabook amounts in "pending" total
+            query = db.query(func.sum(Payment.amount)).filter(
+                Payment.is_deleted.is_(False)
+                # Status filter will be applied later in the function
+            )
+        elif has_specific_filters:
+            # When filtering by other entities, include khatabook payments in pending calculation
             # Note: khatabook payments are never truly "pending" but should be included in filtered totals
             query = db.query(func.sum(Payment.amount)).filter(
                 Payment.is_deleted.is_(False),
@@ -1042,7 +1060,7 @@ def get_all_payments(
                     PaymentStatus.REQUESTED.value,
                     PaymentStatus.APPROVED.value,
                     PaymentStatus.VERIFIED.value,
-                    PaymentStatus.KHATABOOK.value  # Include khatabook when filtering
+                    PaymentStatus.KHATABOOK.value  # Include khatabook when filtering by entities
                 ])
             )
         else:
