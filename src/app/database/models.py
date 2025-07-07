@@ -1,5 +1,5 @@
+from sqlalchemy import UniqueConstraint
 import uuid
-
 from sqlalchemy import (
     TIMESTAMP,
     BigInteger,
@@ -109,13 +109,14 @@ class User(Base):
     photo_path = Column(String(255), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
+
+    # Relationships
     token_maps = relationship(
         "UserTokenMap",
         back_populates="user",
         cascade="all, delete-orphan"
     )
 
-    # Relationship to Person
     person = relationship(
         "Person",
         back_populates="user",
@@ -214,6 +215,7 @@ class Project(Base):
     is_deleted = Column(Boolean, nullable=False, default=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
+    # relationships
     project_user_map = relationship(
         "ProjectUserMap",
         back_populates="project",
@@ -238,7 +240,6 @@ class Project(Base):
         cascade="all, delete-orphan"
     )
 
-    # New relationship for multiple POs
     project_pos = relationship(
         "ProjectPO",
         back_populates="project",
@@ -526,13 +527,7 @@ class Item(Base):
         back_populates="item",
         cascade="all, delete-orphan"
     )
-
     # category = relationship("ItemCategories", back_populates="items")
-
-
-    
-
-
     def __repr__(self):
         return f"<Item(name={self.name})>"
 
@@ -594,7 +589,6 @@ class Priority(Base):
     def __repr__(self):
         return f"<Priority(id={self.id}, uuid={self.uuid}, priority={self.priority})>"
 
-from sqlalchemy import UniqueConstraint
 
 class ProjectUserMap(Base):
     __tablename__ = "project_user_map"
