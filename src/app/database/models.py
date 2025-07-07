@@ -66,6 +66,7 @@ class KhatabookFile(Base):
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
     khatabook_entry = relationship("Khatabook", back_populates="files")
+    is_deleted = Column(Boolean, nullable=False, default=False)
 
     def __repr__(self):
         return f"<KhatabookFile(id={self.id}, file_path={self.file_path})>"
@@ -88,6 +89,7 @@ class KhatabookItem(Base):
 
     khatabook_entry = relationship("Khatabook", back_populates="items")
     item = relationship("Item", back_populates="khatabook_items")
+    is_deleted = Column(Boolean, nullable=False, default=False)
 
     def __repr__(self):
         return f"<KhatabookItem(khatabook_id={self.khatabook_id}, item_id={self.item_id})>"

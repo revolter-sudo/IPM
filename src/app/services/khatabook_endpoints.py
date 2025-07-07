@@ -18,7 +18,8 @@ from src.app.services.khatabook_service import (
     get_all_khatabook_entries_service,
     update_khatabook_entry_service,
     hard_delete_khatabook_entry_service,
-    mark_khatabook_entry_suspicious
+    mark_khatabook_entry_suspicious,
+    soft_delete_khatabook_entry_service
 )
 from src.app.database.models import User, Khatabook, KhatabookBalance
 from src.app.services.auth_service import get_current_user
@@ -524,4 +525,51 @@ def hard_delete_khatabook_entry(
             data=None,
             status_code=500,
             message=f"Error: {str(e)}"
+        ).model_dump()
+
+@khatabook_router.delete("/{khatabook_uuid}/soft-delete")
+def soft_delete_khatabook_entry(
+    khatabook_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Soft delete a khatabook entry.
+    Only ADMIN and SUPER_ADMIN users can perform this action.
+    """
+    # Handle unauthorized user
+    if isinstance(current_user, dict):
+        return current_user
+
+    try:
+        # Check user role
+        if current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]:
+            return KhatabookServiceResponse(
+                data=None,
+                status_code=403,
+                message="Only admin and super admin can soft delete entries"
+            ).model_dump()
+
+        # Perform soft delete
+        result = soft_delete_khatabook_entry_service(db=db, kb_uuid=khatabook_uuid)
+
+        if not result:
+            return KhatabookServiceResponse(
+                data=None,
+                status_code=404,
+                message="Khatabook entry not found"
+            ).model_dump()
+
+        return KhatabookServiceResponse(
+            data=None,
+            status_code=200,
+            message="Khatabook entry soft deleted successfully"
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return KhatabookServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while soft deleting the entry: {str(e)}"
         ).model_dump()

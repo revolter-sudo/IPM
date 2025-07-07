@@ -634,9 +634,25 @@ def list_all_projects(
             # PO list and total value
             pos_list = []
             total_po_amount = 0.0
+            total_po_paid = 0.0
+
             for po in project.project_pos:
                 if po.is_deleted:
                     continue
+
+                paid_amount = (
+                    db.query(func.sum(Invoice.total_paid_amount))
+                    .join(ProjectPO, Invoice.project_po_id == ProjectPO.uuid)
+                    .filter(
+                        Invoice.project_po_id == po.uuid, 
+                        Invoice.is_deleted.is_(False), 
+                        # Invoice.status == 'paid',
+                        Invoice.payment_status.in_(["partially_paid", "fully_paid"])
+                    )
+                    .scalar() or 0.0
+                )
+                total_po_paid += paid_amount
+
                 creator_name = db.query(User.name).filter(User.uuid == po.created_by).scalar()
                 pos_list.append({
                     "uuid": str(po.uuid),
@@ -667,6 +683,7 @@ def list_all_projects(
                     "items": exceeding_items
                 },
                 "total_po_amount": total_po_amount,
+                "total_po_paid": total_po_paid,
                 "pos": pos_list
             })
 
@@ -717,11 +734,25 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
         # Get PO balance
         # po_balance = project.po_balance if project.po_balance else 0
 
-        # Get estimated balance
+        # Get estimated balance & actual balance
         estimated_balance = project.estimated_balance if project.estimated_balance else 0
-
-        # Get actual balance
         actual_balance = project.actual_balance if project.actual_balance else 0
+        
+        total_po_paid = 0.0
+        for po in project.project_pos:
+            if po.is_deleted:
+                continue
+            paid_amount = (
+                db.query(func.sum(Invoice.total_paid_amount))
+                .join(ProjectPO, Invoice.project_po_id == ProjectPO.uuid)
+                .filter(
+                    Invoice.project_po_id == po.uuid,
+                    Invoice.is_deleted.is_(False),
+                    Invoice.payment_status.in_(["partially_paid", "fully_paid"])
+                )
+                .scalar() or 0.0
+            )
+            total_po_paid += paid_amount
 
         project_response_data = ProjectResponse(
             uuid=project.uuid,
@@ -734,11 +765,15 @@ def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
             actual_balance=actual_balance,
             created_at=project.created_at,
         ).model_dump()
+
+        project_response_data["total_po_paid"] = total_po_paid
+
         return ProjectServiceResponse(
             data=project_response_data,
             message="Project info fetched successfully.",
             status_code=200
         ).model_dump()
+    
     except Exception as e:
         logger.error(f"Error in get_project_info API: {str(e)}")
         return ProjectServiceResponse(
@@ -1410,6 +1445,85 @@ def get_project_pos(
             message=f"An error occurred while fetching project POs: {str(e)}"
         ).model_dump()
 
+@project_router.get(
+        "/pos",
+        tags=["Project POs"],
+        status_code=status.HTTP_200_OK,
+        description="fetch all pos"
+)
+def list_all_pos(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        # Get all project UUIDs user can see
+        if current_user.role in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, UserRole.ACCOUNTANT.value]:
+            pos = db.query(ProjectPO).filter(ProjectPO.is_deleted.is_(False)).order_by(ProjectPO.id.desc()).all()
+        else:
+            project_ids = (
+                db.query(ProjectUserMap.project_id)
+                .filter(ProjectUserMap.user_id == current_user.uuid)
+                .all()
+            )
+            project_uuids = [pid for (pid,) in project_ids]
+            pos = (
+                db.query(ProjectPO)
+                .filter(ProjectPO.project_id.in_(project_uuids), ProjectPO.is_deleted.is_(False))
+                .order_by(ProjectPO.id.desc())
+                .all()
+            )
+
+        data = []
+        for po in pos:
+            # Invoices for this PO (if any)
+            invoices = (
+                db.query(Invoice)
+                .filter(
+                    Invoice.project_po_id == po.uuid,
+                    Invoice.is_deleted.is_(False)
+                )
+                .order_by(Invoice.id.asc())
+                .all()
+            )
+            invoices_list = [
+                {
+                    "uuid": str(inv.uuid),
+                    "invoice_number": inv.invoice_number,
+                    "invoice_date": inv.invoice_date.isoformat() if inv.invoice_date else None,
+                    "amount": inv.amount,
+                    "total_paid_amount": inv.total_paid_amount,
+                    "payment_status": inv.payment_status,
+                    "status": inv.status,
+                    "file_path": constants.HOST_URL + "/" + inv.file_path if inv.file_path else None,
+                }
+                for inv in invoices
+            ]
+            data.append({
+                "uuid": str(po.uuid),
+                "po_number": po.po_number,
+                "client_name": po.client_name,
+                "amount": po.amount,
+                "description": po.description,
+                "po_date": po.po_date.strftime("%Y-%m-%d") if po.po_date else None,
+                "file_path": constants.HOST_URL + "/" + po.file_path if po.file_path else None,
+                "created_by": str(po.created_by),
+                "created_at": po.created_at.strftime("%Y-%m-%d %H:%M:%S") if po.created_at else None,
+                "invoices": invoices_list  # Will be [] if none
+            })
+
+        return ProjectServiceResponse(
+            data=data,
+            message="POs fetched successfully.",
+            status_code=200
+        ).model_dump()
+    except Exception as e:
+        logger.error(f"Error in list_all_pos API: {str(e)}")
+        return ProjectServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while fetching POs."
+        ).model_dump()
+
 @project_router.put(
     "/{project_id}/pos/{po_id}",
     tags=["Project POs"],
@@ -1417,7 +1531,7 @@ def get_project_pos(
 )
 def update_project_po(
     po_id: UUID,
-    po_data: ProjectPOUpdateSchema,  # <- We'll define this schema below
+    po_data: ProjectPOUpdateSchema,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
