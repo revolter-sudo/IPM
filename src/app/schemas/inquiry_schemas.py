@@ -53,7 +53,7 @@ class InquiryCreateRequest(BaseModel):
             "example": {
                 "name": "John Doe",
                 "phone_number": "9876543210",
-                "project_type": "ROOFTOP",
+                "project_type": "Residential",
                 "state": "Maharashtra",
                 "city": "Mumbai"
             }
