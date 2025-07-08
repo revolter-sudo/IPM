@@ -62,23 +62,32 @@ def setup_logging(
     # Create logs directory if it doesn't exist
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
-    
+
+    # Ensure log files are created with proper permissions
+    for log_file_name in [f"{app_name}.log", f"{app_name}_errors.log", f"{app_name}_performance.log",
+                         f"{app_name}_database.log", f"{app_name}_api.log"]:
+        log_file_path = log_path / log_file_name
+        if not log_file_path.exists():
+            log_file_path.touch()
+            # Set proper permissions for the log file
+            os.chmod(str(log_file_path), 0o666)
+
     # Set up root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, log_level.upper()))
-    
+
     # Clear any existing handlers to avoid duplicates
     root_logger.handlers.clear()
-    
+
     # Create custom formatter
     formatter = TimestampedFormatter()
-    
+
     # Console handler for immediate feedback
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
-    
+
     # Main application log file with rotation
     app_log_file = log_path / f"{app_name}.log"
     file_handler = logging.handlers.RotatingFileHandler(
@@ -90,7 +99,7 @@ def setup_logging(
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
-    
+
     # Error-specific log file for critical issues
     error_log_file = log_path / f"{app_name}_errors.log"
     error_handler = logging.handlers.RotatingFileHandler(
@@ -102,7 +111,7 @@ def setup_logging(
     error_handler.setLevel(logging.ERROR)
     error_handler.setFormatter(formatter)
     root_logger.addHandler(error_handler)
-    
+
     # Performance log file for slow queries and performance metrics
     perf_log_file = log_path / f"{app_name}_performance.log"
     perf_handler = logging.handlers.RotatingFileHandler(
@@ -111,15 +120,15 @@ def setup_logging(
         backupCount=backup_count,
         encoding='utf-8'
     )
-    perf_handler.setLevel(logging.WARNING)
+    perf_handler.setLevel(logging.INFO)  # Changed from WARNING to INFO to capture more performance logs
     perf_handler.setFormatter(formatter)
-    
+
     # Create performance logger
     perf_logger = logging.getLogger('performance')
     perf_logger.addHandler(perf_handler)
-    perf_logger.setLevel(logging.WARNING)
+    perf_logger.setLevel(logging.INFO)  # Changed from WARNING to INFO
     perf_logger.propagate = False  # Don't propagate to root logger
-    
+
     # Database operations log file
     db_log_file = log_path / f"{app_name}_database.log"
     db_handler = logging.handlers.RotatingFileHandler(
@@ -130,13 +139,13 @@ def setup_logging(
     )
     db_handler.setLevel(logging.INFO)
     db_handler.setFormatter(formatter)
-    
+
     # Create database logger
     db_logger = logging.getLogger('database')
     db_logger.addHandler(db_handler)
     db_logger.setLevel(logging.INFO)
     db_logger.propagate = False
-    
+
     # API requests log file
     api_log_file = log_path / f"{app_name}_api.log"
     api_handler = logging.handlers.RotatingFileHandler(
@@ -147,19 +156,24 @@ def setup_logging(
     )
     api_handler.setLevel(logging.INFO)
     api_handler.setFormatter(formatter)
-    
+
     # Create API logger
     api_logger = logging.getLogger('api')
     api_logger.addHandler(api_handler)
     api_logger.setLevel(logging.INFO)
     api_logger.propagate = False
-    
-    # Log the initialization
+
+    # Log the initialization to all relevant loggers to ensure they work
     logging.info(f"Logging initialized - Log directory: {log_dir}")
     logging.info(f"Log level: {log_level}")
     logging.info(f"Max file size: {max_file_size / (1024*1024):.1f}MB")
     logging.info(f"Backup count: {backup_count}")
-    
+
+    # Test each logger to ensure they're working
+    perf_logger.info("Performance logger initialized successfully")
+    db_logger.info("Database logger initialized successfully")
+    api_logger.info("API logger initialized successfully")
+
     return {
         'main_logger': root_logger,
         'performance_logger': perf_logger,

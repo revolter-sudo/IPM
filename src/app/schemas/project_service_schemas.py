@@ -168,6 +168,7 @@ class InvoiceAnalyticsItem(BaseModel):
     invoice_due_date: str
     payment_status: str  # not_paid, partially_paid, fully_paid
     total_paid_amount: float
+    payment_date: List[dict] = []  # "YYYY-MM-DD" or None if no payments
     is_late: Optional[bool] = None  # True/False/None based on payment vs end date
 
 

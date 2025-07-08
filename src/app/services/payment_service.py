@@ -1,5 +1,6 @@
 import os
 import traceback
+import time
 from typing import Optional, List
 from uuid import UUID
 import uuid
@@ -70,8 +71,12 @@ import json
 from collections import defaultdict
 
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from src.app.utils.logging_config import get_logger, get_database_logger, get_performance_logger
+
+# Use enhanced logging system
+logger = get_logger(__name__)
+db_logger = get_database_logger()
+perf_logger = get_performance_logger()
 
 payment_router = APIRouter(prefix="/payments", tags=["Payments"])
 
@@ -141,19 +146,6 @@ def create_payment(
                 data=None,
                 message="Project not found."
             ).model_dump()
-
-        # If it's a self-payment, overwrite the `person` field with current_user's Person (if any)
-        # so you don't rely on the client to supply a person UUID
-        # if payment_request.self_payment:
-        #     if not current_user.person:
-        #         # If user does not have a linked Person row, decide how to handle:
-        #         return PaymentServiceResponse(
-        #             status_code=400,
-        #             data=None,
-        #             message="Cannot create self-payment because current user has no linked Person record."
-        #         ).model_dump()
-        #     # Force the Payment.person to the current_user’s Person.uuid
-        #     payment_request.person = current_user.person.uuid
 
         # Create Payment
         new_payment = Payment(
@@ -261,6 +253,14 @@ def update_payment_amount(
             status_code=404
         ).model_dump()
 
+    # Prevent editing of khatabook payments
+    if payment.status == "khatabook":
+        return PaymentServiceResponse(
+            message="Khatabook payments cannot be edited.",
+            data=None,
+            status_code=400
+        ).model_dump()
+
     # If the new amount is different from the old, record it in PaymentEditHistory
     old_amount = payment.amount
     new_amount = payload.amount
@@ -324,14 +324,18 @@ def get_parent_account_data(person_id: UUID, db):
         ).model_dump()
 
 
-def can_edit_payment(status_history: List[str], current_user_role: str) -> bool:
+def can_edit_payment(status_history: List[str], current_user_role: str, payment_status: str = None) -> bool:
+    # Khatabook payments cannot be edited by anyone
+    if payment_status == "khatabook" or "khatabook" in status_history:
+        return False
+
     # SiteEngineer and SubContractor can never edit
     if current_user_role in [UserRole.SITE_ENGINEER, UserRole.SUB_CONTRACTOR]:
         return False
 
-    # Project Manager, Admin, Accountant, SuperAdmin can edit in any status except transferred or declined
+    # Project Manager, Admin, Accountant, SuperAdmin can edit in any status except transferred, declined, or khatabook
     if current_user_role in [UserRole.PROJECT_MANAGER, UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
-        if any(status in [PaymentStatus.TRANSFERRED, PaymentStatus.DECLINED] for status in status_history):
+        if any(status in [PaymentStatus.TRANSFERRED, PaymentStatus.DECLINED, PaymentStatus.KHATABOOK] for status in status_history):
             return False
         return True
 
@@ -360,7 +364,7 @@ def create_khatabook_entry_for_self_payment(payment: Payment, db: Session, balan
             created_by=payment.created_by,
             balance_after_entry=balance_after_entry,  # Balance after the payment was added
             project_id=payment.project_id,
-            payment_mode="bank_transfer",  # Default payment mode for approved payments
+            payment_mode="Bank Transfer",  # Default payment mode for approved payments
             entry_type=KHATABOOK_ENTRY_TYPE_CREDIT  # Self payment entries are Credit
         )
 
@@ -384,7 +388,7 @@ def build_recent_subquery(db: Session, current_user: User, recent: bool):
     Restricts site_eng / sub_con to only see their own Payment records.
     Returns a subquery object.
     """
-    recent_status = [PaymentStatus.DECLINED.value, PaymentStatus.TRANSFERRED.value]
+    recent_status = [PaymentStatus.DECLINED.value, PaymentStatus.TRANSFERRED.value, PaymentStatus.KHATABOOK.value]
 
     base_q = db.query(Payment.uuid).filter(
         Payment.is_deleted.is_(False),
@@ -504,17 +508,117 @@ def apply_role_restrictions(query, current_user: User, db: Session = None):
     - Super Admin, Admin, Accountant: see all payments
     - Site Engineer, Sub Contractor: see only payments they created
     - Project Manager: see only payments from projects they're assigned to
+
+    Special handling for khatabook payments:
+    - Only visible to: creator, project manager of the project, admin, accountant, super admin,
+      and the person selected in the khatabook payment (if they have a user account)
     """
+    from sqlalchemy import or_, and_
+    from src.app.database.models import Person
+
     if current_user.role in [UserRole.SITE_ENGINEER.value, UserRole.SUB_CONTRACTOR.value]:
-        query = query.filter(Payment.created_by == current_user.uuid)
-    elif current_user.role == UserRole.PROJECT_MANAGER.value and db is not None:
-        # Project Managers can only see payments from projects they're assigned to
-        project_ids = get_user_project_ids(db, current_user.uuid)
-        if project_ids:
-            query = query.filter(Payment.project_id.in_(project_ids))
+        # Site Engineers and Sub Contractors can see:
+        # 1. Regular payments they created
+        # 2. Khatabook payments they created
+        # 3. Khatabook payments where they are the selected person
+        if db is not None:
+            # Get the person record linked to this user (if any)
+            user_person = db.query(Person).filter(
+                Person.user_id == current_user.uuid,
+                Person.is_deleted.is_(False)
+            ).first()
+
+            if user_person:
+                query = query.filter(
+                    or_(
+                        # Regular payments they created
+                        and_(
+                            Payment.created_by == current_user.uuid,
+                            Payment.status != "khatabook"
+                        ),
+                        # Khatabook payments they created
+                        and_(
+                            Payment.created_by == current_user.uuid,
+                            Payment.status == "khatabook"
+                        ),
+                        # Khatabook payments where they are the selected person
+                        and_(
+                            Payment.person == user_person.uuid,
+                            Payment.status == "khatabook"
+                        )
+                    )
+                )
+            else:
+                # No linked person, only see payments they created
+                query = query.filter(Payment.created_by == current_user.uuid)
         else:
-            # If not assigned to any projects, don't show any payments
+            # No db session, fallback to basic filtering
+            query = query.filter(Payment.created_by == current_user.uuid)
+
+    elif current_user.role == UserRole.PROJECT_MANAGER.value and db is not None:
+        # Project Managers can see:
+        # 1. Regular payments from projects they're assigned to
+        # 2. Khatabook payments from projects they're assigned to
+        # 3. Khatabook payments where they are the selected person
+        project_ids = get_user_project_ids(db, current_user.uuid)
+
+        # Get the person record linked to this user (if any)
+        user_person = db.query(Person).filter(
+            Person.user_id == current_user.uuid,
+            Person.is_deleted.is_(False)
+        ).first()
+
+        conditions = []
+
+        if project_ids:
+            # Regular payments from their projects
+            conditions.append(
+                and_(
+                    Payment.project_id.in_(project_ids),
+                    Payment.status != "khatabook"
+                )
+            )
+            # Khatabook payments from their projects
+            conditions.append(
+                and_(
+                    Payment.project_id.in_(project_ids),
+                    Payment.status == "khatabook"
+                )
+            )
+
+        # Khatabook payments where they are the selected person
+        if user_person:
+            conditions.append(
+                and_(
+                    Payment.person == user_person.uuid,
+                    Payment.status == "khatabook"
+                )
+            )
+
+        if conditions:
+            query = query.filter(or_(*conditions))
+        else:
+            # If not assigned to any projects and no linked person, don't show any payments
             query = query.filter(False)
+
+    elif current_user.role in [
+        UserRole.ADMIN.value,
+        UserRole.ACCOUNTANT.value,
+        UserRole.SUPER_ADMIN.value
+    ]:
+        # Admin, Accountant, Super Admin can see all payments including khatabook
+        pass  # No additional filtering needed
+
+    else:
+        # For any other roles, apply restrictive filtering
+        # They can only see regular payments they created (no khatabook access)
+        query = query.filter(
+            and_(
+                Payment.created_by == current_user.uuid,
+                Payment.status != "khatabook"
+            )
+        )
+
     return query
 
 
@@ -795,7 +899,7 @@ def assemble_payments_response(grouped_data, db: Session, current_user: User):
                 payment_history=data["edits"]
             ).model_dump(),
             "priority_name": priority_name,
-            "edit": can_edit_payment(status_list, current_user.role),
+            "edit": can_edit_payment(status_list, current_user.role, payment.status),
             "decline_remark": payment.decline_remark,
             "approval_files": approval_files,
             # ---------- NEW KEYS ----------
@@ -848,17 +952,48 @@ def get_all_payments(
         return [by_id[u] for u in selected_uuids if u in by_id]
 
     def calculate_total_request_amount(db):
-        """Calculate total amount of all payments with status requested, approved, verified, or transferred"""
-        # Get all payments with the specified statuses, regardless of pagination
-        query = db.query(func.sum(Payment.amount)).filter(
-            Payment.is_deleted.is_(False),
-            Payment.status.in_([
-                PaymentStatus.REQUESTED.value,
-                PaymentStatus.APPROVED.value,
-                PaymentStatus.VERIFIED.value,
-                PaymentStatus.TRANSFERRED.value
-            ])
-        )
+        """Calculate total amount of payments with appropriate status filtering"""
+        # Check if any specific filters are applied (project, item, person, user, status)
+        has_specific_filters = any([
+            project_id is not None,
+            item_id is not None,
+            person_id is not None,
+            from_uuid is not None,
+            to_uuid is not None,
+            status is not None  # Include status filter detection
+        ])
+
+        # Determine which statuses to include based on filtering context
+        if status is not None:
+            # When status filter is applied, use only the requested statuses
+            # This handles cases like ?status=khatabook correctly
+            query = db.query(func.sum(Payment.amount)).filter(
+                Payment.is_deleted.is_(False)
+                # Status filter will be applied later in the function
+            )
+        elif has_specific_filters:
+            # When filtering by other entities (project, item, person, user), include khatabook payments
+            query = db.query(func.sum(Payment.amount)).filter(
+                Payment.is_deleted.is_(False),
+                Payment.status.in_([
+                    PaymentStatus.REQUESTED.value,
+                    PaymentStatus.APPROVED.value,
+                    PaymentStatus.VERIFIED.value,
+                    PaymentStatus.TRANSFERRED.value,
+                    PaymentStatus.KHATABOOK.value  # Include khatabook when filtering by entities
+                ])
+            )
+        else:
+            # Global totals exclude khatabook payments
+            query = db.query(func.sum(Payment.amount)).filter(
+                Payment.is_deleted.is_(False),
+                Payment.status.in_([
+                    PaymentStatus.REQUESTED.value,
+                    PaymentStatus.APPROVED.value,
+                    PaymentStatus.VERIFIED.value,
+                    PaymentStatus.TRANSFERRED.value
+                ])
+            )
 
         # Apply the same role-based restrictions as the main query
         query = apply_role_restrictions(query, current_user, db)
@@ -866,6 +1001,7 @@ def get_all_payments(
             query = query.filter(Payment.project_id == project_id)
         if status is not None:
             query = query.filter(Payment.status.in_(status))
+            # query = query.filter(Payment.status != PaymentStatus.DECLINED.value)
         if start_date and end_date:
             end_date_with_time = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
             query = query.filter(Payment.created_at.between(start_date, end_date_with_time))
@@ -896,16 +1032,47 @@ def get_all_payments(
         return query.scalar() or 0.0
 
     def calculate_total_pending_amount(db):
-        """Calculate total amount of all payments with status requested, approved, or verified (excluding transferred)"""
-        # Get all payments with the specified statuses, regardless of pagination
-        query = db.query(func.sum(Payment.amount)).filter(
-            Payment.is_deleted.is_(False),
-            Payment.status.in_([
-                PaymentStatus.REQUESTED.value,
-                PaymentStatus.APPROVED.value,
-                PaymentStatus.VERIFIED.value
-            ])
-        )
+        """Calculate total amount of pending payments with appropriate status filtering"""
+        # Check if any specific filters are applied (project, item, person, user, status)
+        has_specific_filters = any([
+            project_id is not None,
+            item_id is not None,
+            person_id is not None,
+            from_uuid is not None,
+            to_uuid is not None,
+            status is not None  # Include status filter detection
+        ])
+
+        # Determine which statuses to include based on filtering context
+        if status is not None:
+            # When status filter is applied, use only the requested statuses for pending calculation
+            # Note: if status=khatabook, this will include khatabook amounts in "pending" total
+            query = db.query(func.sum(Payment.amount)).filter(
+                Payment.is_deleted.is_(False)
+                # Status filter will be applied later in the function
+            )
+        elif has_specific_filters:
+            # When filtering by other entities, include khatabook payments in pending calculation
+            # Note: khatabook payments are never truly "pending" but should be included in filtered totals
+            query = db.query(func.sum(Payment.amount)).filter(
+                Payment.is_deleted.is_(False),
+                Payment.status.in_([
+                    PaymentStatus.REQUESTED.value,
+                    PaymentStatus.APPROVED.value,
+                    PaymentStatus.VERIFIED.value,
+                    PaymentStatus.KHATABOOK.value  # Include khatabook when filtering by entities
+                ])
+            )
+        else:
+            # Global pending totals exclude khatabook payments
+            query = db.query(func.sum(Payment.amount)).filter(
+                Payment.is_deleted.is_(False),
+                Payment.status.in_([
+                    PaymentStatus.REQUESTED.value,
+                    PaymentStatus.APPROVED.value,
+                    PaymentStatus.VERIFIED.value
+                ])
+            )
 
         # Apply the same role-based restrictions as the main query
         query = apply_role_restrictions(query, current_user, db)
@@ -948,7 +1115,7 @@ def get_all_payments(
               .filter(
                   Payment.is_deleted.is_(False),
                   Payment.status.notin_(
-                      ["transferred", "declined"])  # exclude first!
+                      [PaymentStatus.TRANSFERRED.value, PaymentStatus.DECLINED.value, PaymentStatus.KHATABOOK.value])  # exclude transferred, declined, and khatabook
             )
             .order_by(Payment.created_at.desc())
         )
@@ -1428,6 +1595,8 @@ def approve_payment(
       payment.status.
     """
     try:
+        start_time = time.time()
+
         # 1) Check user role
         if current_user.role not in [
             UserRole.SUPER_ADMIN.value,
@@ -1449,6 +1618,14 @@ def approve_payment(
                 data=None,
                 message=constants.PAYMENT_NOT_FOUND,
                 status_code=404
+            ).model_dump()
+
+        # 2.1) Prevent approval of khatabook payments
+        if payment.status == "khatabook":
+            return PaymentServiceResponse(
+                data=None,
+                message="Khatabook payments cannot be approved or modified.",
+                status_code=400
             ).model_dump()
 
         # 3) Get the next status from the role -> status mapping
@@ -1474,7 +1651,8 @@ def approve_payment(
             "requested": 1,
             "verified": 2,
             "approved": 3,
-            "transferred": 4
+            "transferred": 4,
+            "khatabook": 5  # Khatabook status is final and non-changeable
         }
 
         def get_order(s: str) -> int:
@@ -1500,7 +1678,8 @@ def approve_payment(
 
             # For self-payment logic
             if payment.self_payment:
-                logger.info(f"Processing self payment {payment.uuid} for user {payment.created_by}")
+                self_payment_start = time.time()
+                db_logger.info(f"Processing self payment {payment.uuid} for user {payment.created_by}")
 
                 user_balance = db.query(KhatabookBalance).filter(
                     KhatabookBalance.user_uuid == payment.created_by
@@ -1508,7 +1687,7 @@ def approve_payment(
 
                 old_balance = 0.0
                 if not user_balance:
-                    logger.info(f"Creating new khatabook balance for user {payment.created_by}")
+                    db_logger.info(f"Creating new khatabook balance for user {payment.created_by}")
                     user_balance = KhatabookBalance(
                         user_uuid=payment.created_by,
                         balance=0.0
@@ -1516,7 +1695,7 @@ def approve_payment(
                     db.add(user_balance)
                 else:
                     old_balance = user_balance.balance
-                    logger.info(f"User {payment.created_by} current balance: {old_balance}")
+                    db_logger.info(f"User {payment.created_by} current balance: {old_balance}")
 
                 # Increase the user's khatabook balance
                 user_balance.balance += payment.amount
@@ -1525,7 +1704,7 @@ def approve_payment(
                 # Flush to ensure balance update is persisted in this transaction
                 db.flush()
 
-                logger.info(
+                db_logger.info(
                     f"Updated user {payment.created_by} balance from "
                     f"{old_balance} to {new_balance} (added {payment.amount})"
                 )
@@ -1544,7 +1723,7 @@ def approve_payment(
                 )
                 balance_after_entry = last_balance_after_entry + payment.amount
 
-                logger.info(
+                db_logger.info(
                     f"Calculated balance_after_entry: "
                     f"{last_balance_after_entry} + {payment.amount} = "
                     f"{balance_after_entry}"
@@ -1552,19 +1731,25 @@ def approve_payment(
 
                 # Create khatabook entry for the self payment with correct
                 # balance
+                db_logger.info(f"Attempting to create khatabook entry for self payment {payment.uuid} with balance_after_entry: {balance_after_entry}")
                 khatabook_created = create_khatabook_entry_for_self_payment(
                     payment, db, balance_after_entry
                 )
                 if not khatabook_created:
-                    logger.warning(
+                    db_logger.error(
                         f"Failed to create khatabook entry for self payment "
-                        f"{payment.uuid}"
+                        f"{payment.uuid}. Payment person: {payment.person}, "
+                        f"Self payment flag: {payment.self_payment}"
                     )
                 else:
-                    logger.info(
+                    db_logger.info(
                         f"Successfully created khatabook entry for self "
                         f"payment {payment.uuid}"
                     )
+
+                # Log self-payment processing time
+                self_payment_time = time.time() - self_payment_start
+                perf_logger.info(f"Self payment processing took {self_payment_time:.4f}s")
 
             # Deduct from the chosen bank
             balance_obj = db.query(BalanceDetail).filter(
@@ -1717,6 +1902,14 @@ def decline_payment(
                 data=None,
                 message=constants.PAYMENT_NOT_FOUND,
                 status_code=404
+            ).model_dump()
+
+        # 2.1) Prevent decline of khatabook payments
+        if payment.status == "khatabook":
+            return PaymentServiceResponse(
+                data=None,
+                message="Khatabook payments cannot be declined or modified.",
+                status_code=400
             ).model_dump()
 
         # 3) Check if already declined
@@ -1997,8 +2190,164 @@ def update_person(
         ).model_dump()
 
 
+# @payment_router.get(
+#     "/persons", status_code=h_status.HTTP_200_OK, tags=["Payments"]
+# )
+# def get_all_persons(
+#     name: str = Query(None),
+#     phone_number: str = Query(None),
+#     account_number: str = Query(None),
+#     ifsc_code: str = Query(None),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     try:
+#         query = db.query(Person).filter(
+#             Person.is_deleted.is_(False),
+#             Person.parent_id.is_(None)
+#         )
+
+#         if name:
+#             query = query.filter(Person.name.ilike(f"%{name}%"))
+#         if phone_number:
+#             query = query.filter(Person.phone_number == phone_number)
+#         if account_number:
+#             query = query.filter(Person.account_number == account_number)
+#         if ifsc_code:
+#             query = query.filter(Person.ifsc_code == ifsc_code)
+
+#         # Exclude the current user's Person record if it exists:
+#         query = query.filter(or_(
+#             Person.user_id.is_(None),
+#             Person.user_id != current_user.uuid
+#         ))
+
+#         persons = query.all()
+#         persons_data = []
+
+#         for person in persons:
+#             persons_data.append(
+#                 {
+#                     "uuid": person.uuid,
+#                     "name": person.name,
+#                     "account_number": person.account_number,
+#                     "ifsc_code": person.ifsc_code,
+#                     "phone_number": person.phone_number,
+#                     "parent_id": person.parent_id,
+#                     "upi_number": person.upi_number,
+#                     "secondary_accounts": [
+#                         {
+#                             "uuid": child.uuid,
+#                             "name": child.name,
+#                             "account_number": child.account_number,
+#                             "ifsc_code": child.ifsc_code,
+#                             "phone_number": child.phone_number,
+#                             "upi_number": child.upi_number
+#                         }
+#                         for child in person.children if not child.is_deleted
+#                     ]
+#                 }
+#             )
+
+#         return PaymentServiceResponse(
+#             data=persons_data,
+#             message="All persons info fetched successfully.",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         traceback.print_exc()
+#         return PaymentServiceResponse(
+#             data=None,
+#             message=f"An Error Occurred: {str(e)}",
+#             status_code=500
+#         ).model_dump()
+
+        
+
+# @payment_router.get(
+#     "/persons", status_code=h_status.HTTP_200_OK, tags=["Payments"]
+# )
+# def get_all_persons(
+#     name: str = Query(None),
+#     phone_number: str = Query(None),
+#     account_number: str = Query(None),
+#     ifsc_code: str = Query(None),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     try:
+#         # Fetch all parent persons with children eagerly loaded
+#         persons = db.query(Person).options(
+#             joinedload(Person.children)
+#         ).filter(
+#             Person.is_deleted.is_(False),
+#             Person.parent_id.is_(None),
+#             or_(Person.user_id.is_(None), Person.user_id != current_user.uuid)
+#         ).all()
+
+#         def matches(person: Person) -> bool:
+#             """Returns True if this person or any child matches the filter."""
+#             def match(p: Person):
+#                 return all([
+#                     (not name or name.lower() in (p.name or "").lower()),
+#                     (not phone_number or p.phone_number == phone_number),
+#                     (not account_number or p.account_number == account_number),
+#                     (not ifsc_code or p.ifsc_code == ifsc_code)
+#                 ])
+
+#             if match(person):
+#                 return True
+#             for child in person.children:
+#                 if not child.is_deleted and match(child):
+#                     return True
+#             return False
+
+#         # Apply filters in Python
+#         filtered_persons = [person for person in persons if matches(person)]
+
+#         # Format result
+#         persons_data = []
+#         for person in filtered_persons:
+#             persons_data.append({
+#                 "uuid": person.uuid,
+#                 "name": person.name,
+#                 "account_number": person.account_number,
+#                 "ifsc_code": person.ifsc_code,
+#                 "phone_number": person.phone_number,
+#                 "parent_id": person.parent_id,
+#                 "upi_number": person.upi_number,
+#                 "secondary_accounts": [
+#                     {
+#                         "uuid": child.uuid,
+#                         "name": child.name,
+#                         "account_number": child.account_number,
+#                         "ifsc_code": child.ifsc_code,
+#                         "phone_number": child.phone_number,
+#                         "upi_number": child.upi_number
+#                     }
+#                     for child in person.children if not child.is_deleted
+#                 ]
+#             })
+
+#         return PaymentServiceResponse(
+#             data=persons_data,
+#             message="All persons info fetched successfully.",
+#             status_code=200
+#         ).model_dump()
+
+#     except Exception as e:
+#         traceback.print_exc()
+#         return PaymentServiceResponse(
+#             data=None,
+#             message=f"An Error Occurred: {str(e)}",
+#             status_code=500
+#         ).model_dump()
+
 @payment_router.get(
-    "/persons", status_code=h_status.HTTP_200_OK, tags=["Payments"]
+    "/persons", 
+    status_code=h_status.HTTP_200_OK, 
+    tags=["Payments"]
 )
 def get_all_persons(
     name: str = Query(None),
@@ -2009,53 +2358,90 @@ def get_all_persons(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        query = db.query(Person).filter(
+        # Fetch all parent persons with children eagerly loaded
+        persons = db.query(Person).options(
+            joinedload(Person.children)
+        ).filter(
             Person.is_deleted.is_(False),
-            Person.parent_id.is_(None)
-        )
+            Person.parent_id.is_(None),
+            or_(Person.user_id.is_(None), Person.user_id != current_user.uuid)
+        ).all()
 
-        if name:
-            query = query.filter(Person.name.ilike(f"%{name}%"))
-        if phone_number:
-            query = query.filter(Person.phone_number == phone_number)
-        if account_number:
-            query = query.filter(Person.account_number == account_number)
-        if ifsc_code:
-            query = query.filter(Person.ifsc_code == ifsc_code)
+        def matches(person: Person) -> bool:
+            """Returns True if this person or any child matches the filter."""
+            def match(p: Person):
+                return all([
+                    (not name or name.lower() in (p.name or "").lower()),
+                    (not phone_number or p.phone_number == phone_number),
+                    (not account_number or p.account_number == account_number),
+                    (not ifsc_code or p.ifsc_code == ifsc_code)
+                ])
+            if match(person):
+                return True
+            for child in person.children:
+                if not child.is_deleted and match(child):
+                    return True
+            return False
 
-        # Exclude the current user's Person record if it exists:
-        query = query.filter(or_(
-            Person.user_id.is_(None),
-            Person.user_id != current_user.uuid
-        ))
+        # Apply filters in Python
+        filtered_persons = [person for person in persons if matches(person)]
 
-        persons = query.all()
         persons_data = []
 
-        for person in persons:
-            persons_data.append(
-                {
-                    "uuid": person.uuid,
-                    "name": person.name,
-                    "account_number": person.account_number,
-                    "ifsc_code": person.ifsc_code,
-                    "phone_number": person.phone_number,
-                    "parent_id": person.parent_id,
-                    "upi_number": person.upi_number,
-                    "secondary_accounts": [
-                        {
-                            "uuid": child.uuid,
-                            "name": child.name,
-                            "account_number": child.account_number,
-                            "ifsc_code": child.ifsc_code,
-                            "phone_number": child.phone_number,
-                            "upi_number": child.upi_number
-                        }
-                        for child in person.children if not child.is_deleted
-                    ]
-                }
-            )
+        def format_account(person, is_primary, parent_obj=None, children=None):
+            return {
+                "uuid": person.uuid,
+                "name": person.name,
+                "account_number": person.account_number,
+                "ifsc_code": person.ifsc_code,
+                "phone_number": person.phone_number,
+                "parent_id": person.parent_id,
+                "upi_number": person.upi_number,
+                "is_primary": is_primary,
+                "parent_account": parent_obj,
+                "secondary_accounts": children or []
+            }
 
+        for parent in filtered_persons:
+            # Gather children for the parent (secondary accounts)
+            child_accounts = []
+            for child in parent.children:
+                if not child.is_deleted:
+                    child_accounts.append({
+                        "uuid": child.uuid,
+                        "name": child.name,
+                        "account_number": child.account_number,
+                        "ifsc_code": child.ifsc_code,
+                        "phone_number": child.phone_number,
+                        "upi_number": child.upi_number
+                    })
+
+            # Add parent ("primary") account
+            persons_data.append(format_account(
+                parent,
+                is_primary=True,
+                parent_obj=None,
+                children=child_accounts
+            ))
+
+            # Add each child ("secondary") account as top-level
+            for child in parent.children:
+                if not child.is_deleted:
+                    parent_obj = {
+                        "uuid": parent.uuid,
+                        "name": parent.name,
+                        "account_number": parent.account_number,
+                        "ifsc_code": parent.ifsc_code,
+                        "phone_number": parent.phone_number,
+                        "upi_number": parent.upi_number
+                    }
+                    persons_data.append(format_account(
+                        child,
+                        is_primary=False,
+                        parent_obj=parent_obj,
+                        children=[]
+                    ))
+                    
         return PaymentServiceResponse(
             data=persons_data,
             message="All persons info fetched successfully.",
@@ -2070,6 +2456,164 @@ def get_all_persons(
             status_code=500
         ).model_dump()
 
+@payment_router.put(
+    "/{person_uuid}/remove-from-parent",
+    tags=["Payments"],
+    status_code=200,
+    description="Removes the parent-child link for a given child person, making them an individual (no parent)."
+)
+def remove_child_from_parent(
+    person_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    Detach a child from its parent, making it an individual person.
+    Only admin/superadmin can perform this action.
+    """
+    if isinstance(current_user, dict):
+        return current_user
+
+    if current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]:
+        return PaymentServiceResponse(
+            data=None,
+            status_code=403,
+            message="Only admin and super admin can perform this action"
+        ).model_dump()
+
+    try:
+        # Fetch child person
+        child = db.query(Person).filter(Person.uuid == person_uuid, Person.is_deleted.is_(False)).first()
+        if not child:
+            return PaymentServiceResponse(
+                data=None,
+                status_code=404,
+                message="Child person not found"
+            ).model_dump()
+        if not child.parent_id:
+            return PaymentServiceResponse(
+                data=None,
+                status_code=400,
+                message="This person has no parent to detach from"
+            ).model_dump()
+
+        prev_parent_id = child.parent_id  # For audit, if needed
+
+        # Remove parent relationship
+        child.parent_id = None
+        db.commit()
+        db.refresh(child)
+
+        return PaymentServiceResponse(
+            data={
+                "uuid": str(child.uuid),
+                "name": child.name,
+                "parent_id": child.parent_id,
+                "previous_parent_id": str(prev_parent_id),
+                "message": "Person is now independent (no parent)."
+            },
+            status_code=200,
+            message="Child successfully detached from parent."
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while detaching child: {str(e)}"
+        ).model_dump()
+    
+
+@payment_router.put(
+    "/{parent_uuid}/add-child/{child_uuid}",
+    tags=["Payments"],
+    status_code=200,
+    description="Adds a child to a parent person (creates parent-child relationship)."
+)
+def add_child_to_parent(
+    parent_uuid: UUID,
+    child_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    Attach a child to a parent person.
+    Only admin/superadmin can perform this action.
+    """
+    if isinstance(current_user, dict):
+        return current_user
+
+    if current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]:
+        return PaymentServiceResponse(
+            data=None,
+            status_code=403,
+            message="Only admin and super admin can perform this action"
+        ).model_dump()
+
+    if parent_uuid == child_uuid:
+        return PaymentServiceResponse(
+            data=None,
+            status_code=400,
+            message="A person cannot be their own parent."
+        ).model_dump()
+
+    try:
+        # Fetch parent and child
+        parent = db.query(Person).filter(Person.uuid == parent_uuid, Person.is_deleted.is_(False)).first()
+        child = db.query(Person).filter(Person.uuid == child_uuid, Person.is_deleted.is_(False)).first()
+
+        if not parent:
+            return PaymentServiceResponse(
+                data=None,
+                status_code=404,
+                message="Parent person not found"
+            ).model_dump()
+
+        if not child:
+            return PaymentServiceResponse(
+                data=None,
+                status_code=404,
+                message="Child person not found"
+            ).model_dump()
+
+        if child.parent_id:
+            # Fetch the current parent (primary) for the child for message
+            current_parent = db.query(Person).filter(Person.uuid == child.parent_id, Person.is_deleted.is_(False)).first()
+            parent_account_number = current_parent.account_number if current_parent else "Unknown"
+            return PaymentServiceResponse(
+                data=None,
+                status_code=400,
+                message=f"This account is already a Secondary account under a different Primary account '{parent_account_number}'"
+            ).model_dump()
+
+        # (Optional) Prevent circular relationships or more advanced validation here
+
+        # Assign parent
+        child.parent_id = parent.uuid
+        db.commit()
+        db.refresh(child)
+
+        return PaymentServiceResponse(
+            data={
+                "child_uuid": str(child.uuid),
+                "child_name": child.name,
+                "parent_uuid": str(parent.uuid),
+                "parent_name": parent.name,
+                "parent_account_number": parent.account_number,
+                "message": f"Account successfully attached to Primary account '{parent.account_number}'"
+            },
+            status_code=200,
+            message=f"Account successfully attached to Primary account '{parent.account_number}'"
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return PaymentServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while attaching child: {str(e)}"
+        ).model_dump()
 
 @payment_router.put(
     "/persons/delete",
@@ -2123,6 +2667,20 @@ def create_item(
     db: Session = Depends(get_db)
 ):
     try:
+        normalized_name = name.strip().lower()
+        # check if an item with the same name already exists
+        existing_item = db.query(Item).filter(
+            func.lower(Item.name) == normalized_name
+            # Item.is_deleted.is_(False)
+            ).first()
+        
+        if existing_item:
+            return PaymentServiceResponse(
+                data=None,
+                message="An item with this name already exists.",
+                status_code=400
+            ).model_dump()
+
         new_item = Item(
             name=name,
             category=category,
