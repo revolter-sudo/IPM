@@ -945,7 +945,7 @@ class SelfAttendance(Base):
 
     # Array of project UUIDs user was assigned to at time of punch in
     assigned_projects = Column(Text, nullable=True)  # JSON string
-    status = Column(String(20), nullable=False, default="present")  # present, absent, off day, etc.
+    status = Column(String(20), nullable=False)  # present, absent, off day, etc.
     is_deleted = Column(Boolean, nullable=False, default=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
