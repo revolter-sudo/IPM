@@ -929,12 +929,12 @@ class SelfAttendance(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
-    attendance_date = Column(Date, nullable=False)
+    attendance_date = Column(Date, nullable=True)
 
     # Punch In Details
-    punch_in_time = Column(TIMESTAMP, nullable=False, server_default=func.now())
-    punch_in_latitude = Column(Float, nullable=False)
-    punch_in_longitude = Column(Float, nullable=False)
+    punch_in_time = Column(TIMESTAMP, nullable=True, server_default=func.now())
+    punch_in_latitude = Column(Float, nullable=True)
+    punch_in_longitude = Column(Float, nullable=True)
     punch_in_location_address = Column(Text, nullable=True)
 
     # Punch Out Details (can be NULL if user forgets to punch out)
@@ -945,6 +945,7 @@ class SelfAttendance(Base):
 
     # Array of project UUIDs user was assigned to at time of punch in
     assigned_projects = Column(Text, nullable=True)  # JSON string
+    status = Column(String(20), nullable=False, default="present")  # present, absent, off day, etc.
     is_deleted = Column(Boolean, nullable=False, default=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
@@ -972,6 +973,7 @@ class ProjectAttendance(Base):
     notes = Column(Text, nullable=True)
     is_deleted = Column(Boolean, nullable=False, default=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    photo_path = Column(String(255), nullable=True)
 
     # Relationships
     site_engineer = relationship("User", back_populates="project_attendances")

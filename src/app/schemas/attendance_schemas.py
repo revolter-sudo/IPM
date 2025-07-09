@@ -128,6 +128,7 @@ class ProjectAttendanceResponse(BaseModel):
     sub_contractor: PersonInfo
     no_of_labours: int
     attendance_date: date
+    photo_path: Optional[str] = None
     marked_at: datetime
     location: LocationData
     notes: Optional[str] = None
