@@ -678,21 +678,22 @@ def get_self_attendance_status(
 """
 )
 def mark_project_attendance(
-    payload: ProjectAttendanceCreate = Body(..., description="Project attendance data in JSON format"),
+    data: str = Form(..., description="Project attendance data in JSON format"),
     upload_photo: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     try:
         # Parse and extract values from JSON
-        project_id = payload.project_id
-        item_id = payload.item_id
-        sub_contractor_id = payload.sub_contractor_id
-        no_of_labours = payload.no_of_labours
-        latitude = payload.latitude
-        longitude = payload.longitude
-        location_address = payload.location_address
-        notes = payload.notes
+        payload = json.load(data)
+        project_id        = UUID(payload["project_id"])
+        item_id           = UUID(payload["item_id"])
+        sub_contractor_id = UUID(payload["sub_contractor_id"])
+        no_of_labours     = payload["no_of_labours"]
+        latitude          = payload["latitude"]
+        longitude         = payload["longitude"]
+        location_address  = payload.get("location_address", "")
+        notes             = payload.get("notes", "")
 
         if no_of_labours <= 0:
             return AttendanceResponse(
