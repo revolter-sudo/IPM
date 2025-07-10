@@ -5,10 +5,12 @@ Combines self attendance and project attendance functionality
 
 import os
 import json
+import re
 import traceback
 from typing import Optional, List
 from uuid import UUID, uuid4
 from datetime import datetime, date, timedelta
+from src.app.schemas import constants
 from fastapi import (
     APIRouter,
     Depends,
@@ -18,12 +20,13 @@ from fastapi import (
     status as h_status,
     UploadFile
 )
-from fastapi import Form, File, UploadFile, Depends
+from fastapi import Form, File, UploadFile, Depends, Response
 from fastapi import status
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, or_, desc, func
+from sqlalchemy import desc, func
+from pydantic import ValidationError
 from src.app.database.database import get_db
 from src.app.database.models import (
     SelfAttendance,
@@ -56,7 +59,8 @@ from src.app.schemas.attendance_schemas import (
     UserInfo,
     ProjectAttendanceSummary,
     DailyAttendanceSummary,
-    AttendanceStatus
+    AttendanceStatus,
+    ItemListView
 )
 from src.app.services.auth_service import get_current_user, verify_password
 from src.app.services.wage_service import get_effective_wage_rate, calculate_and_save_wage
@@ -65,7 +69,7 @@ from src.app.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 # Create the main attendance router
-attendance_router = APIRouter(prefix="/attendance", tags=["Attendance Management"])
+attendance_router = APIRouter(prefix="/attendance")
 
 
 def validate_coordinates(latitude: float, longitude: float) -> bool:
@@ -603,8 +607,167 @@ def cancel_self_day_off(
             status_code=500
         ).to_dict()
 
+@attendance_router.get(
+    "/attendance/self/{user_uuid}/history",
+    tags=["Self Attendance"],
+)
+def get_self_attendance_history(
+    user_uuid: UUID,
+    db: Session = Depends(get_db),
+    recent: Optional[bool] = Query(False),
+    month: Optional[str] = Query(None),
+    date: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get self attendance history for the current user.
+    Returns all attendance records for the user, including punch in/out times and total hours worked.
+    """
+    try:
+        # validate user role
+        if current_user.role not in {UserRole.ADMIN, UserRole.SUPER_ADMIN}:
+            return AttendanceResponse(
+                data=None,
+                message="You can only view your own attendance history",
+                status_code=403
+            ).to_dict()
 
-@attendance_router.get("/self/status", tags=["Self Attendance"])
+        query = db.query(SelfAttendance).filter(
+            SelfAttendance.user_id == current_user.uuid,
+            SelfAttendance.is_deleted.is_(False)
+        )
+
+        # Filter by status
+        if status:
+            query = query.filter(SelfAttendance.status == status)
+
+        # Filter by date
+        if date:
+            try:
+                date_obj = datetime.strptime(date, "%Y-%m-%d").date()
+                query = query.filter(SelfAttendance.attendance_date == date_obj)
+            except Exception:
+                return AttendanceResponse(
+                    data=None,
+                    message="Invalid date format. Use 'YYYY-MM-DD'.",
+                    status_code=400
+                ).to_dict()
+
+        # Filter by month
+        if month:
+            if not re.match(r"^\d{4}-\d{2}$", month):
+                return AttendanceResponse(
+                    data=None,
+                    message="Invalid month format. Use 'YYYY-MM'.",
+                    status_code=400
+                ).to_dict()
+            year, mon = map(int, month.split("-"))
+            query = query.filter(
+                func.extract('year', SelfAttendance.attendance_date) == year,
+                func.extract('month', SelfAttendance.attendance_date) == mon
+            )
+
+        # Filter by from_date/to_date
+        if from_date:
+            try:
+                from_date_obj = datetime.strptime(from_date, "%Y-%m-%d").date()
+                query = query.filter(SelfAttendance.attendance_date >= from_date_obj)
+            except Exception:
+                return AttendanceResponse(
+                    data=None,
+                    message="Invalid from_date format. Use 'YYYY-MM-DD'.",
+                    status_code=400
+                ).to_dict()
+        if to_date:
+            try:
+                to_date_obj = datetime.strptime(to_date, "%Y-%m-%d").date()
+                query = query.filter(SelfAttendance.attendance_date <= to_date_obj)
+            except Exception:
+                return AttendanceResponse(
+                    data=None,
+                    message="Invalid to_date format. Use 'YYYY-MM-DD'.",
+                    status_code=400
+                ).to_dict()
+
+        # Order and fetch
+        query = query.order_by(SelfAttendance.attendance_date.desc())
+        attendance_records = query.all()
+
+        # recent: only the most recent record
+        # if recent and attendance_records:
+        #     attendance_records = [attendance_records[0]]
+
+        if recent:
+            query = query.order_by(desc(SelfAttendance.attendance_date)).limit(5)
+
+        attendance_records = query.all()
+
+        if not attendance_records:
+            return AttendanceResponse(
+                data=[],
+                message="No attendance records found",
+                status_code=404
+            ).to_dict()
+
+        # Prepare response data
+        response_data = []
+        for record in attendance_records:
+            total_hours = None
+            if record.punch_in_time and record.punch_out_time:
+                total_hours = calculate_hours_worked(
+                    record.punch_in_time, record.punch_out_time
+                )
+
+            # Safely handle None for location fields
+            punch_in_lat = record.punch_in_latitude if record.punch_in_latitude is not None else 0.0
+            punch_in_long = record.punch_in_longitude if record.punch_in_longitude is not None else 0.0
+            punch_in_addr = record.punch_in_location_address if record.punch_in_location_address is not None else ""
+            punch_out_lat = record.punch_out_latitude if record.punch_out_latitude is not None else 0.0
+            punch_out_long = record.punch_out_longitude if record.punch_out_longitude is not None else 0.0
+            punch_out_addr = record.punch_out_location_address if record.punch_out_location_address is not None else ""
+
+            response_data.append(SelfAttendanceResponse(
+                uuid=record.uuid,
+                attendance_date=record.attendance_date,
+                punch_in_time=record.punch_in_time,
+                punch_in_location=LocationData(
+                    latitude=punch_in_lat,
+                    longitude=punch_in_long,
+                    address=punch_in_addr
+                ),
+                punch_out_time=record.punch_out_time,
+                punch_out_location=LocationData(
+                    latitude=punch_out_lat,
+                    longitude=punch_out_long,
+                    address=punch_out_addr
+                ),
+                total_hours=total_hours,
+                assigned_projects=json.loads(record.assigned_projects) if record.assigned_projects else [],
+                status=AttendanceStatus(record.status)
+            ).model_dump())
+
+        return AttendanceResponse(
+            data=response_data,
+            message="Self attendance history retrieved successfully",
+            status_code=200
+        ).to_dict()
+
+    except Exception as e:
+        logger.error(f"Error in get_self_attendance_history: {str(e)}")
+        return AttendanceResponse(
+            data=None,
+            message=f"Internal server error: {str(e)}",
+            status_code=500
+        ).to_dict()
+
+
+@attendance_router.get(
+    "/self/status", 
+    tags=["Self Attendance"]
+)
 def get_self_attendance_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -633,9 +796,6 @@ def get_self_attendance_status(
                 hours = get_current_hours_worked(attendance_record.punch_in_time)
                 current_hours = f"{float(hours):.2f} hrs" if hours is not None else None
 
-
-
-
             response_data = SelfAttendanceStatus(
                 uuid=attendance_record.uuid,
                 attendance_date=attendance_record.attendance_date,
@@ -659,193 +819,158 @@ def get_self_attendance_status(
             status_code=500
         ).to_dict()
 
+
 @attendance_router.post(
-    "/project", 
+    "/project/attendance",
     tags=["Project Attendance"],
-    description="""
-**Example `Project_Attandance Data` JSON Format**:
-```json
-{   
-    "project_id": "df46d83e-ac87-470d-b1e0-758d32e401a6",
-    "item_id": "73c7d1a1-d6ee-479e-8564-567707696138",  
-    "sub_contractor_id": "73c7d1a1-d6ee-479e-8564-567707696138",   
-    "no_of_labours": 10,   
-    "latitude": 23.0225,   
-    "longitude": 72.5714,   
-    "location_address": "Site A, Ahmedabad",   
-    "notes": "Masonry work completed" 
-}
-"""
+    status_code=201,
+    description="Mark attendance for a project with optional photo upload"
 )
 def mark_project_attendance(
-    data: str = Form(..., description="Project attendance data in JSON format"),
-    upload_photo: Optional[UploadFile] = File(None),
+    attendance: str = Form(..., description="JSON string of ProjectAttendanceCreate"),
+    attendance_photo: UploadFile | None = File(None, description="Optional photo of site/labourers"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    response: Response = None,
 ):
     try:
-        # Parse and extract values from JSON
-        payload = json.load(data)
-        project_id        = UUID(payload["project_id"])
-        item_id           = UUID(payload["item_id"])
-        sub_contractor_id = UUID(payload["sub_contractor_id"])
-        no_of_labours     = payload["no_of_labours"]
-        latitude          = payload["latitude"]
-        longitude         = payload["longitude"]
-        location_address  = payload.get("location_address", "")
-        notes             = payload.get("notes", "")
+        # 1️⃣ Parse & validate JSON payload
+        try:
+            payload = json.loads(attendance)
+            attendance_data = ProjectAttendanceCreate(**payload)
+        except (json.JSONDecodeError, ValidationError) as e:
+            response.status_code = 400
+            return {"status_code":400, "message":"Invalid attendance data", "details": str(e)}
 
-        if no_of_labours <= 0:
-            return AttendanceResponse(
-                data=None,
-                message="Number of labours must be a positive integer",
-                status_code=400
-            ).to_dict()
-
-        # Role check
-        allowed_roles = [UserRole.SITE_ENGINEER, UserRole.PROJECT_MANAGER, UserRole.ADMIN, UserRole.SUPER_ADMIN]
+        # 2️⃣ Authorization & business checks (as before)…
+        allowed_roles = [
+            UserRole.SITE_ENGINEER,
+            UserRole.PROJECT_MANAGER,
+            UserRole.ADMIN,
+            UserRole.SUPER_ADMIN
+        ]
         if current_user.role not in allowed_roles:
-            return AttendanceResponse(
-                data=None,
-                message="Not authorized to mark project attendance",
-                status_code=403
-            ).to_dict()
+            response.status_code = 403
+            return {"status_code":403, "message":"Not authorized to mark project attendance"}
 
-        # Coordinates check
-        if not validate_coordinates(latitude, longitude):
-            return AttendanceResponse(
-                data=None,
-                message="Invalid coordinates provided",
-                status_code=400
-            ).to_dict()
+        if not validate_coordinates(attendance_data.latitude, attendance_data.longitude):
+            response.status_code = 400
+            return {"status_code":400, "message":"Invalid coordinates provided"}
 
         if current_user.role == UserRole.SITE_ENGINEER:
-            if not check_user_project_assignment(current_user.uuid, project_id, db):
-                return AttendanceResponse(
-                    data=None,
-                    message="Not assigned to this project",
-                    status_code=403
-                ).to_dict()
+            ok = check_user_project_assignment(
+                current_user.uuid, attendance_data.project_id, db
+            )
+            if not ok:
+                response.status_code = 403
+                return {"status_code":403, "message":"Not assigned to this project"}
 
-        # Validate project
-        project = db.query(Project).filter(
-            Project.uuid == project_id,
-            Project.is_deleted.is_(False)
-        ).first()
+        project = (
+            db.query(Project)
+              .filter(
+                Project.uuid == attendance_data.project_id,
+                Project.is_deleted.is_(False)
+              )
+              .first()
+        )
         if not project:
-            return AttendanceResponse(
-                data=None,
-                message="Project not found",
-                status_code=404
-            ).to_dict()
+            response.status_code = 404
+            return {"status_code":404, "message":"Project not found"}
 
-        # Validate sub-contractor
-        if not validate_sub_contractor(sub_contractor_id, db):
-            return AttendanceResponse(
-                data=None,
-                message="Sub-contractor not found",
-                status_code=404
-            ).to_dict()
+        if not validate_sub_contractor(attendance_data.sub_contractor_id, db):
+            response.status_code = 404
+            return {"status_code":404, "message":"Sub-contractor not found"}
 
-        sub_contractor = db.query(Person).filter(
-            Person.uuid == sub_contractor_id
+        sub = db.query(Person).filter(
+            Person.uuid == attendance_data.sub_contractor_id
         ).first()
 
-        today = date.today()
-
-        # Handle photo upload
+        # 3️⃣ Handle photo upload
         photo_path = None
-        if upload_photo:
-            ext = os.path.splitext(upload_photo.filename)[1]
-            filename = f"ATTENDANCE_{uuid4()}{ext}"
+        if attendance_photo:
+            ext = os.path.splitext(attendance_photo.filename)[1]
+            fname = f"Attendance_{str(uuid4())}{ext}"
             upload_dir = "uploads/attendance_photos"
             os.makedirs(upload_dir, exist_ok=True)
-            photo_path = os.path.join(upload_dir, filename)
+            photo_path = os.path.join(upload_dir, fname)
             with open(photo_path, "wb") as buffer:
-                buffer.write(upload_photo.file.read())
+                buffer.write(attendance_photo.file.read())
 
-        # Save to DB
-        new_attendance = ProjectAttendance(
+        # 4️⃣ Create & save attendance record
+        today = date.today()
+        att = ProjectAttendance(
             site_engineer_id=current_user.uuid,
-            project_id=project_id,
-            item_id=item_id,
-            sub_contractor_id=sub_contractor_id,
-            no_of_labours=no_of_labours,
+            project_id=attendance_data.project_id,
+            item_id=attendance_data.item_id,
+            sub_contractor_id=attendance_data.sub_contractor_id,
+            no_of_labours=attendance_data.no_of_labours,
             attendance_date=today,
             marked_at=datetime.now(),
-            latitude=latitude,
-            longitude=longitude,
-            location_address=location_address,
-            notes=notes,
-            # photo_path=photo_path  # ✅ CORRECT FIELD NAME
+            latitude=attendance_data.latitude,
+            longitude=attendance_data.longitude,
+            location_address=attendance_data.location_address,
+            notes=attendance_data.notes,
+            photo_path=photo_path,
         )
-        if photo_path:
-            setattr(new_attendance, "photo_path", photo_path)
+        db.add(att); 
+        db.commit(); 
+        db.refresh(att)
 
-        db.add(new_attendance)
-        db.commit()
-        db.refresh(new_attendance)
-
-        # Calculate wages
-        wage_calculation = calculate_and_save_wage(
-            project_id=project_id,
-            attendance_id=new_attendance.uuid,
-            no_of_labours=no_of_labours,
+        # 5️⃣ Wage calculation & logging (same as before)…
+        wage_calc = calculate_and_save_wage(
+            project_id=attendance_data.project_id,
+            attendance_id=att.uuid,
+            no_of_labours=attendance_data.no_of_labours,
             attendance_date=today,
             db=db
         )
 
-        wage_info = None
-        if wage_calculation:
-            wage_info = WageCalculationInfo(
-                uuid=wage_calculation.uuid,
-                daily_wage_rate=wage_calculation.daily_wage_rate,
-                total_wage_amount=wage_calculation.total_wage_amount,
-                wage_config_effective_date=wage_calculation.project_daily_wage.effective_date
-            )
-
-        response_data = ProjectAttendanceResponse(
-            uuid=new_attendance.uuid,
-            project=ProjectInfo(uuid=project.uuid, name=project.name),
-            sub_contractor=PersonInfo(uuid=sub_contractor.uuid, name=sub_contractor.name),
-            no_of_labours=new_attendance.no_of_labours,
-            attendance_date=new_attendance.attendance_date,
-            photo_path=new_attendance.photo_path,
-            marked_at=new_attendance.marked_at,
-            location=LocationData(
-                latitude=new_attendance.latitude,
-                longitude=new_attendance.longitude,
-                address=new_attendance.location_address
+        # 6️⃣ Build response
+        result = {
+            "uuid": str(att.uuid),
+            "project": {"uuid": str(project.uuid), "name": project.name},
+            "item": {"uuid": str(att.item_id), "name": att.item.name},
+            "sub_contractor": {"uuid": str(sub.uuid), "name": sub.name},
+            "no_of_labours": att.no_of_labours,
+            "attendance_date": att.attendance_date.isoformat(),
+            "marked_at": att.marked_at.isoformat(),
+            "location": {
+                "latitude": att.latitude,
+                "longitude": att.longitude,
+                "address": att.location_address
+            },
+            "notes": att.notes,
+            "photo_url": (
+                constants.HOST_URL + "/" + photo_path
+                if photo_path else None
             ),
-            notes=new_attendance.notes,
-            wage_calculation=wage_info
-        )
+            "wage_calculation": wage_calc and {
+                "uuid": str(wage_calc.uuid),
+                "daily_wage_rate": wage_calc.daily_wage_rate,
+                "total_wage_amount": wage_calc.total_wage_amount,
+                "wage_config_effective_date": wage_calc.project_daily_wage.effective_date,
+            }
+        }
 
         # Log action
-        log_entry = Log(
+        db.add(Log(
             performed_by=current_user.uuid,
             action="PROJECT_ATTENDANCE",
             entity="project_attendance",
-            entity_id=new_attendance.uuid
-        )
-        db.add(log_entry)
+            entity_id=att.uuid
+        ))
         db.commit()
 
-        return AttendanceResponse(
-            data=response_data.model_dump(),
-            message="Project attendance marked successfully with wage calculation",
-            status_code=201
-        ).to_dict()
+        return {"status_code":201, "message":"Attendance marked successfully", "data": result}
 
     except Exception as e:
         db.rollback()
-        logger.error(f"Error in mark_project_attendance: {str(e)}")
-        logger.error(traceback.format_exc())
-        return AttendanceResponse(
-            data=None,
-            message=f"Internal server error: {str(e)}",
-            status_code=500
-        ).to_dict()
+        logger.error(f"Error in mark_project_attendance: {e}", exc_info=True)
+        if response:
+            response.status_code = 500
+        return {"status_code":500, "message":"Internal server error", "details": str(e)}
+
+
 
 @attendance_router.get("/project/history", tags=["Project Attendance"])
 def get_project_attendance_history(
@@ -928,13 +1053,18 @@ def get_project_attendance_history(
                     uuid=attendance.project.uuid if attendance.project else None,
                     name=attendance.project.name if attendance.project else ""
                 ),
+                item=ItemListView(
+                    uuid=attendance.item.uuid if attendance.item else None,
+                    name=attendance.item.name if attendance.item else "",
+                    category=attendance.item.category if attendance.item else None    
+                ),
                 sub_contractor=PersonInfo(
                     uuid=attendance.sub_contractor.uuid if attendance.sub_contractor else None,
                     name=attendance.sub_contractor.name if attendance.sub_contractor else ""
                 ),
                 no_of_labours=attendance.no_of_labours or 0,
                 attendance_date=attendance.attendance_date,
-                photo_path=attendance.photo_path or "",
+                photo_path=constants.HOST_URL + "/" + attendance.photo_path if attendance.photo_path else None,
                 marked_at=attendance.marked_at,
                 location=LocationData(
                     latitude=attendance.latitude or 0.0,
