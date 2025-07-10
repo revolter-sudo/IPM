@@ -2,7 +2,12 @@ from typing import Optional, Any, List
 from uuid import UUID
 from datetime import datetime, date
 from pydantic import BaseModel, Field, field_validator
+from enum import Enum
 
+class AttendanceStatus(str, Enum):
+    absent   = "absent"
+    present  = "present"
+    off_day  = "off day"
 
 class LocationData(BaseModel):
     latitude: float = Field(..., ge=-90, le=90, description="Latitude must be between -90 and 90")
@@ -37,31 +42,17 @@ class AttendanceResponse(BaseModel):
 
 # Self Attendance Schemas
 class SelfAttendancePunchIn(BaseModel):
-    phone: int = Field(..., description="User phone number for authentication")
-    password: str = Field(..., description="User password for authentication")
     latitude: float = Field(..., ge=-90, le=90, description="Punch in latitude")
     longitude: float = Field(..., ge=-180, le=180, description="Punch in longitude")
     location_address: Optional[str] = Field(None, description="Optional punch in location address")
 
-    @field_validator("phone")
-    def validate_phone(cls, value):
-        if len(str(value)) != 10:
-            raise ValueError("Phone number must be exactly 10 digits")
-        return value
 
 
 class SelfAttendancePunchOut(BaseModel):
-    phone: int = Field(..., description="User phone number for authentication")
-    password: str = Field(..., description="User password for authentication")
     latitude: float = Field(..., ge=-90, le=90, description="Punch out latitude")
     longitude: float = Field(..., ge=-180, le=180, description="Punch out longitude")
     location_address: Optional[str] = Field(None, description="Optional punch out location address")
 
-    @field_validator("phone")
-    def validate_phone(cls, value):
-        if len(str(value)) != 10:
-            raise ValueError("Phone number must be exactly 10 digits")
-        return value
 
 
 class ProjectInfo(BaseModel):
@@ -78,6 +69,7 @@ class SelfAttendanceResponse(BaseModel):
     punch_out_location: Optional[LocationData] = None
     total_hours: Optional[str] = None
     assigned_projects: List[ProjectInfo] = []
+    status: AttendanceStatus
 
     model_config = {"from_attributes": True}
 
@@ -96,6 +88,7 @@ class SelfAttendanceStatus(BaseModel):
 # Project Attendance Schemas
 class ProjectAttendanceCreate(BaseModel):
     project_id: UUID = Field(..., description="Project UUID")
+    item_id: UUID = Field(..., description="Item UUID")
     sub_contractor_id: UUID = Field(..., description="Sub-contractor person UUID")
     no_of_labours: int = Field(..., gt=0, description="Number of labours (must be positive)")
     latitude: float = Field(..., ge=-90, le=90, description="Attendance marking latitude")
@@ -121,10 +114,15 @@ class WageCalculationInfo(BaseModel):
     total_wage_amount: float
     wage_config_effective_date: date
 
+class ItemListView(BaseModel):
+    uuid: UUID
+    name: str
+    category: Optional[str]
 
 class ProjectAttendanceResponse(BaseModel):
     uuid: UUID
     project: ProjectInfo
+    item: ItemListView
     sub_contractor: PersonInfo
     no_of_labours: int
     attendance_date: date

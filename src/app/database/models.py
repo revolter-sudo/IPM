@@ -554,6 +554,12 @@ class Item(Base):
         cascade="all, delete-orphan"
     )
 
+    project_attendances = relationship(
+        "ProjectAttendance",
+        back_populates="item",
+        cascade="all, delete-orphan"
+    )
+
     user_items = relationship(
         "UserItemMap",
         back_populates="item",
@@ -963,6 +969,7 @@ class ProjectAttendance(Base):
     uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
     site_engineer_id = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
     sub_contractor_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=False)
     no_of_labours = Column(Integer, nullable=False)
     attendance_date = Column(Date, nullable=False)
@@ -978,6 +985,7 @@ class ProjectAttendance(Base):
     # Relationships
     site_engineer = relationship("User", back_populates="project_attendances")
     project = relationship("Project", back_populates="project_attendances")
+    item = relationship("Item", back_populates="project_attendances")
     sub_contractor = relationship("Person", back_populates="project_attendances")
     wage_calculation = relationship("ProjectAttendanceWage", back_populates="project_attendance", uselist=False)
 

@@ -55,7 +55,8 @@ from src.app.schemas.attendance_schemas import (
     WageCalculationInfo,
     UserInfo,
     ProjectAttendanceSummary,
-    DailyAttendanceSummary
+    DailyAttendanceSummary,
+    AttendanceStatus
 )
 from src.app.services.auth_service import get_current_user, verify_password
 from src.app.services.wage_service import get_effective_wage_rate, calculate_and_save_wage
@@ -177,35 +178,13 @@ def validate_sub_contractor(sub_contractor_id: UUID, db: Session) -> bool:
 def punch_in_self_attendance(
     attendance_data: SelfAttendancePunchIn,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
     Mark self attendance punch in for the current day.
-    Requires phone/password authentication and location coordinates.
+    Requires the user to be logged in; uses current_user context for identity.
     """
     try:
-        # Authenticate user credentials
-        authenticated_user = authenticate_user_credentials(
-            attendance_data.phone, 
-            attendance_data.password, 
-            db
-        )
-        
-        if not authenticated_user:
-            return AttendanceResponse(
-                data=None,
-                message="Invalid phone number or password",
-                status_code=401
-            ).to_dict()
-        
-        # Verify authenticated user matches JWT token user
-        if authenticated_user.uuid != current_user.uuid:
-            return AttendanceResponse(
-                data=None,
-                message="Authentication mismatch",
-                status_code=403
-            ).to_dict()
-        
         # Validate coordinates
         if not validate_coordinates(attendance_data.latitude, attendance_data.longitude):
             return AttendanceResponse(
@@ -213,27 +192,26 @@ def punch_in_self_attendance(
                 message="Invalid coordinates provided",
                 status_code=400
             ).to_dict()
-        
+
         # Check if user already has attendance for today
         today = date.today()
-        existing_attendance = db.query(SelfAttendance).filter(
+        existing = db.query(SelfAttendance).filter(
             SelfAttendance.user_id == current_user.uuid,
             SelfAttendance.attendance_date == today,
             SelfAttendance.is_deleted.is_(False)
         ).first()
-        
-        if existing_attendance:
+        if existing:
             return AttendanceResponse(
                 data=None,
                 message="Attendance already marked for today",
                 status_code=400
             ).to_dict()
-        
+
         # Get assigned projects
         assigned_projects = get_user_assigned_projects(current_user.uuid, db)
-        
+
         # Create new attendance record
-        new_attendance = SelfAttendance(
+        new_att = SelfAttendance(
             user_id=current_user.uuid,
             attendance_date=today,
             punch_in_time=datetime.now(),
@@ -241,50 +219,48 @@ def punch_in_self_attendance(
             punch_in_longitude=attendance_data.longitude,
             punch_in_location_address=attendance_data.location_address,
             assigned_projects=json.dumps(assigned_projects) if assigned_projects else None,
-            status="present",
+            status=AttendanceStatus.present.value  # Use enum for status,
         )
-        
-        db.add(new_attendance)
+        db.add(new_att)
         db.commit()
-        db.refresh(new_attendance)
-        
+        db.refresh(new_att)
+
         # Prepare response
         response_data = SelfAttendanceResponse(
-            uuid=new_attendance.uuid,
-            attendance_date=new_attendance.attendance_date,
-            punch_in_time=new_attendance.punch_in_time,
+            uuid=new_att.uuid,
+            attendance_date=new_att.attendance_date,
+            punch_in_time=new_att.punch_in_time,
             punch_in_location=LocationData(
-                latitude=new_attendance.punch_in_latitude,
-                longitude=new_attendance.punch_in_longitude,
-                address=new_attendance.punch_in_location_address
+                latitude=new_att.punch_in_latitude,
+                longitude=new_att.punch_in_longitude,
+                address=new_att.punch_in_location_address
             ),
             assigned_projects=[ProjectInfo(**proj) for proj in assigned_projects] if assigned_projects else []
         )
-        
+
         # Log the action
         log_entry = Log(
             performed_by=current_user.uuid,
             action="PUNCH_IN",
             entity="self_attendance",
-            entity_id=new_attendance.uuid
-            # details=f"User {current_user.name} punched in at {new_attendance.punch_in_time}"
+            entity_id=new_att.uuid
         )
         db.add(log_entry)
         db.commit()
-        
+
         return AttendanceResponse(
             data=response_data.model_dump(),
             message="Punch in successful",
             status_code=201
         ).to_dict()
-        
+
     except Exception as e:
         db.rollback()
-        logger.error(f"Error in punch_in_self_attendance: {str(e)}")
+        logger.error(f"Error in punch_in_self_attendance: {e}")
         logger.error(traceback.format_exc())
         return AttendanceResponse(
             data=None,
-            message=f"Internal server error: {str(e)}",
+            message=f"Internal server error: {e}",
             status_code=500
         ).to_dict()
 
@@ -300,28 +276,6 @@ def punch_out_self_attendance(
     Requires phone/password authentication and location coordinates.
     """
     try:
-        # Authenticate user credentials
-        authenticated_user = authenticate_user_credentials(
-            attendance_data.phone,
-            attendance_data.password,
-            db
-        )
-
-        if not authenticated_user:
-            return AttendanceResponse(
-                data=None,
-                message="Invalid phone number or password",
-                status_code=401
-            ).to_dict()
-
-        # Verify authenticated user matches JWT token user
-        if authenticated_user.uuid != current_user.uuid:
-            return AttendanceResponse(
-                data=None,
-                message="Authentication mismatch",
-                status_code=403
-            ).to_dict()
-
         # Validate coordinates
         if not validate_coordinates(attendance_data.latitude, attendance_data.longitude):
             return AttendanceResponse(
@@ -421,23 +375,68 @@ def punch_out_self_attendance(
             message=f"Internal server error: {str(e)}",
             status_code=500
         ).to_dict()
-    
-@attendance_router.post("/mark-day-off", tags=["Self Attendance"])
+
+@attendance_router.post(
+    "/mark-day-off",
+    tags=["Self Attendance"],
+    description="Mark a day off for the logged-in user (or, for Admin/SuperAdmin, another user).",
+)
 def mark_day_off(
-    date_off: date = Body(..., description="Date to mark as off"),
+    date_off: date = Form(..., description="Date to mark as off (YYYY-MM-DD)"),
+    user_id: UUID | None = Form(
+        None,
+        description="(Admin/SuperAdmin only) UUID of the user to mark off"
+    ),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
-    Mark a day off for the logged-in user.
+    - **SuperAdmin/Admin** may pass `user_id` to mark someone else’s day off.
+    - **All other roles** must not pass `user_id` (they’ll be blocked).
+    - Role-based date rules (past/future/today) still apply to whichever user is targeted.
     """
     try:
-        existing = db.query(SelfAttendance).filter(
-            SelfAttendance.user_id == current_user.uuid,
-            SelfAttendance.attendance_date == date_off,
-            SelfAttendance.is_deleted == False
-        ).first()
+        today = date.today()
 
+        # figure out whose record we're touching
+        if user_id:
+            if current_user.role not in {UserRole.ADMIN, UserRole.SUPER_ADMIN}:
+                return AttendanceResponse(
+                    data=None,
+                    message="Only Admin/SuperAdmin may manage other users’ days off",
+                    status_code=403
+                ).to_dict()
+            target_user_id = user_id
+        else:
+            target_user_id = current_user.uuid
+
+        # role-based date restrictions still refer to the current_user’s role...
+        if current_user.role == UserRole.SITE_ENGINEER:
+            if date_off != today:
+                return AttendanceResponse(
+                    data=None,
+                    message="Site engineers may only mark today's day off",
+                    status_code=400
+                ).to_dict()
+
+        elif current_user.role not in {UserRole.ADMIN, UserRole.SUPER_ADMIN}:
+            if date_off < today:
+                return AttendanceResponse(
+                    data=None,
+                    message="You cannot mark a day off in the past",
+                    status_code=400
+                ).to_dict()
+
+        # duplicate-check on the target user
+        existing = (
+            db.query(SelfAttendance)
+              .filter(
+                  SelfAttendance.user_id == target_user_id,
+                  SelfAttendance.attendance_date == date_off,
+                  SelfAttendance.is_deleted.is_(False)
+              )
+              .first()
+        )
         if existing:
             return AttendanceResponse(
                 data=None,
@@ -445,13 +444,13 @@ def mark_day_off(
                 status_code=400
             ).to_dict()
 
+        # create
         new_entry = SelfAttendance(
             uuid=uuid4(),
-            user_id=current_user.uuid,
+            user_id=target_user_id,
             attendance_date=date_off,
             status="off day"
         )
-
         db.add(new_entry)
         db.commit()
         db.refresh(new_entry)
@@ -464,15 +463,18 @@ def mark_day_off(
 
     except Exception as e:
         db.rollback()
-        logger.error(f"Error in mark_day_off: {str(e)}")
+        logger.error(f"Error in mark_day_off: {e}")
+        logger.error(traceback.format_exc())
         return AttendanceResponse(
             data=None,
             message="Internal server error",
             status_code=500
         ).to_dict()
-
-
-@attendance_router.delete("/self/punch-in/cancel/{punch_in_id}", tags=["Self Attendance"])
+    
+@attendance_router.delete(
+    "/self/punch-in/cancel/{punch_in_id}", 
+    tags=["Self Attendance"]
+)
 def cancel_self_punch_in(
     punch_in_id: UUID,
     db: Session = Depends(get_db),
@@ -486,6 +488,7 @@ def cancel_self_punch_in(
         punch_record = db.query(SelfAttendance).filter(
             SelfAttendance.uuid == punch_in_id,
             SelfAttendance.user_id == current_user.uuid,
+            SelfAttendance.status == "present",
             SelfAttendance.is_deleted.is_(False)
         ).first()
 
@@ -534,6 +537,69 @@ def cancel_self_punch_in(
         return AttendanceResponse(
             data=None,
             message=f"Internal server error: {str(e)}",
+            status_code=500
+        ).to_dict()
+
+@attendance_router.delete(
+    "/self/day-off/cancel/{day_off_id}",
+    tags=["Self Attendance"],
+    description="Cancel a previously marked day off (soft delete)",
+)
+def cancel_self_day_off(
+    day_off_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Soft-delete a user’s “off day” record.
+    Only records with status == "off day" and is_deleted == False are cancellable.
+    """
+    try:
+        # Fetch only an off-day record for this user
+        off_record = (
+            db.query(SelfAttendance)
+              .filter(
+                  SelfAttendance.uuid == day_off_id,
+                  SelfAttendance.user_id == current_user.uuid,
+                  SelfAttendance.status == "off day",
+                  SelfAttendance.is_deleted.is_(False)
+              )
+              .first()
+        )
+        if not off_record:
+            return AttendanceResponse(
+                data=None,
+                message="Day-off record not found or not cancellable",
+                status_code=404
+            ).to_dict()
+
+        # Soft delete
+        off_record.is_deleted = True
+        db.commit()
+
+        # Log cancellation
+        log_entry = Log(
+            performed_by=current_user.uuid,
+            action="DAY_OFF_CANCELLED",
+            entity="self_attendance",
+            entity_id=off_record.uuid
+        )
+        db.add(log_entry)
+        db.commit()
+
+        return AttendanceResponse(
+            data={"day_off_id": str(off_record.uuid)},
+            message="Day off cancelled successfully",
+            status_code=200
+        ).to_dict()
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error in cancel_self_day_off: {e}")
+        logger.error(traceback.format_exc())
+        return AttendanceResponse(
+            data=None,
+            message="Internal server error",
             status_code=500
         ).to_dict()
 
@@ -593,189 +659,40 @@ def get_self_attendance_status(
             status_code=500
         ).to_dict()
 
-# @attendance_router.post("/project", tags=["Project Attendance"])
-# def mark_project_attendance(
-#     # attendance_data: ProjectAttendanceCreate,
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(get_current_user)
-# ):
-#     """
-#     Mark project attendance for labours with automatic wage calculation.
-#     Only Site Engineers can mark project attendance for assigned projects.
-#     """
-#     try:
-#         # Check if user has permission (Site Engineer, Project Manager, Admin, Super Admin)
-#         allowed_roles = [UserRole.SITE_ENGINEER, UserRole.PROJECT_MANAGER, UserRole.ADMIN, UserRole.SUPER_ADMIN]
-#         if current_user.role not in allowed_roles:
-#             return AttendanceResponse(
-#                 data=None,
-#                 message="Not authorized to mark project attendance",
-#                 status_code=403
-#             ).to_dict()
-
-#         # Validate coordinates
-#         if not validate_coordinates(attendance_data.latitude, attendance_data.longitude):
-#             return AttendanceResponse(
-#                 data=None,
-#                 message="Invalid coordinates provided",
-#                 status_code=400
-#             ).to_dict()
-
-#         # Check if user is assigned to the project (for Site Engineers)
-#         if current_user.role == UserRole.SITE_ENGINEER:
-#             if not check_user_project_assignment(current_user.uuid, attendance_data.project_id, db):
-#                 return AttendanceResponse(
-#                     data=None,
-#                     message="Not assigned to this project",
-#                     status_code=403
-#                 ).to_dict()
-
-#         # Validate project exists
-#         project = db.query(Project).filter(
-#             Project.uuid == attendance_data.project_id,
-#             Project.is_deleted.is_(False)
-#         ).first()
-
-#         if not project:
-#             return AttendanceResponse(
-#                 data=None,
-#                 message="Project not found",
-#                 status_code=404
-#             ).to_dict()
-
-#         # Validate sub-contractor exists
-#         if not validate_sub_contractor(attendance_data.sub_contractor_id, db):
-#             return AttendanceResponse(
-#                 data=None,
-#                 message="Sub-contractor not found",
-#                 status_code=404
-#             ).to_dict()
-
-#         # Get sub-contractor details
-#         sub_contractor = db.query(Person).filter(
-#             Person.uuid == attendance_data.sub_contractor_id
-#         ).first()
-
-#         # Check if attendance can only be marked for current day
-#         today = date.today()
-
-#         upload_photo_path = None
-#         if attendance_data.upload_photo:
-#             ext = os.path.splitext(attendance_data.upload_photo.filename)[1]
-#             filename = f"ATTENDANCE_{str(uuid4())}{ext}"
-#             upload_dir = "uploads/attendance_photos"
-#             os.makedirs(upload_dir, exist_ok=True)
-#             upload_photo_path = os.path.join(upload_dir, filename)
-
-#             with open(upload_photo_path, "wb") as buffer:
-#                 buffer.write(attendance_data.upload_photo.file.read())
-
-
-#         # Create new project attendance record
-#         new_attendance = ProjectAttendance(
-#             site_engineer_id=current_user.uuid,
-#             project_id=attendance_data.project_id,
-#             sub_contractor_id=attendance_data.sub_contractor_id,
-#             no_of_labours=attendance_data.no_of_labours,
-#             attendance_date=today,
-#             marked_at=datetime.now(),
-#             latitude=attendance_data.latitude,
-#             longitude=attendance_data.longitude,
-#             location_address=attendance_data.location_address,
-#             notes=attendance_data.notes,
-#             upload_photo=upload_photo_path if upload_photo_path else None
-#         )
-
-#         db.add(new_attendance)
-#         db.commit()
-#         db.refresh(new_attendance)
-
-#         # Calculate and save wage
-#         wage_calculation = calculate_and_save_wage(
-#             project_id=attendance_data.project_id,
-#             attendance_id=new_attendance.uuid,
-#             no_of_labours=attendance_data.no_of_labours,
-#             attendance_date=today,
-#             db=db
-#         )
-
-#         # Prepare response data
-#         wage_info = None
-#         if wage_calculation:
-#             wage_info = WageCalculationInfo(
-#                 uuid=wage_calculation.uuid,
-#                 daily_wage_rate=wage_calculation.daily_wage_rate,
-#                 total_wage_amount=wage_calculation.total_wage_amount,
-#                 wage_config_effective_date=wage_calculation.project_daily_wage.effective_date
-#             )
-
-#         response_data = ProjectAttendanceResponse(
-#             uuid=new_attendance.uuid,
-#             project=ProjectInfo(
-#                 uuid=project.uuid,
-#                 name=project.name
-#             ),
-#             sub_contractor=PersonInfo(
-#                 uuid=sub_contractor.uuid,
-#                 name=sub_contractor.name
-#             ),
-#             no_of_labours=new_attendance.no_of_labours,
-#             attendance_date=new_attendance.attendance_date,
-#             upload_photo=new_attendance.upload_photo_path,
-#             marked_at=new_attendance.marked_at,
-#             location=LocationData(
-#                 latitude=new_attendance.latitude,
-#                 longitude=new_attendance.longitude,
-#                 address=new_attendance.location_address
-#             ),
-#             notes=new_attendance.notes,
-#             wage_calculation=wage_info
-#         )
-
-#         # Log the action
-#         log_entry = Log(
-#             performed_by=current_user.uuid,
-#             action="PROJECT_ATTENDANCE_MARKED",
-#             entity="project_attendance",
-#             entity_id=new_attendance.uuid
-#             # details=f"User {current_user.name} marked attendance for {attendance_data.no_of_labours} labours in project {project.name}"
-#         )
-#         db.add(log_entry)
-#         db.commit()
-
-#         return AttendanceResponse(
-#             data=response_data.model_dump(),
-#             message="Project attendance marked successfully with wage calculation",
-#             status_code=201
-#         ).to_dict()
-
-#     except Exception as e:
-#         db.rollback()
-#         logger.error(f"Error in mark_project_attendance: {str(e)}")
-#         logger.error(traceback.format_exc())
-#         return AttendanceResponse(
-#             data=None,
-#             message=f"Internal server error: {str(e)}",
-#             status_code=500
-#         ).to_dict()
-
-@attendance_router.post("/project", tags=["Project Attendance"])
+@attendance_router.post(
+    "/project", 
+    tags=["Project Attendance"],
+    description="""
+**Example `Project_Attandance Data` JSON Format**:
+```json
+{   
+    "project_id": "df46d83e-ac87-470d-b1e0-758d32e401a6",
+    "item_id": "73c7d1a1-d6ee-479e-8564-567707696138",  
+    "sub_contractor_id": "73c7d1a1-d6ee-479e-8564-567707696138",   
+    "no_of_labours": 10,   
+    "latitude": 23.0225,   
+    "longitude": 72.5714,   
+    "location_address": "Site A, Ahmedabad",   
+    "notes": "Masonry work completed" 
+}
+"""
+)
 def mark_project_attendance(
-    attendance_data: str = Form(..., description="JSON string containing Attendance details"),
+    payload: ProjectAttendanceCreate = Body(..., description="Project attendance data in JSON format"),
     upload_photo: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     try:
         # Parse and extract values from JSON
-        data = json.loads(attendance_data)
-        project_id = UUID(data.get("project_id"))
-        sub_contractor_id = UUID(data.get("sub_contractor_id"))
-        no_of_labours = data.get("no_of_labours", 0)
-        latitude = data.get("latitude")
-        longitude = data.get("longitude")
-        location_address = data.get("location_address", "")
-        notes = data.get("notes", "")
+        project_id = payload.project_id
+        item_id = payload.item_id
+        sub_contractor_id = payload.sub_contractor_id
+        no_of_labours = payload.no_of_labours
+        latitude = payload.latitude
+        longitude = payload.longitude
+        location_address = payload.location_address
+        notes = payload.notes
 
         if no_of_labours <= 0:
             return AttendanceResponse(
@@ -850,6 +767,7 @@ def mark_project_attendance(
         new_attendance = ProjectAttendance(
             site_engineer_id=current_user.uuid,
             project_id=project_id,
+            item_id=item_id,
             sub_contractor_id=sub_contractor_id,
             no_of_labours=no_of_labours,
             attendance_date=today,
@@ -927,8 +845,6 @@ def mark_project_attendance(
             message=f"Internal server error: {str(e)}",
             status_code=500
         ).to_dict()
-
-
 
 @attendance_router.get("/project/history", tags=["Project Attendance"])
 def get_project_attendance_history(
