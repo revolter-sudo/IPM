@@ -2722,6 +2722,9 @@ def list_items(
                 } for _, group in mappings
             ] if mappings else None
 
+            # get payment count
+            payment_count = db.query(func.count(PaymentItem.id)).filter(PaymentItem.item_id == item.uuid).scalar() or 0
+
             items_data.append({
                 "uuid": str(item.uuid),
                 "name": item.name,
@@ -2729,7 +2732,8 @@ def list_items(
                 "list_tag": item.list_tag,
                 "has_additional_info": item.has_additional_info,
                 "created_at": item.created_at,
-                "associated_groups": associated_groups
+                "associated_groups": associated_groups,
+                "payment_count": payment_count
             })
 
         return PaymentServiceResponse(
