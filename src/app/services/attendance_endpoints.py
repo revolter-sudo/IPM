@@ -845,7 +845,7 @@ Mark attendance for a project with optional photo upload.
 )
 def mark_project_attendance(
     attendance: str = Form(..., description="JSON string of ProjectAttendanceCreate"),
-    attendance_photo: UploadFile | None = File(None, description="Optional photo of site/labourers"),
+    attendance_photo: Optional[UploadFile] = File(None, description="Optional photo of site/labourers"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     response: Response = None,

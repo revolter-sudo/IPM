@@ -24,7 +24,7 @@ class MachinePunchOutRequest(BaseModel):
 class MachineryPunchOutResponse(BaseModel):
     uuid: UUID
     end_time: datetime
-    duration_minutes: float | None = None  # Optional: Show duration if start_time exists
+    duration_minutes: Optional[float] = None  # Optional: Show duration if start_time exists
 
 class MachineryLogResponse(BaseModel):
     uuid: UUID
@@ -41,7 +41,7 @@ class MachineryLogResponse(BaseModel):
         from_attributes = True
 
 class APIResponse(BaseModel):
-    data: dict | None
+    data: Optional[dict] = None
     message: str
     status_code: int
 
