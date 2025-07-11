@@ -389,7 +389,7 @@ def punch_out_self_attendance(
 )
 def mark_day_off(
     date_off: date = Form(..., description="Date to mark as off (YYYY-MM-DD)"),
-    user_id: UUID | None = Form(
+    user_id: Optional[UUID] = Form(
         None,
         description="(Admin/SuperAdmin only) UUID of the user to mark off"
     ),

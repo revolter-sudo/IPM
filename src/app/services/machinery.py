@@ -1,22 +1,13 @@
-import os
-import json
-import re
 import traceback
-from typing import Optional, List
+from typing import Optional
 from uuid import UUID, uuid4
 from datetime import datetime, date, timedelta
-from src.app.schemas import constants
 from fastapi import (
     APIRouter,
     Depends,
-    HTTPException,
     Query,
-    Body,
-    status as h_status,
-    UploadFile
 )
-from fastapi import Form, File, UploadFile, Depends, Response
-from fastapi import status
+from fastapi import Depends
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
@@ -73,7 +64,7 @@ def punch_in_machine(
             Machinery.project_id == req.project_id,
             Machinery.sub_contractor_id == req.sub_contractor_id,
             Machinery.item_id == req.item_id,
-            Machinery.end_time.is_(None),    # not yet stopped
+            Machinery.end_time.is_(None),
             Machinery.is_deleted.is_(False)
         ).first()
         if exists:
