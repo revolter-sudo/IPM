@@ -239,7 +239,8 @@ def punch_in_self_attendance(
                 longitude=new_att.punch_in_longitude,
                 address=new_att.punch_in_location_address
             ),
-            assigned_projects=[ProjectInfo(**proj) for proj in assigned_projects] if assigned_projects else []
+            assigned_projects=[ProjectInfo(**proj) for proj in assigned_projects] if assigned_projects else [],
+            status=AttendanceStatus.present  # Adding the required status field
         )
 
         # Log the action
@@ -350,7 +351,8 @@ def punch_out_self_attendance(
                 address=attendance_record.punch_out_location_address
             ),
             total_hours=total_hours,
-            assigned_projects=[ProjectInfo(**proj) for proj in assigned_projects] if assigned_projects else []
+            assigned_projects=[ProjectInfo(**proj) for proj in assigned_projects] if assigned_projects else [],
+            status=AttendanceStatus(attendance_record.status)  # Adding the required status field
         )
 
         # Log the action
@@ -824,7 +826,22 @@ def get_self_attendance_status(
     "/project/attendance",
     tags=["Project Attendance"],
     status_code=201,
-    description="Mark attendance for a project with optional photo upload"
+    description="""
+Mark attendance for a project with optional photo upload.
+
+**Request Body Example:**
+```json
+{
+  "project_id": "df46d83e-ac87-470d-b1e0-758d32e401a6",           // Required: The UUID of the project
+  "item_id": "24d2f692-e339-454d-a9c8-73b928e1a649",               // Required: The UUID of the work item
+  "sub_contractor_id": "73c7d1a1-d6ee-479e-8564-567707696138",     // Required: The UUID of the sub-contractor
+  "no_of_labours": 5,                                              // Required: Number of labours present
+  "latitude": 22.572645,                                           // Required: Location latitude
+  "longitude": 88.363892,                                          // Required: Location longitude
+  "location_address": "Site B, Sector 5, Kolkata",                 // Required: Text address of the attendance location
+  "notes": "Finished laying the base layer of brickwork."           // Optional: Any remarks/notes
+}
+"""
 )
 def mark_project_attendance(
     attendance: str = Form(..., description="JSON string of ProjectAttendanceCreate"),

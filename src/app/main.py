@@ -17,6 +17,7 @@ from src.app.services.attendance_endpoints import attendance_router
 from src.app.services.wage_endpoints import wage_router
 from src.app.admin_panel.endpoints import admin_app
 from src.app.sms_service.auth_service import sms_service_router
+from src.app.services.machinery import machinery_router
 
 from dotenv import load_dotenv
 from fastapi_cache import FastAPICache
@@ -126,7 +127,9 @@ app.include_router(inquiry_router)
 app.include_router(attendance_router)
 app.include_router(wage_router)
 app.include_router(sms_service_router)
+app.include_router(machinery_router)
 app.mount(path='/admin', app=admin_app)
+
 
 SERVICE_ACCOUNT_PATH = SERVICE_FILE # noqa
 

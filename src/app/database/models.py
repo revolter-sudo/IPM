@@ -160,6 +160,12 @@ class User(Base):
         cascade="all, delete-orphan"
     )
 
+    machinery = relationship(
+        "Machinery",
+        back_populates="created_by_user",
+        cascade="all, delete-orphan"
+    )
+
 
 class UserTokenMap(Base):
     __tablename__ = "user_token_map"
@@ -212,6 +218,12 @@ class Person(Base):
     # Attendance relationship
     project_attendances = relationship(
         "ProjectAttendance",
+        back_populates="sub_contractor",
+        cascade="all, delete-orphan"
+    )
+
+    machinery = relationship(
+        "Machinery",
         back_populates="sub_contractor",
         cascade="all, delete-orphan"
     )
@@ -280,6 +292,12 @@ class Project(Base):
 
     daily_wages = relationship(
         "ProjectDailyWage",
+        back_populates="project",
+        cascade="all, delete-orphan"
+    )
+
+    machinery = relationship(
+        "Machinery",
         back_populates="project",
         cascade="all, delete-orphan"
     )
@@ -544,6 +562,7 @@ class Item(Base):
     payments = relationship("PaymentItem", back_populates="item", cascade="all, delete-orphan")
     khatabook_items = relationship("KhatabookItem", back_populates="item", cascade="all, delete-orphan")
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    machinery = relationship("Machinery", back_populates="item", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Item(id={self.id}, name={self.name}, category={self.category})>"
@@ -572,14 +591,6 @@ class Item(Base):
         cascade="all, delete-orphan"
     )
 
-    # category = relationship("ItemCategories", back_populates="items")
-
-
-    
-
-
-    def __repr__(self):
-        return f"<Item(name={self.name})>"
 
 
 class PaymentItem(Base):
@@ -893,7 +904,6 @@ class CompanyInfo(Base):
     logo_photo_url = Column(Text, nullable=True)
 
 
-
 class ItemCategories(Base):
     __tablename__ = "item_categories"
 
@@ -1034,3 +1044,27 @@ class ProjectAttendanceWage(Base):
 
     def __repr__(self):
         return f"<ProjectAttendanceWage(project_attendance_id={self.project_attendance_id}, total_wage_amount={self.total_wage_amount})>"
+
+
+class Machinery(Base):
+    __tablename__ = "machinery"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.uuid"), nullable=False)
+    sub_contractor_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=False)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
+    start_time = Column(TIMESTAMP, nullable=False)
+    end_time = Column(TIMESTAMP, nullable=True)  # Nullable if not yet ended
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
+
+    # Relationships
+    project = relationship("Project", back_populates="machinery")
+    sub_contractor = relationship("Person", back_populates="machinery")
+    item = relationship("Item", back_populates="machinery")
+    created_by_user = relationship("User", foreign_keys=[created_by], back_populates="machinery")
+
+    def __repr__(self):
+        return f"<Machinery(id={self.id}, project_id={self.project_id}, item_id={self.item_id}, start_time={self.start_time})>"
