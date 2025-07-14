@@ -1045,38 +1045,56 @@ def mark_project_attendance(
     tags=["Project Attendance"],
     status_code=200,
     description="""
-Update an existing project attendance record.  
-Payload is the same as create.  
-Send a new photo to replace the existing one (old photo will be deleted).  
+Update project attendance record. Only provided fields will be updated.
+
+**Request Body Example:**
+```json
+{
+  "project_id": "df46d83e-ac87-470d-b1e0-758d32e401a6",           // Optional: The UUID of the project
+  "item_id": "24d2f692-e339-454d-a9c8-73b928e1a649",               // Optional: The UUID of the work item
+  "sub_contractor_id": "73c7d1a1-d6ee-479e-8564-567707696138",     // Optional: The UUID of the sub-contractor
+  "no_of_labours": 5,                                              // Optional: Number of labours present
+  "latitude": 22.572645,                                           // Optional: Location latitude
+  "longitude": 88.363892,                                          // Optional: Location longitude
+  "location_address": "Site B, Sector 5, Kolkata",                 // Optional: Text address of the attendance location
+  "notes": "Updated notes for the attendance"                      // Optional: Any remarks/notes
+}
 """
 )
 def update_project_attendance(
     attendance_id: UUID,
-    attendance: str = Form(..., description="JSON string of ProjectAttendanceUpdate"),
+    attendance: str = Form(..., description="JSON string with fields to update"),
     attendance_photo: Optional[UploadFile] = File(None, description="Optional new photo of site/labourers"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     response: Response = None,
 ):
     try:
-        # 1️⃣ Parse & validate JSON payload
-        try:
-            payload = json.loads(attendance)
-            attendance_data = ProjectAttendanceCreate(**payload)  # Reuse the same Pydantic schema
-        except (json.JSONDecodeError, ValidationError) as e:
-            response.status_code = 400
-            return {"status_code": 400, "message": "Invalid attendance data", "details": str(e)}
-
-        # 2️⃣ Fetch attendance record
+        # 1️⃣ Fetch existing record
         att = db.query(ProjectAttendance).filter(
             ProjectAttendance.uuid == attendance_id,
             ProjectAttendance.is_deleted.is_(False)
         ).first()
+
         if not att:
             response.status_code = 404
-            return {"status_code": 404, "message": "Attendance record not found"}
+            return {
+                "status_code": 404,
+                "message": "Attendance record not found"
+            }
 
-        # 3️⃣ Authorization check (can add more granular if needed)
+        # 2️⃣ Parse update data
+        try:
+            update_data = json.loads(attendance)
+        except json.JSONDecodeError as e:
+            response.status_code = 400
+            return {
+                "status_code": 400,
+                "message": "Invalid JSON data",
+                "details": str(e)
+            }
+
+        # 3️⃣ Authorization checks
         allowed_roles = [
             UserRole.SITE_ENGINEER,
             UserRole.PROJECT_MANAGER,
@@ -1085,33 +1103,75 @@ def update_project_attendance(
         ]
         if current_user.role not in allowed_roles:
             response.status_code = 403
-            return {"status_code": 403, "message": "Not authorized to update project attendance"}
+            return {
+                "status_code": 403,
+                "message": "Not authorized to update project attendance"
+            }
 
-        # Optional: restrict update to original site engineer only
-        # if current_user.role == UserRole.SITE_ENGINEER and att.site_engineer_id != current_user.uuid:
-        #     response.status_code = 403
-        #     return {"status_code": 403, "message": "Not allowed to update this attendance"}
+        # Additional authorization for site engineers
+        if current_user.role == UserRole.SITE_ENGINEER:
+            # Can only update their own records
+            if att.site_engineer_id != current_user.uuid:
+                response.status_code = 403
+                return {
+                    "status_code": 403,
+                    "message": "Not authorized to update this attendance record"
+                }
+            
+            # If project_id is being updated, check assignment
+            if "project_id" in update_data:
+                ok = check_user_project_assignment(
+                    current_user.uuid, UUID(update_data["project_id"]), db
+                )
+                if not ok:
+                    response.status_code = 403
+                    return {
+                        "status_code": 403,
+                        "message": "Not assigned to the target project"
+                    }
 
-        if not validate_coordinates(attendance_data.latitude, attendance_data.longitude):
-            response.status_code = 400
-            return {"status_code": 400, "message": "Invalid coordinates provided"}
+        # 4️⃣ Validate updates
+        if "project_id" in update_data:
+            project = db.query(Project).filter(
+                Project.uuid == UUID(update_data["project_id"]),
+                Project.is_deleted.is_(False)
+            ).first()
+            if not project:
+                response.status_code = 404
+                return {
+                    "status_code": 404,
+                    "message": "Target project not found"
+                }
 
-        if not db.query(Project).filter(Project.uuid == attendance_data.project_id, Project.is_deleted.is_(False)).first():
-            response.status_code = 404
-            return {"status_code": 404, "message": "Project not found"}
+        if "sub_contractor_id" in update_data:
+            if not validate_sub_contractor(UUID(update_data["sub_contractor_id"]), db):
+                response.status_code = 404
+                return {
+                    "status_code": 404,
+                    "message": "Target sub-contractor not found"
+                }
 
-        if not validate_sub_contractor(attendance_data.sub_contractor_id, db):
-            response.status_code = 404
-            return {"status_code": 404, "message": "Sub-contractor not found"}
+        if "latitude" in update_data and "longitude" in update_data:
+            if not validate_coordinates(
+                float(update_data["latitude"]), 
+                float(update_data["longitude"])
+            ):
+                response.status_code = 400
+                return {
+                    "status_code": 400,
+                    "message": "Invalid coordinates provided"
+                }
 
-        sub = db.query(Person).filter(Person.uuid == attendance_data.sub_contractor_id).first()
-
-        # 4️⃣ Handle photo upload/replacement
-        photo_path = att.photo_path
+        # 5️⃣ Handle photo update if provided
         if attendance_photo:
-            # Remove old photo if exists
-            if photo_path and os.path.exists(photo_path):
-                os.remove(photo_path)
+            # Delete old photo if exists
+            if att.photo_path and os.path.exists(att.photo_path):
+                try:
+                    os.remove(att.photo_path)
+                except Exception as e:
+                    logger.warning(f"Failed to delete old photo: {e}")
+
+            # Save new photo
             ext = os.path.splitext(attendance_photo.filename)[1]
             fname = f"Attendance_{str(uuid4())}{ext}"
             upload_dir = "uploads/attendance_photos"
@@ -1119,39 +1179,77 @@ def update_project_attendance(
             photo_path = os.path.join(upload_dir, fname)
             with open(photo_path, "wb") as buffer:
                 buffer.write(attendance_photo.file.read())
+            att.photo_path = photo_path
 
-        # 5️⃣ Update fields
-        att.project_id = attendance_data.project_id
-        att.item_id = attendance_data.item_id
-        att.sub_contractor_id = attendance_data.sub_contractor_id
-        att.no_of_labours = attendance_data.no_of_labours
-        # Do not update att.attendance_date or att.marked_at unless you want to allow that
-        att.latitude = attendance_data.latitude
-        att.longitude = attendance_data.longitude
-        att.location_address = attendance_data.location_address
-        att.notes = attendance_data.notes
-        att.photo_path = photo_path
+        # 6️⃣ Update fields
+        for key, value in update_data.items():
+            if key in [
+                "project_id", "item_id", "sub_contractor_id"
+            ] and value:
+                setattr(att, key, UUID(value))
+            elif key in [
+                "latitude", "longitude"
+            ] and value is not None:
+                setattr(att, key, float(value))
+            elif key in [
+                "no_of_labours"
+            ] and value is not None:
+                setattr(att, key, int(value))
+            elif key in [
+                "location_address", "notes"
+            ]:
+                setattr(att, key, value)
 
+        # 7️⃣ Recalculate wages if labour count changed
+        if "no_of_labours" in update_data:
+            # First, delete existing wage calculation if any
+            existing_wages = db.query(ProjectAttendanceWage).filter(
+                ProjectAttendanceWage.project_attendance_id == att.uuid
+            ).all()
+            
+            if existing_wages:
+                for wage in existing_wages:
+                    db.delete(wage)
+                db.commit()
+
+            # Now calculate and save new wage
+            wage_calc = calculate_and_save_wage(
+                project_id=att.project_id,
+                attendance_id=att.uuid,
+                no_of_labours=att.no_of_labours,
+                attendance_date=att.attendance_date,
+                db=db
+            )
+
+        # 8️⃣ Save changes
         db.commit()
         db.refresh(att)
 
-        # 6️⃣ Wage calculation & logging
-        wage_calc = calculate_and_save_wage(
-            project_id=attendance_data.project_id,
-            attendance_id=att.uuid,
-            no_of_labours=attendance_data.no_of_labours,
-            attendance_date=att.attendance_date,  # not changed
-            db=db
+        # 9️⃣ Log update
+        log_entry = Log(
+            performed_by=current_user.uuid,
+            action="PROJECT_UPDATED",
+            entity="project_attendance",
+            entity_id=att.uuid
         )
+        db.add(log_entry)
+        db.commit()
 
-        project = db.query(Project).filter(Project.uuid == att.project_id).first()
-
-        # 7️⃣ Build response
+        # 🔟 Prepare response
         result = {
             "uuid": str(att.uuid),
-            "project": {"uuid": str(project.uuid), "name": project.name},
-            "item": {"uuid": str(att.item_id), "name": att.item.name},
-            "sub_contractor": {"uuid": str(sub.uuid), "name": sub.name},
+            "project": {
+                "uuid": str(att.project.uuid),
+                "name": att.project.name
+            },
+            "item": {
+                "uuid": str(att.item.uuid),
+                "name": att.item.name
+            } if att.item else None,
+            "sub_contractor": {
+                "uuid": str(att.sub_contractor.uuid),
+                "name": att.sub_contractor.name
+            } if att.sub_contractor else None,
             "no_of_labours": att.no_of_labours,
             "attendance_date": att.attendance_date.isoformat(),
             "marked_at": att.marked_at.isoformat(),
@@ -1162,34 +1260,38 @@ def update_project_attendance(
             },
             "notes": att.notes,
             "photo_url": (
-                constants.HOST_URL + "/" + photo_path
-                if photo_path else None
-            ),
-            "wage_calculation": wage_calc and {
-                "uuid": str(wage_calc.uuid),
-                "daily_wage_rate": wage_calc.daily_wage_rate,
-                "total_wage_amount": wage_calc.total_wage_amount,
-                "wage_config_effective_date": wage_calc.project_daily_wage.effective_date,
-            }
+                constants.HOST_URL + "/" + att.photo_path
+                if att.photo_path else None
+            )
         }
 
-        # Log action
-        db.add(Log(
-            performed_by=current_user.uuid,
-            action="PROJECT_ATTENDANCE_UPDATED",
-            entity="project_attendance",
-            entity_id=att.uuid
-        ))
-        db.commit()
+        if att.wage_calculation:
+            result["wage_calculation"] = {
+                "uuid": str(att.wage_calculation.uuid),
+                "daily_wage_rate": att.wage_calculation.daily_wage_rate,
+                "total_wage_amount": att.wage_calculation.total_wage_amount,
+                "wage_config_effective_date": (
+                    att.wage_calculation.project_daily_wage.effective_date
+                    if att.wage_calculation.project_daily_wage else None
+                )
+            }
 
-        return {"status_code": 200, "message": "Attendance updated successfully", "data": result}
+        return {
+            "status_code": 200,
+            "message": "Attendance updated successfully",
+            "data": result
+        }
 
     except Exception as e:
         db.rollback()
         logger.error(f"Error in update_project_attendance: {e}", exc_info=True)
         if response:
             response.status_code = 500
-        return {"status_code": 500, "message": "Internal server error", "details": str(e)}
+        return {
+            "status_code": 500,
+            "message": "Internal server error",
+            "details": str(e)
+        }
     
 
 
