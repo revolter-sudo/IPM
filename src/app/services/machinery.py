@@ -1,23 +1,25 @@
 import traceback
-from typing import Optional
+import os
+import json
+from typing import Optional, List
 from uuid import UUID, uuid4
 from datetime import datetime, date, timedelta
 from fastapi import (
     APIRouter,
     Depends,
     Query,
+    File,
+    UploadFile,
+    Form
 )
-from fastapi import Depends
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, func
-from pydantic import ValidationError
 from src.app.database.database import get_db
 from src.app.database.models import (
     User,
     Log,
     Machinery,
+    MachineryPhotos
 )
 from src.app.schemas.auth_service_schamas import UserRole
 from src.app.schemas.machinery_schemas import (
@@ -40,15 +42,41 @@ machinery_router = APIRouter(prefix="/machinery")
 
 @machinery_router.post(
     "/machine/start", 
-    tags=["Machinery"]
+    tags=["Machinery"],
+    status_code=201,
+    description="""
+Mark machine start time.
+
+**Request:**  
+Send as `multipart/form-data`:
+
+- **Field `req`** (stringified JSON):  
+```json
+{
+  "project_id": "a1b2c3d4-e5f6-7890-abcd-1234567890ef",         // Required: UUID of the project
+  "sub_contractor_id": "c3d4e5f6-7890-abcd-ef01-345678902bcd",  // Required: UUID of the sub-contractor
+  "item_id": "b2c3d4e5-f678-90ab-cdef-2345678901fa",            // Required: UUID of the machinery/item
+  "notes": "Starting mixer for slab pour."                       // Optional: Any notes for this usage
+}
+
+Field photo (file, optional): Upload a machinery photo if available.
+
+Notes:
+
+Only one "active" (not ended) machinery entry is allowed per machine/project/sub-contractor.
+
+Returns the full record, including generated UUID and saved photo path.
+"""
 )
 def punch_in_machine(
-    req: MachinePunchInRequest,
+    req: str = Form(..., description="Stringified JSON of MachinePunchInRequest"),
+    photos:List[UploadFile] = File(None, description="One or more machinery photos (optional)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    Mark machine start time. Only allows one active usage per machine/project/sub-contractor.
+    Mark machine start time. Accepts multipart form: 'req' (JSON string), 'photo' (file, optional).
+    Only allows one active usage per machine/project/sub-contractor.
     """
     try:
         # Only certain roles allowed
@@ -59,11 +87,22 @@ def punch_in_machine(
                 status_code=403
             ).to_dict()
 
+        # Parse and validate the JSON
+        try:
+            data = json.loads(req)
+            req_obj = MachinePunchInRequest(**data)
+        except Exception as e:
+            return APIResponse(
+                data=None,
+                message=f"Invalid request data: {e}",
+                status_code=400
+            ).to_dict()
+
         # Prevent duplicate active machinery log (no end_time)
         exists = db.query(Machinery).filter(
-            Machinery.project_id == req.project_id,
-            Machinery.sub_contractor_id == req.sub_contractor_id,
-            Machinery.item_id == req.item_id,
+            Machinery.project_id == req_obj.project_id,
+            Machinery.sub_contractor_id == req_obj.sub_contractor_id,
+            Machinery.item_id == req_obj.item_id,
             Machinery.end_time.is_(None),
             Machinery.is_deleted.is_(False)
         ).first()
@@ -73,14 +112,15 @@ def punch_in_machine(
                 message="Machine already running (active entry exists).",
                 status_code=400
             ).to_dict()
-
-        # Create new entry
+        
+        # Create new machinery entry first
         new_machinery = Machinery(
             uuid=uuid4(),
-            project_id=req.project_id,
-            sub_contractor_id=req.sub_contractor_id,
-            item_id=req.item_id,
+            project_id=req_obj.project_id,
+            sub_contractor_id=req_obj.sub_contractor_id,
+            item_id=req_obj.item_id,
             start_time=datetime.utcnow(),
+            notes=req_obj.notes,
             created_by=current_user.uuid,
             created_at=datetime.utcnow(),
             is_deleted=False,
@@ -89,15 +129,40 @@ def punch_in_machine(
         db.commit()
         db.refresh(new_machinery)
 
+        # Handle photo upload if provided
+        photo_paths = []
+        if photos:
+            upload_dir = "uploads/machinery_photos"
+            os.makedirs(upload_dir, exist_ok=True)
+            for photo in photos:
+                ext = os.path.splitext(photo.filename)[1]
+                fname = f"Machinery_{str(uuid4())}{ext}"
+                photo_path = os.path.join(upload_dir, fname)
+                with open(photo_path, "wb") as buffer:
+                    buffer.write(photo.file.read())
+                # Save each photo in MachineryPhotos table
+                photo_obj = MachineryPhotos(
+                    uuid=uuid4(),
+                    machinery_id=new_machinery.uuid,
+                    photo_path=photo_path
+                )
+                db.add(photo_obj)
+                photo_paths.append(photo_path)
+            db.commit()  # Commit photo entries
+
+
+
         # Prepare response
-        resp_data = MachineryPunchInResponse(
-            uuid=new_machinery.uuid,
-            project_id=new_machinery.project_id,
-            sub_contractor_id=new_machinery.sub_contractor_id,
-            item_id=new_machinery.item_id,
-            start_time=new_machinery.start_time,
-            created_by=new_machinery.created_by
-        )
+        resp_data = {
+            "uuid": str(new_machinery.uuid),
+            "project_id": str(new_machinery.project_id),
+            "sub_contractor_id": str(new_machinery.sub_contractor_id),
+            "item_id": str(new_machinery.item_id),
+            "start_time": new_machinery.start_time.isoformat(),
+            "notes": new_machinery.notes,
+            "photo_paths": photo_paths,  # List of uploaded photo paths
+            "created_by": str(new_machinery.created_by)
+        }
 
         # Log the action
         log_entry = Log(
@@ -110,14 +175,13 @@ def punch_in_machine(
         db.commit()
 
         return APIResponse(
-            data=resp_data.model_dump(),
-            message="Machine started successful.",
+            data=resp_data,  # resp_data is already a dictionary, no need for model_dump()
+            message="Machine started successfully.",
             status_code=201
         ).to_dict()
 
     except Exception as e:
         db.rollback()
-        # log error
         print("Error in start_machine:", e)
         print(traceback.format_exc())
         return APIResponse(
@@ -125,14 +189,24 @@ def punch_in_machine(
             message=f"Internal server error: {str(e)}",
             status_code=500
         ).to_dict()
+
     
 # Machinery Punch Out API
 @machinery_router.post(
     "/machine/end", 
-    tags=["Machinery"]
+    tags=["Machinery"],
+    status_code=200,
+    description="""
+Mark machine end time and upload one or more end photos.
+
+**Request:**  
+- `req`: Stringified JSON with `{ "uuid": "<machinery_uuid>" }`
+- `photos`: One or more files (optional), uploaded as `photos`  
+"""
 )
 def punch_out_machine(
-    req: MachinePunchOutRequest,
+    req: str = Form(..., description="Stringified JSON of MachinePunchOutRequest"),
+    photos: List[UploadFile] = File(None, description="Optional machinery photos for end time"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -147,10 +221,21 @@ def punch_out_machine(
                 message="You do not have permission to perform this action.",
                 status_code=403
             ).to_dict()
+        
+        # Parse the JSON
+        try:
+            data = json.loads(req)
+            req_obj = MachinePunchOutRequest(**data)
+        except Exception as e:
+            return APIResponse(
+                data=None,
+                message=f"Invalid request data: {e}",
+                status_code=400
+            ).to_dict()
 
         # Find the active machinery log by uuid
         machinery = db.query(Machinery).filter(
-            Machinery.uuid == req.uuid,
+            Machinery.uuid == req_obj.uuid,
             Machinery.is_deleted.is_(False)
         ).first()
 
@@ -174,18 +259,43 @@ def punch_out_machine(
         db.commit()
         db.refresh(machinery)
 
+        # Handle photo upload if provided
+        photo_paths = []
+        if photos:
+            upload_dir = "uploads/machinery_photos"
+            os.makedirs(upload_dir, exist_ok=True)
+            for photo in photos:
+                ext = os.path.splitext(photo.filename)[1]
+                fname = f"MachineryEnd_{str(uuid4())}{ext}"
+                photo_path = os.path.join(upload_dir, fname)
+                with open(photo_path, "wb") as buffer:
+                    buffer.write(photo.file.read())
+                photo_obj = MachineryPhotos(
+                    uuid=uuid4(),
+                    machinery_id=machinery.uuid,
+                    photo_path=photo_path
+                )
+                db.add(photo_obj)
+                photo_paths.append(photo_path)
+            db.commit()  # Commit all new photo records
+
         # Calculate duration
-        duration_minutes = None
+        duration_str = None
         if machinery.start_time and machinery.end_time:
             duration = machinery.end_time - machinery.start_time
-            duration_minutes = round(duration.total_seconds() / 60, 2)
+            total_seconds = int(duration.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            seconds = total_seconds % 60
+            duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
         # Prepare response
-        resp_data = MachineryPunchOutResponse(
-            uuid=machinery.uuid,
-            end_time=machinery.end_time,
-            duration_minutes=duration_minutes
-        )
+        resp_data = {
+            "uuid": str(machinery.uuid),
+            "end_time": machinery.end_time.isoformat(),
+            "duration": duration_str,
+            "end_photo_paths": photo_paths
+        }
 
         # Log the action
         log_entry = Log(
@@ -198,7 +308,7 @@ def punch_out_machine(
         db.commit()
 
         return APIResponse(
-            data=resp_data.model_dump(),
+            data=resp_data,  # resp_data is already a dictionary
             message="Machine end successful.",
             status_code=200
         ).to_dict()

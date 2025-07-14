@@ -9,6 +9,8 @@ class MachinePunchInRequest(BaseModel):
     project_id: UUID
     sub_contractor_id: UUID
     item_id: UUID
+    notes: Optional[str] = Field(None, description="Optional notes for the punch in")
+    photo_path: Optional[str] = Field(None, description="Optional path to the machinery photo")
 
 class MachineryPunchInResponse(BaseModel):
     uuid: UUID
@@ -16,6 +18,8 @@ class MachineryPunchInResponse(BaseModel):
     sub_contractor_id: UUID
     item_id: UUID
     start_time: datetime
+    notes: Optional[str] = None
+    photo_path: Optional[str] = None
     created_by: UUID
 
 class MachinePunchOutRequest(BaseModel):
@@ -24,7 +28,7 @@ class MachinePunchOutRequest(BaseModel):
 class MachineryPunchOutResponse(BaseModel):
     uuid: UUID
     end_time: datetime
-    duration_minutes: Optional[float] = None  # Optional: Show duration if start_time exists
+    duration_minutes: Optional[float] = None
 
 class MachineryLogResponse(BaseModel):
     uuid: UUID
@@ -33,6 +37,8 @@ class MachineryLogResponse(BaseModel):
     item_id: UUID
     start_time: datetime
     end_time: Optional[datetime] = None
+    notes: Optional[str] = None
+    photo_path: Optional[str] = None
     created_by: UUID
     created_at: datetime
     is_deleted: bool

@@ -1056,6 +1056,8 @@ class Machinery(Base):
     item_id = Column(UUID(as_uuid=True), ForeignKey("items.uuid"), nullable=False)
     start_time = Column(TIMESTAMP, nullable=False)
     end_time = Column(TIMESTAMP, nullable=True)  # Nullable if not yet ended
+    notes = Column(Text, nullable=True)
+    photo_path = Column(String(255), nullable=True)  # Path to machinery photo
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
@@ -1065,6 +1067,22 @@ class Machinery(Base):
     sub_contractor = relationship("Person", back_populates="machinery")
     item = relationship("Item", back_populates="machinery")
     created_by_user = relationship("User", foreign_keys=[created_by], back_populates="machinery")
+    photos = relationship("MachineryPhotos", back_populates="machinery", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Machinery(id={self.id}, project_id={self.project_id}, item_id={self.item_id}, start_time={self.start_time})>"
+    
+class MachineryPhotos(Base):
+    __tablename__ = "machinery_photos"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+    machinery_id = Column(UUID(as_uuid=True), ForeignKey("machinery.uuid"), nullable=False)
+    photo_path = Column(String(255), nullable=False)  # Path to the photo
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    # Relationship back to Machinery
+    machinery = relationship("Machinery", back_populates="photos")
+
+    def __repr__(self):
+        return f"<MachineryPhotos(id={self.id}, machinery_id={self.machinery_id}, photo_path={self.photo_path})>"

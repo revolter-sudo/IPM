@@ -59,7 +59,7 @@ from src.app.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 # Create the main wage router
-wage_router = APIRouter(prefix="/wage", tags=["Wage Management"])
+wage_router = APIRouter(prefix="/wage")
 
 
 @wage_router.post("/projects/{project_id}/daily-wage", tags=["Wage Configuration"])

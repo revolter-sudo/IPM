@@ -240,7 +240,7 @@ def punch_in_self_attendance(
                 address=new_att.punch_in_location_address
             ),
             assigned_projects=[ProjectInfo(**proj) for proj in assigned_projects] if assigned_projects else [],
-            status=AttendanceStatus.present  # Adding the required status field
+            status=AttendanceStatus.present
         )
 
         # Log the action
@@ -421,7 +421,7 @@ def mark_day_off(
             if date_off != today:
                 return AttendanceResponse(
                     data=None,
-                    message="Site engineers may only mark today's day off",
+                    message="You can only mark the current day as a day off.",
                     status_code=400
                 ).to_dict()
 
@@ -515,6 +515,21 @@ def cancel_self_punch_in(
                 message="Cannot cancel punch-in after 5 minutes",
                 status_code=400
             ).to_dict()
+        
+        # Remove duplicate deleted records
+        duplicates = (
+            db.query(SelfAttendance)
+            .filter(
+                SelfAttendance.user_id == punch_record.user_id,
+                SelfAttendance.attendance_date == punch_record.attendance_date,
+                SelfAttendance.is_deleted.is_(True),
+                SelfAttendance.id != punch_record.id
+            )
+            .all()
+        )
+        for d in duplicates:
+            db.delete(d)
+        db.commit()
 
         # Soft delete
         punch_record.is_deleted = True
@@ -578,6 +593,21 @@ def cancel_self_day_off(
                 message="Day-off record not found or not cancellable",
                 status_code=404
             ).to_dict()
+        
+        # Remove duplicate deleted records
+        duplicates = (
+            db.query(SelfAttendance)
+            .filter(
+                SelfAttendance.user_id == off_record.user_id,
+                SelfAttendance.attendance_date == off_record.attendance_date,
+                SelfAttendance.is_deleted.is_(True),
+                SelfAttendance.id != off_record.id
+            )
+            .all()
+        )
+        for d in duplicates:
+            db.delete(d)
+        db.commit()
 
         # Soft delete
         off_record.is_deleted = True
@@ -610,12 +640,12 @@ def cancel_self_day_off(
         ).to_dict()
 
 @attendance_router.get(
-    "/attendance/self/{user_uuid}/history",
+    "/attendance/self/history",
     tags=["Self Attendance"],
 )
 def get_self_attendance_history(
-    user_uuid: UUID,
     db: Session = Depends(get_db),
+    user_uuid: Optional[UUID] = Query(None),
     recent: Optional[bool] = Query(False),
     month: Optional[str] = Query(None),
     date: Optional[str] = Query(None),
@@ -625,22 +655,22 @@ def get_self_attendance_history(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get self attendance history for the current user.
-    Returns all attendance records for the user, including punch in/out times and total hours worked.
+    Get self attendance history for the current user, or for all users if admin/super admin.
     """
     try:
-        # validate user role
-        if current_user.role not in {UserRole.ADMIN, UserRole.SUPER_ADMIN}:
-            return AttendanceResponse(
-                data=None,
-                message="You can only view your own attendance history",
-                status_code=403
-            ).to_dict()
+        # Build base query with user join
+        query = (db.query(SelfAttendance, User)
+                .join(User, SelfAttendance.user_id == User.uuid)
+                .filter(SelfAttendance.is_deleted.is_(False)))
 
-        query = db.query(SelfAttendance).filter(
-            SelfAttendance.user_id == current_user.uuid,
-            SelfAttendance.is_deleted.is_(False)
-        )
+        # Role-based filtering
+        if current_user.role not in {UserRole.ADMIN, UserRole.SUPER_ADMIN}:
+            # Non-admins: can only see their own
+            query = query.filter(SelfAttendance.user_id == current_user.uuid)
+        elif user_uuid:
+            # Admin: can filter by any user
+            query = query.filter(SelfAttendance.user_id == user_uuid)
+        # If admin & no user_uuid, see all
 
         # Filter by status
         if status:
@@ -696,14 +726,9 @@ def get_self_attendance_history(
 
         # Order and fetch
         query = query.order_by(SelfAttendance.attendance_date.desc())
-        attendance_records = query.all()
-
-        # recent: only the most recent record
-        # if recent and attendance_records:
-        #     attendance_records = [attendance_records[0]]
 
         if recent:
-            query = query.order_by(desc(SelfAttendance.attendance_date)).limit(5)
+            query = query.limit(5)
 
         attendance_records = query.all()
 
@@ -716,7 +741,7 @@ def get_self_attendance_history(
 
         # Prepare response data
         response_data = []
-        for record in attendance_records:
+        for record, user in attendance_records:
             total_hours = None
             if record.punch_in_time and record.punch_out_time:
                 total_hours = calculate_hours_worked(
@@ -733,6 +758,8 @@ def get_self_attendance_history(
 
             response_data.append(SelfAttendanceResponse(
                 uuid=record.uuid,
+                user_id=user.uuid,
+                user_name=user.name,
                 attendance_date=record.attendance_date,
                 punch_in_time=record.punch_in_time,
                 punch_in_location=LocationData(
@@ -766,6 +793,7 @@ def get_self_attendance_history(
         ).to_dict()
 
 
+
 @attendance_router.get(
     "/self/status", 
     tags=["Self Attendance"]
@@ -776,6 +804,10 @@ def get_self_attendance_status(
 ):
     """
     Get current self attendance status for today.
+    Returns detailed status information including:
+    - Present: When user has punched in
+    - Off day: When user has marked the day as off
+    - Absent: When no attendance record exists for today
     """
     try:
         today = date.today()
@@ -786,26 +818,46 @@ def get_self_attendance_status(
         ).first()
 
         if not attendance_record:
+            # No record means absent
             response_data = SelfAttendanceStatus(
-                is_punched_in=False
+                is_punched_in=False,
+                status=AttendanceStatus.absent,
+                user_id=current_user.uuid,
+                user_name=current_user.name,
+                attendance_date=today
             )
         else:
             current_hours = None
-            if attendance_record.punch_in_time and attendance_record.punch_out_time:
-                hours = (attendance_record.punch_out_time - attendance_record.punch_in_time).total_seconds() / 3600
-                current_hours = f"{float(hours):.2f} hrs"
-            elif attendance_record.punch_in_time and not attendance_record.punch_out_time:
-                hours = get_current_hours_worked(attendance_record.punch_in_time)
-                current_hours = f"{float(hours):.2f} hrs" if hours is not None else None
+            if attendance_record.status == "off day":
+                # Handle off day status
+                response_data = SelfAttendanceStatus(
+                    uuid=attendance_record.uuid,
+                    user_id=current_user.uuid,
+                    user_name=current_user.name,
+                    attendance_date=attendance_record.attendance_date,
+                    is_punched_in=False,
+                    status=AttendanceStatus.off_day
+                )
+            else:
+                # Handle present status with punch in/out details
+                if attendance_record.punch_in_time and attendance_record.punch_out_time:
+                    hours = (attendance_record.punch_out_time - attendance_record.punch_in_time).total_seconds() / 3600
+                    current_hours = f"{float(hours):.2f} hrs"
+                elif attendance_record.punch_in_time and not attendance_record.punch_out_time:
+                    hours = get_current_hours_worked(attendance_record.punch_in_time)
+                    current_hours = f"{float(hours):.2f} hrs" if hours is not None else None
 
-            response_data = SelfAttendanceStatus(
-                uuid=attendance_record.uuid,
-                attendance_date=attendance_record.attendance_date,
-                is_punched_in=attendance_record.punch_out_time is None,
-                punch_in_time=attendance_record.punch_in_time,
-                punch_out_time=attendance_record.punch_out_time,
-                current_hours=current_hours
-            )
+                response_data = SelfAttendanceStatus(
+                    uuid=attendance_record.uuid,
+                    user_id=current_user.uuid,
+                    user_name=current_user.name,
+                    attendance_date=attendance_record.attendance_date,
+                    is_punched_in=attendance_record.punch_out_time is None,
+                    punch_in_time=attendance_record.punch_in_time,
+                    punch_out_time=attendance_record.punch_out_time,
+                    current_hours=current_hours,
+                    status=AttendanceStatus.present
+                )
 
         return AttendanceResponse(
             data=response_data.model_dump(),
@@ -986,7 +1038,232 @@ def mark_project_attendance(
         if response:
             response.status_code = 500
         return {"status_code":500, "message":"Internal server error", "details": str(e)}
+    
+    
+@attendance_router.put(
+    "/project/attendance/{attendance_id}",
+    tags=["Project Attendance"],
+    status_code=200,
+    description="""
+Update an existing project attendance record.  
+Payload is the same as create.  
+Send a new photo to replace the existing one (old photo will be deleted).  
+"""
+)
+def update_project_attendance(
+    attendance_id: UUID,
+    attendance: str = Form(..., description="JSON string of ProjectAttendanceUpdate"),
+    attendance_photo: Optional[UploadFile] = File(None, description="Optional new photo of site/labourers"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    response: Response = None,
+):
+    try:
+        # 1️⃣ Parse & validate JSON payload
+        try:
+            payload = json.loads(attendance)
+            attendance_data = ProjectAttendanceCreate(**payload)  # Reuse the same Pydantic schema
+        except (json.JSONDecodeError, ValidationError) as e:
+            response.status_code = 400
+            return {"status_code": 400, "message": "Invalid attendance data", "details": str(e)}
 
+        # 2️⃣ Fetch attendance record
+        att = db.query(ProjectAttendance).filter(
+            ProjectAttendance.uuid == attendance_id,
+            ProjectAttendance.is_deleted.is_(False)
+        ).first()
+        if not att:
+            response.status_code = 404
+            return {"status_code": 404, "message": "Attendance record not found"}
+
+        # 3️⃣ Authorization check (can add more granular if needed)
+        allowed_roles = [
+            UserRole.SITE_ENGINEER,
+            UserRole.PROJECT_MANAGER,
+            UserRole.ADMIN,
+            UserRole.SUPER_ADMIN
+        ]
+        if current_user.role not in allowed_roles:
+            response.status_code = 403
+            return {"status_code": 403, "message": "Not authorized to update project attendance"}
+
+        # Optional: restrict update to original site engineer only
+        # if current_user.role == UserRole.SITE_ENGINEER and att.site_engineer_id != current_user.uuid:
+        #     response.status_code = 403
+        #     return {"status_code": 403, "message": "Not allowed to update this attendance"}
+
+        if not validate_coordinates(attendance_data.latitude, attendance_data.longitude):
+            response.status_code = 400
+            return {"status_code": 400, "message": "Invalid coordinates provided"}
+
+        if not db.query(Project).filter(Project.uuid == attendance_data.project_id, Project.is_deleted.is_(False)).first():
+            response.status_code = 404
+            return {"status_code": 404, "message": "Project not found"}
+
+        if not validate_sub_contractor(attendance_data.sub_contractor_id, db):
+            response.status_code = 404
+            return {"status_code": 404, "message": "Sub-contractor not found"}
+
+        sub = db.query(Person).filter(Person.uuid == attendance_data.sub_contractor_id).first()
+
+        # 4️⃣ Handle photo upload/replacement
+        photo_path = att.photo_path
+        if attendance_photo:
+            # Remove old photo if exists
+            if photo_path and os.path.exists(photo_path):
+                os.remove(photo_path)
+            ext = os.path.splitext(attendance_photo.filename)[1]
+            fname = f"Attendance_{str(uuid4())}{ext}"
+            upload_dir = "uploads/attendance_photos"
+            os.makedirs(upload_dir, exist_ok=True)
+            photo_path = os.path.join(upload_dir, fname)
+            with open(photo_path, "wb") as buffer:
+                buffer.write(attendance_photo.file.read())
+
+        # 5️⃣ Update fields
+        att.project_id = attendance_data.project_id
+        att.item_id = attendance_data.item_id
+        att.sub_contractor_id = attendance_data.sub_contractor_id
+        att.no_of_labours = attendance_data.no_of_labours
+        # Do not update att.attendance_date or att.marked_at unless you want to allow that
+        att.latitude = attendance_data.latitude
+        att.longitude = attendance_data.longitude
+        att.location_address = attendance_data.location_address
+        att.notes = attendance_data.notes
+        att.photo_path = photo_path
+
+        db.commit()
+        db.refresh(att)
+
+        # 6️⃣ Wage calculation & logging
+        wage_calc = calculate_and_save_wage(
+            project_id=attendance_data.project_id,
+            attendance_id=att.uuid,
+            no_of_labours=attendance_data.no_of_labours,
+            attendance_date=att.attendance_date,  # not changed
+            db=db
+        )
+
+        project = db.query(Project).filter(Project.uuid == att.project_id).first()
+
+        # 7️⃣ Build response
+        result = {
+            "uuid": str(att.uuid),
+            "project": {"uuid": str(project.uuid), "name": project.name},
+            "item": {"uuid": str(att.item_id), "name": att.item.name},
+            "sub_contractor": {"uuid": str(sub.uuid), "name": sub.name},
+            "no_of_labours": att.no_of_labours,
+            "attendance_date": att.attendance_date.isoformat(),
+            "marked_at": att.marked_at.isoformat(),
+            "location": {
+                "latitude": att.latitude,
+                "longitude": att.longitude,
+                "address": att.location_address
+            },
+            "notes": att.notes,
+            "photo_url": (
+                constants.HOST_URL + "/" + photo_path
+                if photo_path else None
+            ),
+            "wage_calculation": wage_calc and {
+                "uuid": str(wage_calc.uuid),
+                "daily_wage_rate": wage_calc.daily_wage_rate,
+                "total_wage_amount": wage_calc.total_wage_amount,
+                "wage_config_effective_date": wage_calc.project_daily_wage.effective_date,
+            }
+        }
+
+        # Log action
+        db.add(Log(
+            performed_by=current_user.uuid,
+            action="PROJECT_ATTENDANCE_UPDATED",
+            entity="project_attendance",
+            entity_id=att.uuid
+        ))
+        db.commit()
+
+        return {"status_code": 200, "message": "Attendance updated successfully", "data": result}
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error in update_project_attendance: {e}", exc_info=True)
+        if response:
+            response.status_code = 500
+        return {"status_code": 500, "message": "Internal server error", "details": str(e)}
+    
+
+
+@attendance_router.delete(
+    "/project/attendance/{attendance_id}",
+    tags=["Project Attendance"],
+    status_code=200,
+    description="""
+Soft-delete a project attendance record by marking it as deleted (does not remove from DB).
+"""
+)
+def delete_project_attendance(
+    attendance_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    response: Response = None,
+):
+    try:
+        # 1️⃣ Fetch the record (make sure it’s not already deleted)
+        att = db.query(ProjectAttendance).filter(
+            ProjectAttendance.uuid == attendance_id,
+            ProjectAttendance.is_deleted.is_(False)
+        ).first()
+
+        if not att:
+            response.status_code = 404
+            return {
+                "status_code": 404,
+                "message": "Attendance record not found or already deleted"
+            }
+
+        # 2️⃣ Authorization (optional: restrict to certain roles)
+        allowed_roles = [
+            UserRole.SITE_ENGINEER,
+            UserRole.PROJECT_MANAGER,
+            UserRole.ADMIN,
+            UserRole.SUPER_ADMIN
+        ]
+        if current_user.role not in allowed_roles:
+            response.status_code = 403
+            return {
+                "status_code": 403,
+                "message": "Not authorized to delete project attendance"
+            }
+
+        # 3️⃣ Soft delete
+        att.is_deleted = True
+        db.commit()
+
+        # 4️⃣ Log action
+        db.add(Log(
+            performed_by=current_user.uuid,
+            action="PROJECT_DELETED",
+            entity="project_attendance",
+            entity_id=att.uuid
+        ))
+        db.commit()
+
+        return {
+            "status_code": 200,
+            "message": "Attendance deleted successfully",
+            "data": {"attendance_id": str(att.uuid)}
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error in delete_project_attendance: {e}", exc_info=True)
+        if response:
+            response.status_code = 500
+        return {
+            "status_code": 500,
+            "message": "Internal server error",
+            "details": str(e)
+        }
 
 
 @attendance_router.get("/project/history", tags=["Project Attendance"])
@@ -1120,4 +1397,5 @@ def get_project_attendance_history(
             message=f"Internal server error: {str(e)}",
             status_code=500
         ).to_dict()
+
 

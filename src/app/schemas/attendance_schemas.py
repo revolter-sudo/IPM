@@ -62,6 +62,8 @@ class ProjectInfo(BaseModel):
 
 class SelfAttendanceResponse(BaseModel):
     uuid: UUID
+    user_id: UUID
+    user_name: str
     attendance_date: date
     punch_in_time: datetime
     punch_in_location: LocationData
@@ -76,11 +78,14 @@ class SelfAttendanceResponse(BaseModel):
 
 class SelfAttendanceStatus(BaseModel):
     uuid: Optional[UUID] = None
-    attendance_date: Optional[date] = None
+    user_id: UUID
+    user_name: str
+    attendance_date: date
     is_punched_in: bool
     punch_in_time: Optional[datetime] = None
     punch_out_time: Optional[datetime] = None
     current_hours: Optional[str] = None
+    status: AttendanceStatus
 
     model_config = {"from_attributes": True}
 
