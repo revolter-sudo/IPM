@@ -232,6 +232,8 @@ def punch_in_self_attendance(
         # Prepare response
         response_data = SelfAttendanceResponse(
             uuid=new_att.uuid,
+            user_id=current_user.uuid,
+            user_name=current_user.name,
             attendance_date=new_att.attendance_date,
             punch_in_time=new_att.punch_in_time,
             punch_in_location=LocationData(
@@ -337,6 +339,8 @@ def punch_out_self_attendance(
         # Prepare response
         response_data = SelfAttendanceResponse(
             uuid=attendance_record.uuid,
+            user_id=current_user.uuid,
+            user_name=current_user.name,
             attendance_date=attendance_record.attendance_date,
             punch_in_time=attendance_record.punch_in_time,
             punch_in_location=LocationData(
