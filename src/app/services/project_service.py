@@ -1392,6 +1392,9 @@ def get_project_pos(
                 Invoice.is_deleted.is_(False)
             ).all()
 
+            # Count invoices for this PO
+            invoice_count = len(invoices)
+
             # total_invoice_amount = sum(inv.amount for inv in invoices)
             # total_paid_amount = sum(inv.total_paid_amount for inv in invoices if inv.payment_status in ["partially_paid", "fully_paid"])
             # pending_amount = total_invoice_amount - total_paid_amount
@@ -1407,6 +1410,7 @@ def get_project_pos(
                 "po_date": po.po_date.strftime("%Y-%m-%d") if po.po_date else None,
                 "created_at": po.created_at.strftime("%Y-%m-%d %H:%M:%S") if po.created_at else None,
                 "file_path": constants.HOST_URL + "/" + po.file_path if po.file_path else None,
+                "invoice_count": invoice_count,
                 "items": [
                     {
                         "item_name": item.item_name,

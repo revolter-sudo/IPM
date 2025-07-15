@@ -1,4 +1,4 @@
-from typing import Optional, Any, List
+from typing import Optional, Any, List, Dict
 from uuid import UUID
 from datetime import date, datetime
 from pydantic import BaseModel, Field
@@ -143,6 +143,15 @@ class InvoicePaymentCreateRequest(BaseModel):
     description: Optional[str] = None
     payment_method: Optional[str] = None  # cash, bank, cheque, etc.
     reference_number: Optional[str] = None
+    bank_uuid: Optional[UUID] = None  # Bank UUID for payment
+
+class InvoicePaymentUpdateRequest(BaseModel):
+    amount: Optional[float] = None
+    payment_date: Optional[str] = None  # Format: "YYYY-MM-DD"
+    description: Optional[str] = None
+    payment_method: Optional[str] = None  # cash, bank, cheque, etc.
+    reference_number: Optional[str] = None
+    bank_uuid: Optional[UUID] = None  # Bank UUID for payment
 
 class MultiInvoicePaymentRequest(BaseModel):
     payments: List[InvoicePaymentCreateRequest]
@@ -157,6 +166,7 @@ class InvoicePaymentResponse(BaseModel):
     payment_method: Optional[str] = None
     reference_number: Optional[str] = None
     created_at: str
+    bank_details: Optional[Dict[str, Optional[str]]] = None
 
 
 class InvoiceAnalyticsItem(BaseModel):

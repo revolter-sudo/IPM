@@ -775,6 +775,9 @@ class InvoicePayment(Base):
     description = Column(Text, nullable=True)
     payment_method = Column(String(50), nullable=True)  # cash, bank, cheque
     reference_number = Column(String(100), nullable=True)  # cheque/txn ref
+    bank_uuid = Column(
+        UUID(as_uuid=True), ForeignKey("balance_details.uuid"), nullable=True
+    )
     created_by = Column(
         UUID(as_uuid=True), ForeignKey("users.uuid"), nullable=False
     )
@@ -787,6 +790,7 @@ class InvoicePayment(Base):
 
     # Relationships
     invoice = relationship("Invoice", back_populates="invoice_payments")
+    bank = relationship("BalanceDetail", foreign_keys=[bank_uuid], lazy="joined")
 
     def __repr__(self):
         return f"<InvoicePayment(id={self.id}, invoice_id={self.invoice_id}, amount={self.amount})>"
