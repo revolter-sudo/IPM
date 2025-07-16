@@ -3375,11 +3375,24 @@ def get_all_khatabook_entries_admin(
                 message="Only admin and super admin can access all khatabook entries"
             ).model_dump()
 
-        # Base query with all joins
+        # Base query with all joins (filter deleted items and files)
+        from sqlalchemy import and_
         query = (
             db.query(Khatabook)
-            .outerjoin(KhatabookItem, Khatabook.uuid == KhatabookItem.khatabook_id)
-            .outerjoin(KhatabookFile, Khatabook.uuid == KhatabookFile.khatabook_id)
+            .outerjoin(
+                KhatabookItem,
+                and_(
+                    Khatabook.uuid == KhatabookItem.khatabook_id,
+                    KhatabookItem.is_deleted.is_(False)
+                )
+            )
+            .outerjoin(
+                KhatabookFile,
+                and_(
+                    Khatabook.uuid == KhatabookFile.khatabook_id,
+                    KhatabookFile.is_deleted.is_(False)
+                )
+            )
             .outerjoin(User, Khatabook.created_by == User.uuid)
             .outerjoin(Person, Khatabook.person_id == Person.uuid)
             .outerjoin(Project, Khatabook.project_id == Project.uuid)
@@ -3434,19 +3447,20 @@ def get_all_khatabook_entries_admin(
         # Format response
         response_data = []
         for entry in entries:
-            # Process files
+            # Process files (only non-deleted files)
             file_urls = []
             if entry.files:
                 for f in entry.files:
-                    filename = os.path.basename(f.file_path)
-                    file_url = f"{constants.HOST_URL}/uploads/khatabook_files/{filename}"
-                    file_urls.append(file_url)
+                    if not f.is_deleted:
+                        filename = os.path.basename(f.file_path)
+                        file_url = f"{constants.HOST_URL}/uploads/khatabook_files/{filename}"
+                        file_urls.append(file_url)
 
-            # Process items
+            # Process items (only non-deleted items)
             items_data = []
             if entry.items:
                 for khatabook_item in entry.items:
-                    if khatabook_item.item:
+                    if not khatabook_item.is_deleted and khatabook_item.item:
                         items_data.append({
                             "uuid": str(khatabook_item.item.uuid),
                             "name": khatabook_item.item.name,

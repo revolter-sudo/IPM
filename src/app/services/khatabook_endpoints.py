@@ -263,6 +263,7 @@ def export_khatabook_data(
             # Import datetime here to avoid circular imports
             from datetime import datetime
             from sqlalchemy.orm import joinedload
+            from sqlalchemy import and_
             from src.app.database.models import (
                 KhatabookItem, KhatabookFile, Person, Project
             )
@@ -272,11 +273,17 @@ def export_khatabook_data(
                 db.query(Khatabook)
                 .outerjoin(
                     KhatabookItem,
-                    Khatabook.uuid == KhatabookItem.khatabook_id
+                    and_(
+                        Khatabook.uuid == KhatabookItem.khatabook_id,
+                        KhatabookItem.is_deleted.is_(False)
+                    )
                 )
                 .outerjoin(
                     KhatabookFile,
-                    Khatabook.uuid == KhatabookFile.khatabook_id
+                    and_(
+                        Khatabook.uuid == KhatabookFile.khatabook_id,
+                        KhatabookFile.is_deleted.is_(False)
+                    )
                 )
                 .outerjoin(User, Khatabook.created_by == User.uuid)  # Uncommented User join
                 .outerjoin(Person, Khatabook.person_id == Person.uuid)
@@ -351,11 +358,11 @@ def export_khatabook_data(
 
             entries = []
             for entry in khatabook_entries:
-                # Process items
+                # Process items (only non-deleted items)
                 items_data = []
                 if entry.items:
                     for khatabook_item in entry.items:
-                        if khatabook_item.item:
+                        if not khatabook_item.is_deleted and khatabook_item.item:
                             items_data.append({
                                 "item": {
                                     "name": khatabook_item.item.name

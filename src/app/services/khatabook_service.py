@@ -204,7 +204,11 @@ def update_khatabook_entry_service(
     # If item_ids key is present, replace items
     if "item_ids" in data:
         item_ids = data["item_ids"]
-        db.query(KhatabookItem).filter(KhatabookItem.khatabook_id == kb_entry.uuid).delete()
+        # Soft delete existing items instead of hard delete
+        db.query(KhatabookItem).filter(
+            KhatabookItem.khatabook_id == kb_entry.uuid,
+            KhatabookItem.is_deleted.is_(False)
+        ).update({KhatabookItem.is_deleted: True})
         db.flush()
         for item_uuid in item_ids:
             item_obj = db.query(Item).filter(Item.uuid == item_uuid).first()
@@ -216,7 +220,11 @@ def update_khatabook_entry_service(
                 db.add(new_kb_item)
 
     if files:
-        db.query(KhatabookFile).filter(KhatabookFile.khatabook_id == kb_entry.uuid).delete()
+        # Soft delete existing files instead of hard delete
+        db.query(KhatabookFile).filter(
+            KhatabookFile.khatabook_id == kb_entry.uuid,
+            KhatabookFile.is_deleted.is_(False)
+        ).update({KhatabookFile.is_deleted: True})
         db.flush()
         for f in files:
             file_path = save_uploaded_file(f, "khatabook_files")
@@ -306,6 +314,9 @@ def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     Soft delete a khatabook entry by setting is_deleted=True.
     Also soft deletes related files and item mappings.
 
+    This function ensures data integrity by properly marking all related
+    entities as deleted while preserving the data for audit purposes.
+
     Args:
         db: Database session
         kb_uuid: UUID of the khatabook entry
@@ -313,28 +324,46 @@ def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     Returns:
         True if the entry was marked as deleted, False if the entry doesn't exist
     """
-    # Fetch the khatabook entry
-    khatabook = db.query(Khatabook).filter(Khatabook.uuid == kb_uuid, Khatabook.is_deleted.is_(False)).first()
-    if not khatabook:
-        return False
+    try:
+        # Fetch the khatabook entry
+        khatabook = db.query(Khatabook).filter(
+            Khatabook.uuid == kb_uuid,
+            Khatabook.is_deleted.is_(False)
+        ).first()
 
-    # Mark related files as deleted
-    db.query(KhatabookFile).filter(
-        KhatabookFile.khatabook_id == kb_uuid,
-        KhatabookFile.is_deleted.is_(False)
-    ).update({KhatabookFile.is_deleted: True})
+        if not khatabook:
+            db_logger.warning(f"Khatabook entry {kb_uuid} not found or already deleted")
+            return False
 
-    # Mark related item mappings as deleted
-    db.query(KhatabookItem).filter(
-        KhatabookItem.khatabook_id == kb_uuid,
-        KhatabookItem.is_deleted.is_(False)
-    ).update({KhatabookItem.is_deleted: True})
+        db_logger.info(f"Soft deleting khatabook entry {kb_uuid}")
 
-    # Mark the main khatabook as deleted
-    khatabook.is_deleted = True
+        # Mark related files as deleted
+        files_updated = db.query(KhatabookFile).filter(
+            KhatabookFile.khatabook_id == kb_uuid,
+            KhatabookFile.is_deleted.is_(False)
+        ).update({KhatabookFile.is_deleted: True})
 
-    db.commit()
-    return True
+        db_logger.info(f"Marked {files_updated} files as deleted for khatabook {kb_uuid}")
+
+        # Mark related item mappings as deleted
+        items_updated = db.query(KhatabookItem).filter(
+            KhatabookItem.khatabook_id == kb_uuid,
+            KhatabookItem.is_deleted.is_(False)
+        ).update({KhatabookItem.is_deleted: True})
+
+        db_logger.info(f"Marked {items_updated} items as deleted for khatabook {kb_uuid}")
+
+        # Mark the main khatabook as deleted
+        khatabook.is_deleted = True
+
+        db.commit()
+        db_logger.info(f"Successfully soft deleted khatabook entry {kb_uuid}")
+        return True
+
+    except Exception as e:
+        db.rollback()
+        db_logger.error(f"Error soft deleting khatabook entry {kb_uuid}: {str(e)}")
+        raise
 
 
 def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
@@ -360,14 +389,17 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
         file_urls = []
         if entry.files:
             for f in entry.files:
-                filename = os.path.basename(f.file_path)
-                file_url = f"{constants.HOST_URL}/uploads/khatabook_files/{filename}"
-                file_urls.append(file_url)
+                # Only include non-deleted files
+                if not f.is_deleted:
+                    filename = os.path.basename(f.file_path)
+                    file_url = f"{constants.HOST_URL}/uploads/khatabook_files/{filename}"
+                    file_urls.append(file_url)
 
         items_data = []
         if entry.items:
             for khatabook_item in entry.items:
-                if khatabook_item.item:
+                # Only include non-deleted items
+                if not khatabook_item.is_deleted and khatabook_item.item:
                     items_data.append({
                         "uuid": str(khatabook_item.item.uuid),
                         "name": khatabook_item.item.name,
