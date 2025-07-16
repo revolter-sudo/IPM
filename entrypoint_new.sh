@@ -29,6 +29,19 @@ LOG_DIR=${LOG_DIR:-/app/logs}
 mkdir -p "$LOG_DIR"
 echo "Logs directory created: $LOG_DIR"
 
+# Create all log files with proper permissions to prevent Docker recreation issues
+touch "$LOG_DIR/ipm.log"
+touch "$LOG_DIR/ipm_api.log"
+touch "$LOG_DIR/ipm_database.log"
+touch "$LOG_DIR/ipm_performance.log"
+touch "$LOG_DIR/ipm_errors.log"
+
+# Set proper permissions for log files
+chmod 666 "$LOG_DIR"/*.log
+chown -R 1000:1000 "$LOG_DIR" 2>/dev/null || true
+
+echo "Log files initialized with proper permissions"
+
 # Start FastAPI
 echo "Starting FastAPI..."
 exec uvicorn src.app.main:app --host 0.0.0.0 --port 8000 --workers 4
