@@ -22,9 +22,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt || echo "Some packages could not be installed" && \
     pip install --no-cache-dir alembic
 
-# Copy the new entrypoint script
+# Copy the new entrypoint script and set permissions
 COPY entrypoint_new.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN /bin/bash -c "chmod +x /entrypoint.sh"
 
 # Expose the FastAPI default port
 EXPOSE 8000
