@@ -396,37 +396,28 @@ def export_khatabook_data(
         # Create a DataFrame from the entries
         df_data = []
         for entry in entries:
-            person_name = (
-                entry.get("person", {}).get("name", "")
-                if isinstance(entry.get("person"), dict) else ""
-            )
-            
-            # Handle created_by_user information consistently
-            user_name = ""
-            created_by_user = entry.get("created_by_user", {})
-            if isinstance(created_by_user, dict):
-                user_name = created_by_user.get("name", "")
-            
-            # Fix for item extraction - handle different item structures
+            person = entry.get("person")
+            created_by = entry.get("created_by_user")
+
+            person_name = person.get("name") if isinstance(person, dict) and person else ""
+            user_name = created_by.get("name") if isinstance(created_by, dict) and created_by else ""
+
+            # Safe item extraction
             items_list = []
             for item in entry.get("items", []):
                 if isinstance(item, dict):
-                    # Direct dictionary with name
                     if "name" in item:
                         items_list.append(item["name"])
-                    # Dictionary with nested item structure
-                    elif ("item" in item and
-                          isinstance(item["item"], dict) and
-                          "name" in item["item"]):
-                        items_list.append(item["item"]["name"])
+                    elif isinstance(item.get("item"), dict):
+                        items_list.append(item["item"].get("name", ""))
 
             items = ", ".join(items_list)
 
+            # Determine credit/debit
             amount = entry.get("amount", 0)
             is_self_payment = (
-                entry.get("person", {}).get("name", "").strip().lower()
-                == entry.get("created_by_user", {}).get("name", "").strip().lower()
-            )
+                person_name.strip().lower() == user_name.strip().lower()
+            ) if person_name and user_name else False
 
             df_data.append({
                 "Date": entry.get("created_at", "-"),
@@ -434,13 +425,14 @@ def export_khatabook_data(
                 "Credit Amount": amount if is_self_payment else None,
                 "Debit Amount": amount if not is_self_payment else None,
                 "Remarks": entry.get("remarks", "-"),
-                "Person": person_name if person_name else "-",
-                "Created By": user_name if user_name else "-",
-                "Items": items if items else "-",
+                "Person": person_name or "-",
+                "Created By": user_name or "-",
+                "Items": items or "-",
                 "Payment Mode": entry.get("payment_mode", "-"),
                 "Balance After Entry": entry.get("balance_after_entry", "-"),
                 "Suspicious": "Yes" if entry.get("is_suspicious", False) else "No"
             })
+
 
         # Create DataFrame
         df = pd.DataFrame(df_data)
