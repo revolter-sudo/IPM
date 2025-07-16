@@ -420,16 +420,16 @@ def export_khatabook_data(
              
             # Append data to DataFrame
             df_data.append({
-                "Date": entry.get("created_at", "-"),
-                "Expense Date": entry.get("expense_date", "-"),
+                "Date": entry.get("created_at", None),
+                "Expense Date": entry.get("expense_date", None),
                 "Credit Amount": amount if entry_type == "credit" else None,
                 "Debit Amount": amount if entry_type == "debit" else None,
                 "Remarks": entry.get("remarks", "-"),
-                "Person": person_name or "-",
-                "Created By": user_name or "-",
-                "Items": items or "-",
-                "Payment Mode": entry.get("payment_mode", "-"),
-                "Balance After Entry": entry.get("balance_after_entry", "-"),
+                "Person": person_name or None,
+                "Created By": user_name or None,
+                "Items": items or None,
+                "Payment Mode": entry.get("payment_mode", None),
+                "Balance After Entry": entry.get("balance_after_entry", None),
                 "Suspicious": "Yes" if entry.get("is_suspicious", False) else "No"
             })
 
