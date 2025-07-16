@@ -401,6 +401,7 @@ def export_khatabook_data(
 
             person_name = person.get("name") if isinstance(person, dict) and person else ""
             user_name = created_by.get("name") if isinstance(created_by, dict) and created_by else ""
+            # remarks = entry.get("remarks", "").lower().strip()
 
             # Safe item extraction
             items_list = []
@@ -415,15 +416,14 @@ def export_khatabook_data(
 
             # Determine credit/debit
             amount = entry.get("amount", 0)
-            is_self_payment = (
-                person_name.strip().lower() == user_name.strip().lower()
-            ) if person_name and user_name else False
-
+            entry_type = entry.get("entry_type", "").strip().lower()
+             
+            # Append data to DataFrame
             df_data.append({
                 "Date": entry.get("created_at", "-"),
                 "Expense Date": entry.get("expense_date", "-"),
-                "Credit Amount": amount if is_self_payment else None,
-                "Debit Amount": amount if not is_self_payment else None,
+                "Credit Amount": amount if entry_type == "credit" else None,
+                "Debit Amount": amount if entry_type == "debit" else None,
                 "Remarks": entry.get("remarks", "-"),
                 "Person": person_name or "-",
                 "Created By": user_name or "-",
