@@ -422,19 +422,24 @@ def export_khatabook_data(
 
             items = ", ".join(items_list)
 
+            amount = entry.get("amount", 0)
+            is_self_payment = (
+                entry.get("person", {}).get("name", "").strip().lower()
+                == entry.get("created_by_user", {}).get("name", "").strip().lower()
+            )
+
             df_data.append({
-                "Date": entry.get("created_at", ""),
-                "Expense Date": entry.get("expense_date", ""),
-                "Amount": entry.get("amount", 0),
-                "Remarks": entry.get("remarks", ""),
-                "Person": person_name,
-                "Created By": user_name,
-                "Items": items,
-                "Payment Mode": entry.get("payment_mode", ""),
-                "Balance After Entry": entry.get("balance_after_entry", 0),
-                "Suspicious": (
-                    "Yes" if entry.get("is_suspicious", False) else "No"
-                )
+                "Date": entry.get("created_at", "-"),
+                "Expense Date": entry.get("expense_date", "-"),
+                "Credit Amount": amount if is_self_payment else None,
+                "Debit Amount": amount if not is_self_payment else None,
+                "Remarks": entry.get("remarks", "-"),
+                "Person": person_name if person_name else "-",
+                "Created By": user_name if user_name else "-",
+                "Items": items if items else "-",
+                "Payment Mode": entry.get("payment_mode", "-"),
+                "Balance After Entry": entry.get("balance_after_entry", "-"),
+                "Suspicious": "Yes" if entry.get("is_suspicious", False) else "No"
             })
 
         # Create DataFrame
