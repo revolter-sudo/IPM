@@ -3500,10 +3500,49 @@ def get_all_khatabook_entries_admin(
         # Calculate totals
         total_amount = sum(entry["amount"] for entry in response_data)
 
+        # Calculate analytics based on current filters
+        from datetime import datetime
+        current_date = datetime.now()
+        current_month_start = current_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # Filter entries for analytics (only Debit entries for expense calculations)
+        debit_entries = [entry for entry in response_data if entry.get("entry_type") == "Debit"]
+
+        # Total expense analytics (all time, Debit entries only)
+        total_expense_entries = len(debit_entries)
+        total_expense_amount = sum(entry["amount"] for entry in debit_entries)
+
+        # Current month analytics (Debit entries only)
+        current_month_entries = [
+            entry for entry in debit_entries
+            if entry.get("expense_date") and
+            datetime.fromisoformat(entry["expense_date"].replace('Z', '+00:00')).replace(tzinfo=None) >= current_month_start
+        ]
+        current_month_expense_entries = len(current_month_entries)
+        current_month_expense_amount = sum(entry["amount"] for entry in current_month_entries)
+
+        # Suspicious entries count (from all filtered entries)
+        suspicious_entries_count = sum(1 for entry in response_data if entry.get("is_suspicious", False))
+
+        # Build analytics object
+        analytics = {
+            "total_expense": {
+                "entries": total_expense_entries,
+                "expense": total_expense_amount
+            },
+            "current_month": {
+                "entries": current_month_expense_entries,
+                "expense": current_month_expense_amount
+            },
+            "entries_count": len(response_data),
+            "is_suspicious": suspicious_entries_count
+        }
+
         return ProjectServiceResponse(
             data={
                 "total_amount": total_amount,
                 "entries_count": len(response_data),
+                "analytics": analytics,
                 "entries": response_data
             },
             message="Khatabook entries fetched successfully",

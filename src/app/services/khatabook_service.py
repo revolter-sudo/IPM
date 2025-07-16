@@ -112,22 +112,8 @@ def create_khatabook_entry_service(
     try:
         amount = float(data.get("amount", 0.0))
 
-        # Get the user's total received amount
-        user_balance_record = db.query(KhatabookBalance).filter(
-            KhatabookBalance.user_uuid == current_user
-        ).first()
-
-        if not user_balance_record:
-            user_balance_record = KhatabookBalance(
-                user_uuid=current_user,
-                balance=0.0
-            )
-            db.add(user_balance_record)
-            db.flush()
-
-        # entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
+        # Get existing entries to calculate total spent
         entries = get_all_khatabook_entries_service(user_id=current_user, db=db)
-
 
         # Calculate total spent (only debit entries - manual expenses)
         total_spent = sum(
@@ -135,12 +121,17 @@ def create_khatabook_entry_service(
             if entry.get("entry_type") == "Debit"
         ) if entries else 0.0
 
-        # Calculate available balance
-        current_available_balance = user_balance_record.balance - total_spent
-        new_available_balance = current_available_balance - amount
+        # Calculate user_available_balance from transferred self-payments
+        transferred_self_payments = db.query(Payment).filter(
+            Payment.created_by == current_user,
+            Payment.self_payment == True,
+            Payment.status == "transferred",
+            Payment.is_deleted == False
+        ).all()
 
-        # ✅ DON'T update user_balance_record.balance - it should only track received amounts
-        # user_balance_record.balance stays the same!
+        user_available_balance = sum(payment.amount for payment in transferred_self_payments)
+        current_available_balance = user_available_balance - total_spent
+        new_available_balance = current_available_balance - amount
 
         # Create the Khatabook entry with the new available balance
         kb_entry = Khatabook(

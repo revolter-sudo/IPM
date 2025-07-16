@@ -109,14 +109,7 @@ def get_all_khatabook_entries(
         return current_user
 
     try:
-        # Get the current balance directly from KhatabookBalance table
-        # This is the source of truth that includes self payments
-        user_balance_record = db.query(KhatabookBalance).filter(
-            KhatabookBalance.user_uuid == current_user.uuid
-        ).first()
-
-        current_balance = user_balance_record.balance if user_balance_record else 0.0
-
+        # Get all entries for the user
         entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
 
         # Calculate total spent (only debit entries - manual expenses)
@@ -124,10 +117,21 @@ def get_all_khatabook_entries(
             entry["amount"] for entry in entries
             if entry.get("entry_type") == "Debit"
         ) if entries else 0.0
-        remaining_balance = current_balance - total_spent
+
+        # Calculate user_available_balance from transferred self-payments
+        from src.app.database.models import Payment
+        transferred_self_payments = db.query(Payment).filter(
+            Payment.created_by == current_user.uuid,
+            Payment.self_payment == True,
+            Payment.status == "transferred",
+            Payment.is_deleted == False
+        ).all()
+
+        user_available_balance = sum(payment.amount for payment in transferred_self_payments)
+        remaining_balance = user_available_balance - total_spent
 
         response_data = {
-            "remaining_balance": remaining_balance,  # Current balance from KhatabookBalance table
+            "remaining_balance": remaining_balance,  # Available balance after expenses
             "total_amount": total_spent,  # Total manual expenses (debit entries)
             "entries": entries
         }
