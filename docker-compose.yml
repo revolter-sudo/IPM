@@ -8,7 +8,7 @@ services:
       DATABASE_URL: postgresql://myuser:200899@147.93.31.224:5432/ipm_new
       LOG_DIR: /app/logs
     ports:
-      - "127.0.0.1:8000:8000"  # Bind to localhost only for security
+      - "8000:8000"  # Allow both IPv4 and IPv6 connections
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
