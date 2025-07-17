@@ -404,8 +404,13 @@ def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
         if not khatabook:
             db_logger.warning(f"Khatabook entry {kb_uuid} not found or already deleted")
             return False
+        
+        # can not delete entry_type == "Credit"
+        if khatabook.entry_type == "Credit":
+            db_logger.warning(f"Cannot delete khatabook entry {kb_uuid} with entry_type 'Credit'")
+            raise HTTPException(status_code=400, detail="Cannot delete credit entries")
 
-        db_logger.info(f"Soft deleting khatabook entry {kb_uuid}")
+        db_logger.info(f"deleting khatabook entry {kb_uuid}")
 
         # Mark related files as deleted
         files_updated = db.query(KhatabookFile).filter(
@@ -427,12 +432,12 @@ def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
         khatabook.is_deleted = True
 
         db.commit()
-        db_logger.info(f"Successfully soft deleted khatabook entry {kb_uuid}")
+        db_logger.info(f"Successfully deleted khatabook entry {kb_uuid}")
         return True
 
     except Exception as e:
         db.rollback()
-        db_logger.error(f"Error soft deleting khatabook entry {kb_uuid}: {str(e)}")
+        db_logger.error(f"Error deleting khatabook entry {kb_uuid}: {str(e)}")
         raise
 
 
