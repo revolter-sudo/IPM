@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload
 from src.app.schemas import constants
 from src.app.schemas.constants import KHATABOOK_ENTRY_TYPE_DEBIT
 from src.app.utils.logging_config import get_database_logger
+from datetime import datetime
 
 # Initialize logger
 db_logger = get_database_logger()
@@ -186,8 +187,64 @@ def create_khatabook_entry_service(
         raise
 
 
+# def update_khatabook_entry_service(
+#     db: Session, kb_uuid: UUID, data: Dict, files: List[UploadFile]
+# ) -> Optional[Khatabook]:
+#     kb_entry = db.query(Khatabook).filter(
+#         Khatabook.uuid == kb_uuid,
+#         Khatabook.is_deleted.is_(False)
+#     ).first()
+#     if not kb_entry:
+#         return None
+
+#     kb_entry.amount = data.get("amount", kb_entry.amount)
+#     kb_entry.remarks = data.get("remarks", kb_entry.remarks)
+#     kb_entry.person_id = data.get("person_id", kb_entry.person_id)
+#     kb_entry.created_by = data.get("user_id", kb_entry.created_by)
+
+#     # If item_ids key is present, replace items
+#     if "item_ids" in data:
+#         item_ids = data["item_ids"]
+#         # Soft delete existing items instead of hard delete
+#         db.query(KhatabookItem).filter(
+#             KhatabookItem.khatabook_id == kb_entry.uuid,
+#             KhatabookItem.is_deleted.is_(False)
+#         ).update({KhatabookItem.is_deleted: True})
+#         db.flush()
+#         for item_uuid in item_ids:
+#             item_obj = db.query(Item).filter(Item.uuid == item_uuid).first()
+#             if item_obj:
+#                 new_kb_item = KhatabookItem(
+#                     khatabook_id=kb_entry.uuid,
+#                     item_id=item_obj.uuid
+#                 )
+#                 db.add(new_kb_item)
+
+#     if files:
+#         # Soft delete existing files instead of hard delete
+#         db.query(KhatabookFile).filter(
+#             KhatabookFile.khatabook_id == kb_entry.uuid,
+#             KhatabookFile.is_deleted.is_(False)
+#         ).update({KhatabookFile.is_deleted: True})
+#         db.flush()
+#         for f in files:
+#             file_path = save_uploaded_file(f, "khatabook_files")
+#             new_file = KhatabookFile(
+#                 khatabook_id=kb_entry.uuid,
+#                 file_path=file_path
+#             )
+#             db.add(new_file)
+
+#     db.commit()
+#     db.refresh(kb_entry)
+#     return kb_entry
+
+
 def update_khatabook_entry_service(
-    db: Session, kb_uuid: UUID, data: Dict, files: List[UploadFile]
+    db: Session,
+    kb_uuid: UUID,
+    data: Dict,
+    files: List[str]  # Already saved file paths
 ) -> Optional[Khatabook]:
     kb_entry = db.query(Khatabook).filter(
         Khatabook.uuid == kb_uuid,
@@ -196,48 +253,56 @@ def update_khatabook_entry_service(
     if not kb_entry:
         return None
 
-    kb_entry.amount = data.get("amount", kb_entry.amount)
+    # Scalar field updates
+    kb_entry.amount = float(data.get("amount", kb_entry.amount))
     kb_entry.remarks = data.get("remarks", kb_entry.remarks)
     kb_entry.person_id = data.get("person_id", kb_entry.person_id)
-    kb_entry.user_id = data.get("user_id", kb_entry.user_id)
+    kb_entry.payment_mode = data.get("payment_mode", kb_entry.payment_mode)
+    kb_entry.entry_type = data.get("entry_type", kb_entry.entry_type)
+    kb_entry.project_id = data.get("project_id", kb_entry.project_id)
 
-    # If item_ids key is present, replace items
+    # Update created_by only if needed (optional)
+    if "created_by" in data:
+        kb_entry.created_by = data["created_by"]
+
+    # Parse and update expense_date
+    date_str = data.get("expense_date")
+    if date_str:
+        try:
+            kb_entry.expense_date = datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
+            print(f"Invalid date format for expense_date: {date_str}")
+
+    # Update items if present
     if "item_ids" in data:
         item_ids = data["item_ids"]
-        # Soft delete existing items instead of hard delete
         db.query(KhatabookItem).filter(
-            KhatabookItem.khatabook_id == kb_entry.uuid,
-            KhatabookItem.is_deleted.is_(False)
-        ).update({KhatabookItem.is_deleted: True})
+            KhatabookItem.khatabook_id == kb_entry.uuid
+        ).delete()
         db.flush()
         for item_uuid in item_ids:
             item_obj = db.query(Item).filter(Item.uuid == item_uuid).first()
             if item_obj:
-                new_kb_item = KhatabookItem(
+                db.add(KhatabookItem(
                     khatabook_id=kb_entry.uuid,
                     item_id=item_obj.uuid
-                )
-                db.add(new_kb_item)
+                ))
 
+    # Update files if uploaded
     if files:
-        # Soft delete existing files instead of hard delete
         db.query(KhatabookFile).filter(
-            KhatabookFile.khatabook_id == kb_entry.uuid,
-            KhatabookFile.is_deleted.is_(False)
-        ).update({KhatabookFile.is_deleted: True})
+            KhatabookFile.khatabook_id == kb_entry.uuid
+        ).delete()
         db.flush()
-        for f in files:
-            file_path = save_uploaded_file(f, "khatabook_files")
-            new_file = KhatabookFile(
+        for file_path in files:
+            db.add(KhatabookFile(
                 khatabook_id=kb_entry.uuid,
                 file_path=file_path
-            )
-            db.add(new_file)
+            ))
 
     db.commit()
     db.refresh(kb_entry)
     return kb_entry
-
 
 def delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     """

@@ -166,6 +166,12 @@ class User(Base):
         cascade="all, delete-orphan"
     )
 
+    Khatabook = relationship(
+        "Khatabook",
+        back_populates="created_by_user",
+        cascade="all, delete-orphan"
+    )
+
 
 class UserTokenMap(Base):
     __tablename__ = "user_token_map"
