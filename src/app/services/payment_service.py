@@ -1390,12 +1390,21 @@ def delete_payment(
     current_user: User = Depends(get_current_user),
 ):
     try:
-        payment = db.query(Payment).filter(Payment.uuid == payment_id).first()
+        payment = db.query(Payment).filter(
+            Payment.uuid == payment_id
+            ).first()
         if not payment:
             return PaymentServiceResponse(
                 data=None,
                 status_code=404,
                 message="Payment not found."
+            ).model_dump()
+        
+        if payment.status == PaymentStatus.TRANSFERRED.value:
+            return PaymentServiceResponse(
+                data=None,
+                status_code=400,
+                message="Cannot delete a payment that has already been transferred."
             ).model_dump()
 
         # Soft-delete the Payment
