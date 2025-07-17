@@ -28,15 +28,14 @@ cat > /etc/nginx/sites-available/dashboard.inqilabgroup.com << 'EOF'
 server {
     server_name dashboard.inqilabgroup.com;
 
-    # SSL session settings for better performance
+    # SSL session settings for better performance (only cache, timeout is in options-ssl-nginx.conf)
     ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 10m;
-    
+
     # Client connection settings
     client_max_body_size 100M;
     client_body_timeout 60s;
     client_header_timeout 60s;
-    
+
     # Keep-alive settings
     keepalive_timeout 65s;
     keepalive_requests 100;
