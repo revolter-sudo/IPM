@@ -25,9 +25,9 @@ echo ""
 
 # Check if HTTPS is working
 echo "3. HTTPS Connectivity Check:"
-if curl -s -f https://dev.inqilabgroup.com/healthcheck > /dev/null; then
+if curl -s -f https://dashboard.inqilabgroup.com/healthcheck > /dev/null; then
     echo "✓ HTTPS is working"
-    response=$(curl -s https://dev.inqilabgroup.com/healthcheck)
+    response=$(curl -s https://dashboard.inqilabgroup.com/healthcheck)
     echo "Response: $response"
 else
     echo "✗ HTTPS is NOT working"
@@ -47,7 +47,7 @@ echo ""
 # Check SSL certificate
 echo "5. SSL Certificate Check:"
 if command -v openssl > /dev/null; then
-    cert_info=$(echo | openssl s_client -servername dev.inqilabgroup.com -connect dev.inqilabgroup.com:443 2>/dev/null | openssl x509 -noout -dates 2>/dev/null)
+    cert_info=$(echo | openssl s_client -servername dashboard.inqilabgroup.com -connect dashboard.inqilabgroup.com:443 2>/dev/null | openssl x509 -noout -dates 2>/dev/null)
     if [ $? -eq 0 ]; then
         echo "✓ SSL Certificate is valid"
         echo "$cert_info"

@@ -47,14 +47,14 @@ test_connectivity() {
 # Test different endpoints
 echo "1. Connectivity Tests:"
 test_connectivity "http://localhost:8000/healthcheck" "Local HTTP"
-test_connectivity "https://dev.inqilabgroup.com/healthcheck" "External HTTPS"
-test_connectivity "https://dev.inqilabgroup.com/" "Main site"
+test_connectivity "https://dashboard.inqilabgroup.com/healthcheck" "External HTTPS"
+test_connectivity "https://dashboard.inqilabgroup.com/" "Main site"
 
 # DNS resolution test
 echo "2. DNS Resolution Test:"
-echo -n "Resolving dev.inqilabgroup.com: "
-if nslookup dev.inqilabgroup.com > /dev/null 2>&1; then
-    ip=$(nslookup dev.inqilabgroup.com | grep -A1 "Name:" | tail -1 | awk '{print $2}')
+echo -n "Resolving dashboard.inqilabgroup.com: "
+if nslookup dashboard.inqilabgroup.com > /dev/null 2>&1; then
+    ip=$(nslookup dashboard.inqilabgroup.com | grep -A1 "Name:" | tail -1 | awk '{print $2}')
     echo "✓ Resolved to $ip"
 else
     echo "✗ DNS resolution failed"
@@ -77,11 +77,11 @@ echo ""
 # SSL/TLS test
 echo "4. SSL/TLS Test:"
 echo -n "SSL handshake: "
-if echo | openssl s_client -connect dev.inqilabgroup.com:443 -servername dev.inqilabgroup.com > /dev/null 2>&1; then
+if echo | openssl s_client -connect dashboard.inqilabgroup.com:443 -servername dashboard.inqilabgroup.com > /dev/null 2>&1; then
     echo "✓ Success"
-    
+
     # Check SSL details
-    ssl_info=$(echo | openssl s_client -connect dev.inqilabgroup.com:443 -servername dev.inqilabgroup.com 2>/dev/null | openssl x509 -noout -subject -issuer -dates 2>/dev/null)
+    ssl_info=$(echo | openssl s_client -connect dashboard.inqilabgroup.com:443 -servername dashboard.inqilabgroup.com 2>/dev/null | openssl x509 -noout -subject -issuer -dates 2>/dev/null)
     echo "SSL Certificate Details:"
     echo "$ssl_info" | sed 's/^/  /'
 else

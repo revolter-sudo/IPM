@@ -42,12 +42,6 @@ chown -R 1000:1000 "$LOG_DIR" 2>/dev/null || true
 
 echo "Log files initialized with proper permissions"
 
-# Start FastAPI with optimized settings
+# Start FastAPI
 echo "Starting FastAPI..."
-exec uvicorn src.app.main:app \
-    --host 0.0.0.0 \
-    --port 8000 \
-    --workers 4 \
-    --timeout-keep-alive 65 \
-    --access-log \
-    --log-level info
+exec uvicorn src.app.main:app --host 0.0.0.0 --port 8000 --workers 4
