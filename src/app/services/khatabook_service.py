@@ -1,7 +1,7 @@
 # services/khatabook_service.py
 from typing import Dict, List, Optional
 from uuid import UUID
-from fastapi import UploadFile
+from fastapi import UploadFile, HTTPException
 from sqlalchemy.orm import Session
 from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Item, Project, Payment, PaymentStatusHistory, PaymentItem
 import os
@@ -96,7 +96,7 @@ def create_khatabook_entry_service(
     data: Dict,
     file_paths: List[str],
     user_id: UUID,
-    current_user: UUID
+    current_user: UUID,
 ) -> Khatabook:
     """
     Creates a new Khatabook entry and updates the user's balance.
@@ -244,61 +244,66 @@ def update_khatabook_entry_service(
     db: Session,
     kb_uuid: UUID,
     data: Dict,
-    files: List[str]  # Already saved file paths
+    files: List[str]
 ) -> Optional[Khatabook]:
     kb_entry = db.query(Khatabook).filter(
         Khatabook.uuid == kb_uuid,
         Khatabook.is_deleted.is_(False)
     ).first()
     if not kb_entry:
-        return None
+        raise HTTPException(status_code=404, detail="Khatabook entry not found.")
 
-    # Scalar field updates
-    kb_entry.amount = float(data.get("amount", kb_entry.amount))
-    kb_entry.remarks = data.get("remarks", kb_entry.remarks)
-    kb_entry.person_id = data.get("person_id", kb_entry.person_id)
-    kb_entry.payment_mode = data.get("payment_mode", kb_entry.payment_mode)
-    kb_entry.entry_type = data.get("entry_type", kb_entry.entry_type)
-    kb_entry.project_id = data.get("project_id", kb_entry.project_id)
+    # allowed fields for update
+    allowed_fields = {
+        "amount",
+        "remarks",
+        "person_id",
+        "payment_mode",
+        "project_id",
+        "expense_date",
+        "item_ids"
+    }
 
-    # Update created_by only if needed (optional)
-    if "created_by" in data:
-        kb_entry.created_by = data["created_by"]
+    # Reject any unexpected fields
+    for key in data.keys():
+        if key not in allowed_fields:
+            raise HTTPException(status_code=400, detail=f"Invalid field '{key}' for update.")
 
-    # Parse and update expense_date
-    date_str = data.get("expense_date")
-    if date_str:
+    # Safe field updates
+    if "amount" in data:
+        kb_entry.amount = float(data["amount"])
+    if "remarks" in data:
+        kb_entry.remarks = data["remarks"]
+    if "person_id" in data:
+        kb_entry.person_id = data["person_id"]
+    if "payment_mode" in data:
+        kb_entry.payment_mode = data["payment_mode"]
+    if "project_id" in data:
+        kb_entry.project_id = data["project_id"]
+
+    # Date parsing
+    if "expense_date" in data:
         try:
-            kb_entry.expense_date = datetime.strptime(date_str, "%Y-%m-%d")
+            kb_entry.expense_date = datetime.strptime(data["expense_date"], "%Y-%m-%d")
         except ValueError:
-            print(f"Invalid date format for expense_date: {date_str}")
+            raise HTTPException(status_code=400, detail="Invalid date format for 'expense_date' (expected YYYY-MM-DD)")
 
-    # Update items if present
+    # Items
     if "item_ids" in data:
         item_ids = data["item_ids"]
-        db.query(KhatabookItem).filter(
-            KhatabookItem.khatabook_id == kb_entry.uuid
-        ).delete()
+        db.query(KhatabookItem).filter(KhatabookItem.khatabook_id == kb_entry.uuid).delete()
         db.flush()
         for item_uuid in item_ids:
             item_obj = db.query(Item).filter(Item.uuid == item_uuid).first()
             if item_obj:
-                db.add(KhatabookItem(
-                    khatabook_id=kb_entry.uuid,
-                    item_id=item_obj.uuid
-                ))
+                db.add(KhatabookItem(khatabook_id=kb_entry.uuid, item_id=item_obj.uuid))
 
-    # Update files if uploaded
+    # Files
     if files:
-        db.query(KhatabookFile).filter(
-            KhatabookFile.khatabook_id == kb_entry.uuid
-        ).delete()
+        db.query(KhatabookFile).filter(KhatabookFile.khatabook_id == kb_entry.uuid).delete()
         db.flush()
         for file_path in files:
-            db.add(KhatabookFile(
-                khatabook_id=kb_entry.uuid,
-                file_path=file_path
-            ))
+            db.add(KhatabookFile(khatabook_id=kb_entry.uuid, file_path=file_path))
 
     db.commit()
     db.refresh(kb_entry)
