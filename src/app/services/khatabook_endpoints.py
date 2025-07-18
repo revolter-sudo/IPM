@@ -388,7 +388,7 @@ def export_khatabook_data(
                     "expense_date": (
                         entry.expense_date.isoformat()
                         if entry.expense_date else ""
-                    ), 
+                    ),
                     "amount": entry.amount,
                     "remarks": entry.remarks,
                     "person": person_info,
@@ -396,7 +396,8 @@ def export_khatabook_data(
                     "items": items_data,
                     "payment_mode": entry.payment_mode,
                     "balance_after_entry": entry.balance_after_entry,
-                    "is_suspicious": entry.is_suspicious
+                    "is_suspicious": entry.is_suspicious,
+                    "entry_type": entry.entry_type  # Add missing entry_type field
                 })
         else:
             # Regular user or admin without filters - use existing service
