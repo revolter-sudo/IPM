@@ -106,7 +106,7 @@ def validate_entry(entry: dict, index: int, total: int) -> bool:
     Returns:
         True if entry is valid, False otherwise
     """
-    required_fields = ["uuid", "amount", "person_id", "created_by", "entry_type"]
+    required_fields = ["uuid", "amount", "created_by", "entry_type"]
     
     for field in required_fields:
         if not entry.get(field):
@@ -116,8 +116,9 @@ def validate_entry(entry: dict, index: int, total: int) -> bool:
     # Validate UUIDs
     try:
         UUID(entry["uuid"])
-        UUID(entry["person_id"])
         UUID(entry["created_by"])
+        if entry.get("person_id"):
+            UUID(entry["person_id"])
         if entry.get("project_id"):
             UUID(entry["project_id"])
     except ValueError as e:
@@ -164,7 +165,7 @@ def insert_khatabook_entries(data: list[dict]) -> dict:
                     uuid=UUID(entry["uuid"]),
                     amount=float(entry["amount"]),
                     remarks=entry.get("remarks", ""),
-                    person_id=UUID(entry["person_id"]),
+                    person_id=UUID(entry["person_id"]) if entry.get("person_id") else None,
                     created_by=UUID(entry["created_by"]),
                     expense_date=parse_date(entry.get("expense_date")),
                     payment_mode=entry.get("payment_mode"),
