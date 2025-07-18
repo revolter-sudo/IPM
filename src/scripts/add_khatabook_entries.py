@@ -22,6 +22,7 @@ from pathlib import Path
 from uuid import UUID
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from datetime import datetime
 
 # Add the project root to Python path to enable imports
@@ -254,7 +255,7 @@ def main():
         logger.info("🔗 Testing database connection...")
         try:
             db = SessionLocal()
-            db.execute("SELECT 1")
+            db.execute(text("SELECT 1"))
             db.close()
             logger.info("✅ Database connection successful")
         except Exception as e:
