@@ -237,3 +237,46 @@ class DailyAttendanceSummary(BaseModel):
     contractors: List[PersonInfo] = []
 
     model_config = {"from_attributes": True}
+
+
+# Attendance Analytics Schemas
+class AttendanceAnalyticsData(BaseModel):
+    current_month: dict = Field(..., description="Current month attendance analytics")
+
+    model_config = {"from_attributes": True}
+
+
+class AttendanceAnalyticsResponse(BaseModel):
+    data: AttendanceAnalyticsData
+    message: str
+    status_code: int
+
+    def to_dict(self):
+        return {
+            "data": self.data.model_dump(),
+            "message": self.message,
+            "status_code": self.status_code
+        }
+
+
+class AdminAttendanceAnalyticsRequest(BaseModel):
+    month: str = Field(..., description="Month in MM-YYYY format (e.g., '12-2024')")
+    user_id: UUID = Field(..., description="UUID of the user to analyze")
+
+    @field_validator("month")
+    def validate_month_format(cls, value):
+        import re
+        if not re.match(r"^\d{2}-\d{4}$", value):
+            raise ValueError("Month must be in MM-YYYY format (e.g., '12-2024')")
+
+        month_part, year_part = value.split("-")
+        month_num = int(month_part)
+        year_num = int(year_part)
+
+        if month_num < 1 or month_num > 12:
+            raise ValueError("Month must be between 01 and 12")
+
+        if year_num < 2020 or year_num > 2030:
+            raise ValueError("Year must be between 2020 and 2030")
+
+        return value

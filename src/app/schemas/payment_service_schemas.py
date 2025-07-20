@@ -236,3 +236,34 @@ class ItemCategoryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Person Response Schemas with Role Information
+class PersonResponse(BaseModel):
+    """Basic person response schema (backward compatible)"""
+    uuid: UUID
+    name: str
+    phone_number: str
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    upi_number: Optional[str] = None
+    user_id: Optional[UUID] = None
+
+    class Config:
+        from_attributes = True
+
+
+class PersonWithRoleResponse(BaseModel):
+    """Extended person response schema that includes role information"""
+    uuid: UUID
+    name: str
+    phone_number: str
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    upi_number: Optional[str] = None
+    role: Optional[str] = None  # Role assigned directly to person
+    user_id: Optional[UUID] = None
+    user_role: Optional[str] = None  # Role from associated user (if any)
+
+    class Config:
+        from_attributes = True

@@ -60,11 +60,22 @@ from src.app.schemas.attendance_schemas import (
     ProjectAttendanceSummary,
     DailyAttendanceSummary,
     AttendanceStatus,
-    ItemListView
+    ItemListView,
+    AttendanceAnalyticsResponse,
+    AttendanceAnalyticsData,
+    AdminAttendanceAnalyticsRequest
 )
 from src.app.services.auth_service import get_current_user, verify_password
 from src.app.services.wage_service import get_effective_wage_rate, calculate_and_save_wage
 from src.app.utils.logging_config import get_logger
+from src.app.utils.attendance_utils import (
+    get_current_month_working_days,
+    calculate_attendance_percentage,
+    get_attendance_feedback,
+    parse_month_year,
+    get_month_date_range,
+    get_working_days_in_month
+)
 
 logger = get_logger(__name__)
 
@@ -811,7 +822,7 @@ def get_self_attendance_status(
     Returns detailed status information including:
     - Present: When user has punched in
     - Off day: When user has marked the day as off
-    - Absent: When no attendance record exists for today
+    - None: When no attendance record exists for today
     """
     try:
         today = date.today()
@@ -825,7 +836,7 @@ def get_self_attendance_status(
             # No record means absent
             response_data = SelfAttendanceStatus(
                 is_punched_in=False,
-                status=AttendanceStatus.absent,
+                status=None,
                 user_id=current_user.uuid,
                 user_name=current_user.name,
                 attendance_date=today
@@ -1498,6 +1509,271 @@ def get_project_attendance_history(
 
     except Exception as e:
         logger.error(f"Error in get_project_attendance_history: {str(e)}")
+        return AttendanceResponse(
+            data=None,
+            message=f"Internal server error: {str(e)}",
+            status_code=500
+        ).to_dict()
+
+
+@attendance_router.get("/analytics", tags=["Attendance Analytics"])
+def get_user_attendance_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get attendance analytics for the current logged-in user for the current month.
+
+    Returns:
+        - Attendance percentage for current month
+        - Feedback based on attendance record
+    """
+    try:
+        # Validate current user
+        if not current_user or not hasattr(current_user, 'uuid'):
+            return AttendanceResponse(
+                data=None,
+                message="Invalid user session",
+                status_code=401
+            ).to_dict()
+
+        today = date.today()
+        current_year = today.year
+        current_month = today.month
+
+        # Get total working days in current month
+        total_working_days = get_current_month_working_days()
+
+        if total_working_days == 0:
+            return AttendanceResponse(
+                data=None,
+                message="No working days found for current month",
+                status_code=400
+            ).to_dict()
+
+        # Get start and end dates for current month
+        try:
+            start_date, end_date = get_month_date_range(current_year, current_month)
+        except ValueError as e:
+            return AttendanceResponse(
+                data=None,
+                message=f"Error calculating month range: {str(e)}",
+                status_code=400
+            ).to_dict()
+
+        # Count present days for the user in current month
+        # Present days include: punch in/out records with status 'present' or approved attendance
+        try:
+            present_days_query = db.query(SelfAttendance).filter(
+                SelfAttendance.user_id == current_user.uuid,
+                SelfAttendance.attendance_date >= start_date,
+                SelfAttendance.attendance_date <= end_date,
+                SelfAttendance.is_deleted.is_(False),
+                SelfAttendance.status.in_(['present', 'approved'])  # Valid attendance statuses
+            )
+
+            present_days = present_days_query.count()
+        except Exception as e:
+            logger.error(f"Error querying attendance data: {str(e)}")
+            return AttendanceResponse(
+                data=None,
+                message="Error retrieving attendance data",
+                status_code=500
+            ).to_dict()
+
+        # Calculate attendance percentage
+        percentage = calculate_attendance_percentage(present_days, total_working_days)
+
+        # Get feedback based on percentage
+        feedback = get_attendance_feedback(percentage)
+
+        # Validate calculated values
+        if percentage < 0 or percentage > 100:
+            logger.warning(f"Invalid percentage calculated: {percentage}")
+            percentage = max(0, min(100, percentage))  # Clamp to valid range
+
+        # Prepare response data
+        try:
+            analytics_data = AttendanceAnalyticsData(
+                current_month={
+                    "percentage": int(percentage),  # Convert to integer as per requirement
+                    "feedback": feedback
+                }
+            )
+
+            return AttendanceAnalyticsResponse(
+                data=analytics_data,
+                message="Attendance Analytics Fetched Successfully.",
+                status_code=200
+            ).to_dict()
+        except Exception as e:
+            logger.error(f"Error creating response data: {str(e)}")
+            return AttendanceResponse(
+                data=None,
+                message="Error formatting response data",
+                status_code=500
+            ).to_dict()
+
+    except Exception as e:
+        logger.error(f"Error in get_user_attendance_analytics: {str(e)}")
+        logger.error(traceback.format_exc())
+        return AttendanceResponse(
+            data=None,
+            message=f"Internal server error: {str(e)}",
+            status_code=500
+        ).to_dict()
+
+
+@attendance_router.get("/admin/analytics", tags=["Attendance Analytics"])
+def get_admin_attendance_analytics(
+    month: str = Query(..., description="Month in MM-YYYY format (e.g., '12-2024')"),
+    user_id: UUID = Query(..., description="UUID of the user to analyze"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get attendance analytics for a specific user and month (Admin/Super Admin only).
+
+    Args:
+        month: Month in MM-YYYY format (e.g., "12-2024")
+        user_id: UUID of the user to analyze
+
+    Returns:
+        - Attendance percentage for specified month
+        - Feedback based on attendance record
+    """
+    try:
+        # Validate current user
+        if not current_user or not hasattr(current_user, 'uuid') or not hasattr(current_user, 'role'):
+            return AttendanceResponse(
+                data=None,
+                message="Invalid user session",
+                status_code=401
+            ).to_dict()
+
+        # Check if current user has admin privileges
+        if current_user.role not in {UserRole.ADMIN, UserRole.SUPER_ADMIN}:
+            return AttendanceResponse(
+                data=None,
+                message="Access denied. Admin or Super Admin privileges required.",
+                status_code=403
+            ).to_dict()
+
+        # Validate input parameters
+        if not month or not month.strip():
+            return AttendanceResponse(
+                data=None,
+                message="Month parameter is required",
+                status_code=400
+            ).to_dict()
+
+        if not user_id:
+            return AttendanceResponse(
+                data=None,
+                message="User ID parameter is required",
+                status_code=400
+            ).to_dict()
+
+        # Validate month format
+        try:
+            target_month, target_year = parse_month_year(month.strip())
+        except ValueError as e:
+            return AttendanceResponse(
+                data=None,
+                message=str(e),
+                status_code=400
+            ).to_dict()
+
+        # Check if target user exists
+        target_user = db.query(User).filter(
+            User.uuid == user_id,
+            User.is_deleted.is_(False),
+            User.is_active.is_(True)
+        ).first()
+
+        if not target_user:
+            return AttendanceResponse(
+                data=None,
+                message="User not found or inactive",
+                status_code=404
+            ).to_dict()
+
+        # Get total working days in specified month
+        total_working_days = get_working_days_in_month(target_year, target_month)
+
+        if total_working_days == 0:
+            return AttendanceResponse(
+                data=None,
+                message=f"No working days found for {month}",
+                status_code=400
+            ).to_dict()
+
+        # Get start and end dates for specified month
+        try:
+            start_date, end_date = get_month_date_range(target_year, target_month)
+        except ValueError as e:
+            return AttendanceResponse(
+                data=None,
+                message=f"Error calculating month range: {str(e)}",
+                status_code=400
+            ).to_dict()
+
+        # Count present days for the target user in specified month
+        # Present days include: punch in/out records with status 'present' or approved attendance
+        try:
+            present_days_query = db.query(SelfAttendance).filter(
+                SelfAttendance.user_id == user_id,
+                SelfAttendance.attendance_date >= start_date,
+                SelfAttendance.attendance_date <= end_date,
+                SelfAttendance.is_deleted.is_(False),
+                SelfAttendance.status.in_(['present', 'approved'])  # Valid attendance statuses
+            )
+
+            present_days = present_days_query.count()
+        except Exception as e:
+            logger.error(f"Error querying attendance data for user {user_id}: {str(e)}")
+            return AttendanceResponse(
+                data=None,
+                message="Error retrieving attendance data",
+                status_code=500
+            ).to_dict()
+
+        # Calculate attendance percentage
+        percentage = calculate_attendance_percentage(present_days, total_working_days)
+
+        # Get feedback based on percentage
+        feedback = get_attendance_feedback(percentage)
+
+        # Validate calculated values
+        if percentage < 0 or percentage > 100:
+            logger.warning(f"Invalid percentage calculated for user {user_id}: {percentage}")
+            percentage = max(0, min(100, percentage))  # Clamp to valid range
+
+        # Prepare response data
+        try:
+            analytics_data = AttendanceAnalyticsData(
+                current_month={
+                    "percentage": int(percentage),  # Convert to integer as per requirement
+                    "feedback": feedback
+                }
+            )
+
+            return AttendanceAnalyticsResponse(
+                data=analytics_data,
+                message="Attendance Analytics Fetched Successfully.",
+                status_code=200
+            ).to_dict()
+        except Exception as e:
+            logger.error(f"Error creating response data for user {user_id}: {str(e)}")
+            return AttendanceResponse(
+                data=None,
+                message="Error formatting response data",
+                status_code=500
+            ).to_dict()
+
+    except Exception as e:
+        logger.error(f"Error in get_admin_attendance_analytics: {str(e)}")
+        logger.error(traceback.format_exc())
         return AttendanceResponse(
             data=None,
             message=f"Internal server error: {str(e)}",

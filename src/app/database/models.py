@@ -202,6 +202,7 @@ class Person(Base):
     phone_number = Column(String(10), nullable=False)
     is_deleted = Column(Boolean, nullable=False, default=False)
     upi_number = Column(String(50), nullable=True)
+    role = Column(String(30), nullable=True)  # Optional role field using same enum values as User.role
     user_id = Column(
         UUID(as_uuid=True),
         ForeignKey("users.uuid"),
