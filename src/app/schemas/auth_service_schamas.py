@@ -1,6 +1,6 @@
 from enum import Enum
 from uuid import UUID
-from typing import Any, Optional
+from typing import Any, Optional, List
 from pydantic import BaseModel, Field, field_validator
 from src.app.schemas.payment_service_schemas import CreatePerson, UpdatePerson
 from datetime import datetime, date
@@ -88,6 +88,60 @@ class UserResponse(BaseModel):
 
 class AuthServiceResponse(BaseModel):
     data: Any = None
+    message: str
+    status_code: int
+
+    def to_dict(self):
+        return {
+            "data": self.data,
+            "message": self.message,
+            "status_code": self.status_code
+        }
+
+
+# Role-based Person Query Schemas
+class PersonWithRole(BaseModel):
+    uuid: UUID
+    name: str
+    phone_number: str
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    upi_number: Optional[str] = None
+    role: str
+    role_source: str  # "person" or "user" to indicate where the role comes from
+    user_id: Optional[UUID] = None  # UUID of associated user if role comes from user
+
+    model_config = {"from_attributes": True}
+
+
+class RoleBasedPersonQueryRequest(BaseModel):
+    role: UserRole = Field(..., description="Role to filter persons by")
+
+    model_config = {"from_attributes": True}
+
+
+class RoleBasedPersonQueryResponse(BaseModel):
+    data: List[PersonWithRole]
+    message: str
+    status_code: int
+
+    def to_dict(self):
+        return {
+            "data": [person.model_dump() for person in self.data],
+            "message": self.message,
+            "status_code": self.status_code
+        }
+
+
+# Person Role Update Schemas
+class UpdatePersonRoleRequest(BaseModel):
+    role: Optional[UserRole] = Field(None, description="Role to assign to the person (null to remove role)")
+
+    model_config = {"from_attributes": True}
+
+
+class UpdatePersonRoleResponse(BaseModel):
+    data: dict
     message: str
     status_code: int
 
