@@ -5,7 +5,7 @@ from fastapi import FastAPI, Body, Response
 from fastapi_sqlalchemy import DBSessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from src.app.database.database import settings
-from src.app.services.auth_service import get_current_user
+from src.app.services.auth_service import get_current_user,get_password_hash
 from src.app.schemas.auth_service_schamas import UserRole
 from src.app.admin_panel.services import (
     create_project_user_mapping,
@@ -22,7 +22,8 @@ from src.app.admin_panel.services import (
     sync_project_user_item_mappings
 )
 from src.app.admin_panel.schemas import (
-    UserProjectItemResponse
+    UserProjectItemResponse,
+    PersonToUserCreate
     )
 from src.app.schemas.project_service_schemas import (
     ProjectServiceResponse,
@@ -5408,3 +5409,77 @@ def delete_salary_record(
             "message": f"Error deleting salary: {str(e)}",
             "status_code": 500,
         }
+
+@admin_app.post(
+    "/{person_uuid}/upgrade-to-user",
+    status_code=201,
+    tags=["Person"],
+    description="Upgrade an existing person to a user (creates a User and links to person)."
+)
+def upgrade_person_to_user(
+    person_uuid: UUID,
+    payload: PersonToUserCreate = Body(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Optional: Only allow admin/superadmin
+    if current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]:
+        raise HTTPException(status_code=403, detail="Only admin/superadmin allowed.")
+
+    # Fetch person
+    person = db.query(Person).filter(Person.uuid == person_uuid, Person.is_deleted.is_(False)).first()
+
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found.")
+    
+    # Prevent upgrading secondary accounts to user
+    if getattr(person, "is_secondary_account", False) or getattr(person, "parent_id", None) is not None:
+        raise HTTPException(status_code=400, detail="Cannot upgrade a secondary account person to user.")
+
+    # Check if person already has user
+    if person.user_id:
+        raise HTTPException(status_code=400, detail="This person is already linked to a user.")
+
+    # Check phone/email duplicate in User
+    existing_user = db.query(User).filter(User.phone == payload.phone, User.is_deleted.is_(False)).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="A user with this phone already exists.")
+
+    # Hash the password
+    hashed_password = get_password_hash(payload.password)
+
+    # Create User
+    new_user = User(
+        name=payload.name,
+        phone=payload.phone,
+        password_hash=hashed_password,
+        role=payload.role,
+        is_active=True,
+        is_deleted=False
+    )
+    db.add(new_user)
+    db.flush()  # To get new_user.uuid
+
+    # Link person to user
+    person.user_id = new_user.uuid
+    db.commit()
+    db.refresh(person)
+    db.refresh(new_user)
+
+    return {
+        "status": "success",
+        "message": "Person upgraded to User successfully.",
+        "person": {
+            "uuid": str(person.uuid),
+            "name": person.name,
+            "user_id": str(person.user_id),
+            "account_number" : str(person.account_number),
+            "ifsc_code" : str(person.ifsc_code)
+        },
+        "user": {
+            "uuid": str(new_user.uuid),
+            "name": new_user.name,
+            "phone": new_user.phone,
+            "role": new_user.role
+        }
+    }
