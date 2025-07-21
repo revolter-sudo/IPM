@@ -219,10 +219,7 @@ def create_payment(
         )
         if not notification:
             logger.error(
-                "Something went wrong while sending create payment notification"
-            )
-        
-        logger.info(f"Payment of amount {payment_request.amount} requested by {current_user.name} for project {project.name} created successfully.")  # noqa: E501
+                "Something went wrong while sending create payment notification")
         return PaymentServiceResponse(
             data={"payment_uuid": current_payment_uuid},
             message="Payment created successfully.",
