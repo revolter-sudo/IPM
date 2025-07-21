@@ -308,13 +308,10 @@ def get_parent_account_data(person_id: UUID, db):
         if person is None:
             return None  # or handle error
         """
-        If this person has a parent, return the parent's details; otherwise,
-        return the person's own details
+        Return the selected person's details regardless of parent-child relationship.
+        This ensures the payment shows the actual person that was selected.
         """
-        if person.parent is not None:
-            return person.parent
-        else:
-            return person
+        return person
     except Exception as e:
         print(f"Error in get_parent_account_data API: {str(e)}")
         return PaymentServiceResponse(
