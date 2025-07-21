@@ -85,7 +85,7 @@ class SelfAttendanceStatus(BaseModel):
     punch_in_time: Optional[datetime] = None
     punch_out_time: Optional[datetime] = None
     current_hours: Optional[str] = None
-    status: AttendanceStatus
+    status: Optional[AttendanceStatus] = None
 
     model_config = {"from_attributes": True}
 
