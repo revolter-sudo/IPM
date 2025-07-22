@@ -7,17 +7,19 @@ import uvicorn
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware  # Add CORS import
 from fastapi.templating import Jinja2Templates
-from src.app.database.database import settings
+from src.app.database.database import settings, SessionLocal
 from src.app.services.auth_service import auth_router
 from src.app.services.payment_service import payment_router
 from src.app.services.project_service import project_router, balance_router
 from src.app.services.khatabook_endpoints import khatabook_router
 from src.app.services.inquiry_endpoints import inquiry_router
 from src.app.services.attendance_endpoints import attendance_router
+from src.app.services.attendance_service import auto_punch_out_users
 from src.app.services.wage_endpoints import wage_router
 from src.app.admin_panel.endpoints import admin_app
 from src.app.sms_service.auth_service import sms_service_router
 from src.app.services.machinery import machinery_router
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from dotenv import load_dotenv
 from fastapi_cache import FastAPICache
@@ -109,6 +111,21 @@ async def add_process_time_header(request: Request, call_next):
 
 # Make sure /app/uploads exists in the container
 os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+scheduler = BackgroundScheduler()
+
+def run_auto_punch_out():
+    logger.info("Running auto punch out job")
+    db = SessionLocal()
+    try:
+        count = auto_punch_out_users(db)
+        logger.info(f"Auto punch-out processed: {count} users")
+    finally:
+        db.close()
+
+# Schedule: every day at 7:00 PM
+scheduler.add_job(run_auto_punch_out, 'cron', hour=19, minute=0)
+scheduler.start()
 
 # Mount /uploads so that all subdirectories
 # (including /payments) are accessible

@@ -3,7 +3,7 @@ import json
 import traceback
 from typing import Optional, List
 from uuid import UUID
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time
 from fastapi import (
     APIRouter,
     Depends,
@@ -132,6 +132,37 @@ def get_current_hours_worked(punch_in: datetime) -> str:
     except Exception as e:
         logger.error(f"Error calculating current hours: {str(e)}")
         return "0.0"
+
+def auto_punch_out_users(db: Session) -> int:
+    today = date.today()
+    cutoff_time = datetime.combine(today, time(19, 0))
+
+    records = db.query(SelfAttendance).filter(
+        SelfAttendance.attendance_date == today,
+        SelfAttendance.punch_in_time != None,
+        SelfAttendance.punch_out_time == None,
+        SelfAttendance.is_deleted.is_(False)
+    ).all()
+
+    for record in records:
+        record.punch_out_time = cutoff_time
+        record.punch_out_latitude = record.punch_in_latitude
+        record.punch_out_longitude = record.punch_in_longitude
+        record.punch_out_location_address = record.punch_in_location_address or "Auto punch-out"
+
+        # Optional: Add punch-out log
+        log = Log(
+            performed_by=record.user_id,
+            action="AUTO_PUNCH_OUT",
+            entity="self_attendance",
+            entity_id=record.uuid
+        )
+        db.add(log)
+
+        logger.info(f"Auto punched out user {record.user_id} at {cutoff_time}")
+
+    db.commit()
+    return len(records)
 
 
 @attendance_router.post("/self/punch-in", tags=["Self Attendance"])
