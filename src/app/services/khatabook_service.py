@@ -3,7 +3,10 @@ from typing import Dict, List, Optional
 from uuid import UUID
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
-from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Item, Project, Payment, PaymentStatusHistory, PaymentItem
+from src.app.database.models import (
+    Khatabook, KhatabookFile, KhatabookItem, Item, Project, 
+    Payment, PaymentStatusHistory, PaymentItem, KhatabookPaymentMap
+)
 import os
 import shutil
 from src.app.database.models import KhatabookBalance
@@ -64,6 +67,14 @@ def create_payment_from_khatabook_entry(
             created_by=user_id
         )
         db.add(payment_status)
+
+        # Create khatabook payment mapping entry
+        khatabook_payment_map = KhatabookPaymentMap(
+            khatabook_id=khatabook_entry.uuid,
+            payment_id=payment.uuid,
+            created_by=user_id
+        )
+        db.add(khatabook_payment_map)
 
         # Map khatabook items to payment items
         khatabook_items = db.query(KhatabookItem).filter(
@@ -287,42 +298,65 @@ def hard_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     return result > 0
 
 # def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
-
 #     """
-#     Soft delete a khatabook entry by setting is_deleted to True.
+#     Soft delete a khatabook entry by setting is_deleted=True.
+#     Also soft deletes related files and item mappings.
+
+#     This function ensures data integrity by properly marking all related
+#     entities as deleted while preserving the data for audit purposes.
 
 #     Args:
 #         db: Database session
 #         kb_uuid: UUID of the khatabook entry
 
 #     Returns:
-#         True if the entry was deleted, False if the entry doesn't exist
+#         True if the entry was marked as deleted, False if the entry doesn't exist
 #     """
-#     kb_entry = db.query(Khatabook).filter(
-#         Khatabook.uuid == kb_uuid,
-#         Khatabook.is_deleted.is_(False)
-#     ).first()
-#     if not kb_entry:
-#         return False
+#     try:
+#         # Fetch the khatabook entry
+#         khatabook = db.query(Khatabook).filter(
+#             Khatabook.uuid == kb_uuid,
+#             Khatabook.is_deleted.is_(False)
+#         ).first()
 
-#     kb_entry.is_deleted = True
-#     db.commit()
-#     return True
+#         if not khatabook:
+#             db_logger.warning(f"Khatabook entry {kb_uuid} not found or already deleted")
+#             return False
+
+#         db_logger.info(f"Soft deleting khatabook entry {kb_uuid}")
+
+#         # Mark related files as deleted
+#         files_updated = db.query(KhatabookFile).filter(
+#             KhatabookFile.khatabook_id == kb_uuid,
+#             KhatabookFile.is_deleted.is_(False)
+#         ).update({KhatabookFile.is_deleted: True})
+
+#         db_logger.info(f"Marked {files_updated} files as deleted for khatabook {kb_uuid}")
+
+#         # Mark related item mappings as deleted
+#         items_updated = db.query(KhatabookItem).filter(
+#             KhatabookItem.khatabook_id == kb_uuid,
+#             KhatabookItem.is_deleted.is_(False)
+#         ).update({KhatabookItem.is_deleted: True})
+
+#         db_logger.info(f"Marked {items_updated} items as deleted for khatabook {kb_uuid}")
+
+#         # Mark the main khatabook as deleted
+#         khatabook.is_deleted = True
+
+#         db.commit()
+#         db_logger.info(f"Successfully soft deleted khatabook entry {kb_uuid}")
+#         return True
+
+#     except Exception as e:
+#         db.rollback()
+#         db_logger.error(f"Error soft deleting khatabook entry {kb_uuid}: {str(e)}")
+#         raise
 
 def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     """
     Soft delete a khatabook entry by setting is_deleted=True.
-    Also soft deletes related files and item mappings.
-
-    This function ensures data integrity by properly marking all related
-    entities as deleted while preserving the data for audit purposes.
-
-    Args:
-        db: Database session
-        kb_uuid: UUID of the khatabook entry
-
-    Returns:
-        True if the entry was marked as deleted, False if the entry doesn't exist
+    Also soft deletes related files, item mappings, and payment entries with status='khatabook'.
     """
     try:
         # Fetch the khatabook entry
@@ -337,26 +371,40 @@ def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
 
         db_logger.info(f"Soft deleting khatabook entry {kb_uuid}")
 
-        # Mark related files as deleted
+        # Soft delete related files
         files_updated = db.query(KhatabookFile).filter(
             KhatabookFile.khatabook_id == kb_uuid,
             KhatabookFile.is_deleted.is_(False)
         ).update({KhatabookFile.is_deleted: True})
-
         db_logger.info(f"Marked {files_updated} files as deleted for khatabook {kb_uuid}")
 
-        # Mark related item mappings as deleted
+        # Soft delete related item mappings
         items_updated = db.query(KhatabookItem).filter(
             KhatabookItem.khatabook_id == kb_uuid,
             KhatabookItem.is_deleted.is_(False)
         ).update({KhatabookItem.is_deleted: True})
-
         db_logger.info(f"Marked {items_updated} items as deleted for khatabook {kb_uuid}")
 
-        # Mark the main khatabook as deleted
-        khatabook.is_deleted = True
+        # Find all linked payment UUIDs via mapping table
+        payment_links = db.query(KhatabookPaymentMap).filter(
+            KhatabookPaymentMap.khatabook_id == kb_uuid
+        ).all()
 
+        payment_ids = [link.payment_id for link in payment_links]
+
+        if payment_ids:
+            payments_updated = db.query(Payment).filter(
+                Payment.uuid.in_(payment_ids),
+                Payment.is_deleted.is_(False)
+            ).update({Payment.is_deleted: True}, synchronize_session=False)
+            db_logger.info(f"Soft deleted {payments_updated} payment(s) linked to khatabook {kb_uuid}")
+        else:
+            db_logger.info(f"No payments linked to khatabook {kb_uuid}")
+
+        # Mark the khatabook itself as deleted
+        khatabook.is_deleted = True
         db.commit()
+
         db_logger.info(f"Successfully soft deleted khatabook entry {kb_uuid}")
         return True
 
@@ -364,6 +412,7 @@ def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
         db.rollback()
         db_logger.error(f"Error soft deleting khatabook entry {kb_uuid}: {str(e)}")
         raise
+
 
 
 def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:

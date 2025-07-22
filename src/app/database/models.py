@@ -1091,3 +1091,22 @@ class MachineryPhotos(Base):
 
     def __repr__(self):
         return f"<MachineryPhotos(id={self.id}, machinery_id={self.machinery_id}, photo_path={self.photo_path})>"
+    
+class KhatabookPaymentMap(Base):
+    __tablename__ = "khatabook_payment_map"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uuid = Column(UUID(as_uuid=True), unique=True, nullable=False, default=uuid.uuid4)
+
+    khatabook_id = Column(UUID(as_uuid=True), ForeignKey("khatabook_entries.uuid", ondelete="RESTRICT"), nullable=False)
+    payment_id = Column(UUID(as_uuid=True), ForeignKey("payments.uuid", ondelete="RESTRICT"), nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.uuid", ondelete="RESTRICT"), nullable=False)
+
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    # Relationships — NO cascade
+    khatabook = relationship("Khatabook", backref="payment_links", passive_deletes=True)
+    payment = relationship("Payment", backref="khatabook_links", passive_deletes=True)
+    creator = relationship("User", foreign_keys=[created_by], lazy="joined", passive_deletes=True)
+
+

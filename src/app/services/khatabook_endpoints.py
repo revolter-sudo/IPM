@@ -556,7 +556,7 @@ def soft_delete_khatabook_entry(
             return KhatabookServiceResponse(
                 data=None,
                 status_code=403,
-                message="Only admin and super admin can soft delete entries"
+                message="Only admin and super admin can delete entries"
             ).model_dump()
 
         # Perform soft delete
@@ -572,7 +572,7 @@ def soft_delete_khatabook_entry(
         return KhatabookServiceResponse(
             data=None,
             status_code=200,
-            message="Khatabook entry soft deleted successfully"
+            message="Khatabook entry deleted successfully"
         ).model_dump()
 
     except Exception as e:
@@ -580,5 +580,5 @@ def soft_delete_khatabook_entry(
         return KhatabookServiceResponse(
             data=None,
             status_code=500,
-            message=f"An error occurred while soft deleting the entry: {str(e)}"
+            message=f"An error occurred while deleting the entry: {str(e)}"
         ).model_dump()
