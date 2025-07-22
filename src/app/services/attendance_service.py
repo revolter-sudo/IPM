@@ -135,7 +135,7 @@ def get_current_hours_worked(punch_in: datetime) -> str:
 
 def auto_punch_out_users(db: Session) -> int:
     today = date.today()
-    cutoff_time = datetime.combine(today, time(19, 0))
+    cutoff_time = datetime.combine(today, time(19, 30))
 
     records = db.query(SelfAttendance).filter(
         SelfAttendance.attendance_date == today,

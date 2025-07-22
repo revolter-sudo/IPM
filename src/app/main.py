@@ -124,7 +124,7 @@ def run_auto_punch_out():
         db.close()
 
 # Schedule: every day at 7:00 PM
-scheduler.add_job(run_auto_punch_out, 'cron', hour=19, minute=0)
+scheduler.add_job(run_auto_punch_out, 'cron', hour=19, minute=30)
 scheduler.start()
 
 # Mount /uploads so that all subdirectories
