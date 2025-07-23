@@ -4,20 +4,23 @@ from fastapi import FastAPI, Request
 from fastapi_sqlalchemy import DBSessionMiddleware
 import os
 import uvicorn
+import traceback
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware  # Add CORS import
 from fastapi.templating import Jinja2Templates
-from src.app.database.database import settings
+from src.app.database.database import settings, SessionLocal
 from src.app.services.auth_service import auth_router
 from src.app.services.payment_service import payment_router
 from src.app.services.project_service import project_router, balance_router
 from src.app.services.khatabook_endpoints import khatabook_router
 from src.app.services.inquiry_endpoints import inquiry_router
 from src.app.services.attendance_endpoints import attendance_router
+from src.app.services.attendance_service import auto_punch_out_users
 from src.app.services.wage_endpoints import wage_router
 from src.app.admin_panel.endpoints import admin_app
 from src.app.sms_service.auth_service import sms_service_router
 from src.app.services.machinery import machinery_router
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from dotenv import load_dotenv
 from fastapi_cache import FastAPICache
@@ -80,6 +83,49 @@ app.add_middleware(
 
 app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 
+from apscheduler.triggers.cron import CronTrigger
+import logging
+from pytz import timezone
+
+scheduler = BackgroundScheduler()
+
+def run_auto_punch_out():
+    logger = logging.getLogger(__name__)
+    logger.info("Triggered scheduled job: auto punch-out")
+
+    db = SessionLocal()
+    try:
+        count = auto_punch_out_users(db)
+        logger.info(f"Auto punch-out job completed. Users processed: {count}")
+    except Exception as e:
+        logger.error(f"Error during auto punch-out job: {str(e)}")
+        logger.debug(traceback.format_exc())
+    finally:
+        db.close()
+        logger.info("DB session closed after punch-out job")
+
+# ✅ Run every 10 minutes in IST
+# scheduler.add_job(
+#     run_auto_punch_out,
+#     CronTrigger(minute="*/10", timezone=timezone("Asia/Kolkata")),
+#     id="auto_punch_out_job"
+# )
+
+scheduler.add_job(
+    run_auto_punch_out,
+    CronTrigger(hour=19, minute=30, timezone=timezone("Asia/Kolkata")),
+    id="auto_punch_out_job"
+)
+
+# 🟩 PRODUCTION MODE: Uncomment this later when you're ready for daily at 7:30 PM
+# scheduler.add_job(run_auto_punch_out, CronTrigger(hour=19, minute=30), id="auto_punch_out_job")
+
+scheduler.start()
+
+@app.on_event("startup")
+def on_startup():
+    logging.getLogger(__name__).info("FastAPI app started with scheduler running...")
+
 # Performance middleware to track request timing and log API requests
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -109,6 +155,27 @@ async def add_process_time_header(request: Request, call_next):
 
 # Make sure /app/uploads exists in the container
 os.makedirs(UPLOADS_DIR, exist_ok=True)
+
+# scheduler = BackgroundScheduler()
+
+# def run_auto_punch_out():
+#     logger.info("Triggered scheduled job: auto punch-out")
+#     db = SessionLocal()
+#     try:
+#         count = auto_punch_out_users(db)
+#         logger.info(f"Auto punch-out job completed. Users processed: {count}")
+#     except Exception as e:
+#         logger.error(f"Error during auto punch-out job: {str(e)}")
+#         logger.debug(traceback.format_exc())
+#     finally:
+#         db.close()
+#         logger.info("DB session closed after punch-out job")
+
+# # Schedule: every day at 7:30 PM IST (assuming local timezone or tz-aware setup)
+# scheduler.add_job(run_auto_punch_out, 'cron', minute=10)
+# logger.info("Auto punch-out job scheduled for daily execution at 7:30 PM IST")
+# scheduler.start()
+# logger.info("APScheduler started and running in background")
 
 # Mount /uploads so that all subdirectories
 # (including /payments) are accessible

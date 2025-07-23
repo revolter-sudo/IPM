@@ -943,6 +943,7 @@ class InquiryData(Base):
     def __repr__(self):
         return f"<InquiryData(name={self.name}, phone_number={self.phone_number}, project_type={self.project_type})>"
 
+from sqlalchemy import DateTime
 
 class SelfAttendance(Base):
     __tablename__ = "self_attendance"
@@ -953,13 +954,13 @@ class SelfAttendance(Base):
     attendance_date = Column(Date, nullable=True)
 
     # Punch In Details
-    punch_in_time = Column(TIMESTAMP, nullable=True, server_default=func.now())
+    punch_in_time = Column(DateTime(timezone=True), nullable=True)
     punch_in_latitude = Column(Float, nullable=True)
     punch_in_longitude = Column(Float, nullable=True)
     punch_in_location_address = Column(Text, nullable=True)
 
     # Punch Out Details (can be NULL if user forgets to punch out)
-    punch_out_time = Column(TIMESTAMP, nullable=True)
+    punch_out_time = Column(DateTime(timezone=True), nullable=True)
     punch_out_latitude = Column(Float, nullable=True)
     punch_out_longitude = Column(Float, nullable=True)
     punch_out_location_address = Column(Text, nullable=True)
@@ -968,7 +969,7 @@ class SelfAttendance(Base):
     assigned_projects = Column(Text, nullable=True)  # JSON string
     status = Column(String(20), nullable=False)  # present, absent, off day, etc.
     is_deleted = Column(Boolean, nullable=False, default=False)
-    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
     user = relationship("User", back_populates="self_attendances")
@@ -988,13 +989,13 @@ class ProjectAttendance(Base):
     sub_contractor_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=False)
     no_of_labours = Column(Integer, nullable=False)
     attendance_date = Column(Date, nullable=False)
-    marked_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    marked_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     location_address = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     is_deleted = Column(Boolean, nullable=False, default=False)
-    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
     photo_path = Column(String(255), nullable=True)
 
     # Relationships

@@ -10,6 +10,7 @@ import traceback
 from typing import Optional, List
 from uuid import UUID, uuid4
 from datetime import datetime, date, timedelta
+from src.app.utils.timezone_utils import get_ist_now, convert_to_ist, format_ist_datetime, IST
 from src.app.schemas import constants
 from fastapi import (
     APIRouter,
@@ -141,7 +142,11 @@ def calculate_hours_worked(punch_in: datetime, punch_out: datetime) -> str:
         if not punch_out:
             return None
         
-        time_diff = punch_out - punch_in
+        # Convert both times to IST timezone
+        punch_in_ist = convert_to_ist(punch_in)
+        punch_out_ist = convert_to_ist(punch_out)
+            
+        time_diff = punch_out_ist - punch_in_ist
         hours = time_diff.total_seconds() / 3600
         return f"{hours:.1f}"
     except Exception as e:
@@ -152,8 +157,10 @@ def calculate_hours_worked(punch_in: datetime, punch_out: datetime) -> str:
 def get_current_hours_worked(punch_in: datetime) -> str:
     """Calculate current hours worked since punch in"""
     try:
-        current_time = datetime.now()
-        time_diff = current_time - punch_in
+        current_time = get_ist_now()
+        punch_in_ist = convert_to_ist(punch_in)
+            
+        time_diff = current_time - punch_in_ist
         hours = time_diff.total_seconds() / 3600
         return f"{hours:.1f}"
     except Exception as e:
@@ -229,7 +236,7 @@ def punch_in_self_attendance(
         new_att = SelfAttendance(
             user_id=current_user.uuid,
             attendance_date=today,
-            punch_in_time=datetime.now(),
+            punch_in_time=get_ist_now(),
             punch_in_latitude=attendance_data.latitude,
             punch_in_longitude=attendance_data.longitude,
             punch_in_location_address=attendance_data.location_address,
@@ -325,7 +332,7 @@ def punch_out_self_attendance(
             ).to_dict()
 
         # Update attendance record with punch out details
-        attendance_record.punch_out_time = datetime.now()
+        attendance_record.punch_out_time = get_ist_now(),
         attendance_record.punch_out_latitude = attendance_data.latitude
         attendance_record.punch_out_longitude = attendance_data.longitude
         attendance_record.punch_out_location_address = attendance_data.location_address
@@ -1006,7 +1013,7 @@ def mark_project_attendance(
     response: Response = None,
 ):
     try:
-        # 1️⃣ Parse & validate JSON payload
+        # Parse & validate JSON payload
         try:
             payload = json.loads(attendance)
             attendance_data = ProjectAttendanceCreate(**payload)
@@ -1014,7 +1021,7 @@ def mark_project_attendance(
             response.status_code = 400
             return {"status_code":400, "message":"Invalid attendance data", "details": str(e)}
 
-        # 2️⃣ Authorization & business checks (as before)…
+        # Authorization & business checks (as before)…
         allowed_roles = [
             UserRole.SITE_ENGINEER,
             UserRole.PROJECT_MANAGER,
@@ -1057,7 +1064,7 @@ def mark_project_attendance(
             Person.uuid == attendance_data.sub_contractor_id
         ).first()
 
-        # 3️⃣ Handle photo upload
+        # Handle photo upload
         photo_path = None
         if attendance_photo:
             ext = os.path.splitext(attendance_photo.filename)[1]
@@ -1068,7 +1075,7 @@ def mark_project_attendance(
             with open(photo_path, "wb") as buffer:
                 buffer.write(attendance_photo.file.read())
 
-        # 4️⃣ Create & save attendance record
+        # Create & save attendance record
         today = date.today()
         att = ProjectAttendance(
             site_engineer_id=current_user.uuid,
@@ -1077,7 +1084,7 @@ def mark_project_attendance(
             sub_contractor_id=attendance_data.sub_contractor_id,
             no_of_labours=attendance_data.no_of_labours,
             attendance_date=today,
-            marked_at=datetime.now(),
+            marked_at=get_ist_now(),
             latitude=attendance_data.latitude,
             longitude=attendance_data.longitude,
             location_address=attendance_data.location_address,
@@ -1088,7 +1095,7 @@ def mark_project_attendance(
         db.commit(); 
         db.refresh(att)
 
-        # 5️⃣ Wage calculation & logging (same as before)…
+        # Wage calculation & logging (same as before)…
         wage_calc = calculate_and_save_wage(
             project_id=attendance_data.project_id,
             attendance_id=att.uuid,
@@ -1097,32 +1104,35 @@ def mark_project_attendance(
             db=db
         )
 
-        # 6️⃣ Build response
-        result = {
-            "uuid": str(att.uuid),
-            "project": {"uuid": str(project.uuid), "name": project.name},
-            "item": {"uuid": str(att.item_id), "name": att.item.name},
-            "sub_contractor": {"uuid": str(sub.uuid), "name": sub.name},
-            "no_of_labours": att.no_of_labours,
-            "attendance_date": att.attendance_date.isoformat(),
-            "marked_at": att.marked_at.isoformat(),
-            "location": {
-                "latitude": att.latitude,
-                "longitude": att.longitude,
-                "address": att.location_address
-            },
-            "notes": att.notes,
-            "photo_url": (
-                constants.HOST_URL + "/" + photo_path
-                if photo_path else None
-            ),
-            "wage_calculation": wage_calc and {
-                "uuid": str(wage_calc.uuid),
-                "daily_wage_rate": wage_calc.daily_wage_rate,
-                "total_wage_amount": wage_calc.total_wage_amount,
-                "wage_config_effective_date": wage_calc.project_daily_wage.effective_date,
-            }
-        }
+        # Build response using Pydantic model
+        location_data = LocationData(
+            latitude=att.latitude,
+            longitude=att.longitude,
+            address=att.location_address
+        )
+
+        wage_info = None
+        if wage_calc:
+            wage_info = WageCalculationInfo(
+                uuid=wage_calc.uuid,
+                daily_wage_rate=wage_calc.daily_wage_rate,
+                total_wage_amount=wage_calc.total_wage_amount,
+                wage_config_effective_date=wage_calc.project_daily_wage.effective_date
+            )
+
+        result = ProjectAttendanceResponse(
+            uuid=att.uuid,
+            project=ProjectInfo(uuid=project.uuid, name=project.name),
+            item=ItemListView(uuid=att.item_id, name=att.item.name, category=att.item.category),
+            sub_contractor=PersonInfo(uuid=sub.uuid, name=sub.name),
+            no_of_labours=att.no_of_labours,
+            attendance_date=att.attendance_date,
+            marked_at=convert_to_ist(att.marked_at),
+            location=location_data,
+            notes=att.notes,
+            photo_path=photo_path and f"{constants.HOST_URL}/{photo_path}",
+            wage_calculation=wage_info
+        )
 
         # Log action
         db.add(Log(
@@ -1173,7 +1183,7 @@ def update_project_attendance(
     response: Response = None,
 ):
     try:
-        # 1️⃣ Fetch existing record
+        # Fetch existing record
         att = db.query(ProjectAttendance).filter(
             ProjectAttendance.uuid == attendance_id,
             ProjectAttendance.is_deleted.is_(False)
@@ -1186,7 +1196,7 @@ def update_project_attendance(
                 "message": "Attendance record not found"
             }
 
-        # 2️⃣ Parse update data
+        # Parse update data
         try:
             update_data = json.loads(attendance)
         except json.JSONDecodeError as e:
@@ -1197,7 +1207,7 @@ def update_project_attendance(
                 "details": str(e)
             }
 
-        # 3️⃣ Authorization checks
+        # Authorization checks
         allowed_roles = [
             UserRole.SITE_ENGINEER,
             UserRole.PROJECT_MANAGER,
@@ -1233,7 +1243,7 @@ def update_project_attendance(
                         "message": "Not assigned to the target project"
                     }
 
-        # 4️⃣ Validate updates
+        # Validate updates
         if "project_id" in update_data:
             project = db.query(Project).filter(
                 Project.uuid == UUID(update_data["project_id"]),
@@ -1265,7 +1275,7 @@ def update_project_attendance(
                     "message": "Invalid coordinates provided"
                 }
 
-        # 5️⃣ Handle photo update if provided
+        # Handle photo update if provided
         if attendance_photo:
             # Delete old photo if exists
             if att.photo_path and os.path.exists(att.photo_path):
@@ -1284,7 +1294,7 @@ def update_project_attendance(
                 buffer.write(attendance_photo.file.read())
             att.photo_path = photo_path
 
-        # 6️⃣ Update fields
+        # Update fields
         for key, value in update_data.items():
             if key in [
                 "project_id", "item_id", "sub_contractor_id"
@@ -1303,7 +1313,7 @@ def update_project_attendance(
             ]:
                 setattr(att, key, value)
 
-        # 7️⃣ Recalculate wages if labour count changed
+        # Recalculate wages if labour count changed
         if "no_of_labours" in update_data:
             # First, delete existing wage calculation if any
             existing_wages = db.query(ProjectAttendanceWage).filter(
@@ -1324,11 +1334,11 @@ def update_project_attendance(
                 db=db
             )
 
-        # 8️⃣ Save changes
+        # Save changes
         db.commit()
         db.refresh(att)
 
-        # 9️⃣ Log update
+        # Log update
         log_entry = Log(
             performed_by=current_user.uuid,
             action="PROJECT_UPDATED",
@@ -1338,46 +1348,39 @@ def update_project_attendance(
         db.add(log_entry)
         db.commit()
 
-        # 🔟 Prepare response
-        result = {
-            "uuid": str(att.uuid),
-            "project": {
-                "uuid": str(att.project.uuid),
-                "name": att.project.name
-            },
-            "item": {
-                "uuid": str(att.item.uuid),
-                "name": att.item.name
-            } if att.item else None,
-            "sub_contractor": {
-                "uuid": str(att.sub_contractor.uuid),
-                "name": att.sub_contractor.name
-            } if att.sub_contractor else None,
-            "no_of_labours": att.no_of_labours,
-            "attendance_date": att.attendance_date.isoformat(),
-            "marked_at": att.marked_at.isoformat(),
-            "location": {
-                "latitude": att.latitude,
-                "longitude": att.longitude,
-                "address": att.location_address
-            },
-            "notes": att.notes,
-            "photo_url": (
-                constants.HOST_URL + "/" + att.photo_path
-                if att.photo_path else None
-            )
-        }
-
-        if att.wage_calculation:
-            result["wage_calculation"] = {
-                "uuid": str(att.wage_calculation.uuid),
-                "daily_wage_rate": att.wage_calculation.daily_wage_rate,
-                "total_wage_amount": att.wage_calculation.total_wage_amount,
-                "wage_config_effective_date": (
-                    att.wage_calculation.project_daily_wage.effective_date
-                    if att.wage_calculation.project_daily_wage else None
-                )
-            }
+        # Prepare response
+        result = ProjectAttendanceResponse(
+            uuid=att.uuid,
+            project=ProjectInfo(uuid=att.project.uuid, name=att.project.name),
+            item=ItemListView(
+                uuid=att.item.uuid,
+                name=att.item.name,
+                category=att.item.category
+            ) if att.item else None,
+            sub_contractor=PersonInfo(
+                uuid=att.sub_contractor.uuid,
+                name=att.sub_contractor.name
+            ) if att.sub_contractor else None,
+            no_of_labours=att.no_of_labours,
+            attendance_date=att.attendance_date,
+            marked_at=convert_to_ist(att.marked_at),
+            location=LocationData(
+                latitude=att.latitude,
+                longitude=att.longitude,
+                address=att.location_address
+            ),
+            notes=att.notes,
+            photo_path=(
+                f"{constants.HOST_URL}/{att.photo_path}" if att.photo_path else None
+            ),
+            wage_calculation=WageCalculationInfo(
+                uuid=att.wage_calculation.uuid,
+                daily_wage_rate=att.wage_calculation.daily_wage_rate,
+                total_wage_amount=att.wage_calculation.total_wage_amount,
+                wage_config_effective_date=att.wage_calculation.project_daily_wage.effective_date
+                if att.wage_calculation and att.wage_calculation.project_daily_wage else None
+            ) if att.wage_calculation else None
+        )
 
         return {
             "status_code": 200,
@@ -1413,7 +1416,7 @@ def delete_project_attendance(
     response: Response = None,
 ):
     try:
-        # 1️⃣ Fetch the record (make sure it’s not already deleted)
+        # Fetch the record (make sure it’s not already deleted)
         att = db.query(ProjectAttendance).filter(
             ProjectAttendance.uuid == attendance_id,
             ProjectAttendance.is_deleted.is_(False)
@@ -1426,7 +1429,7 @@ def delete_project_attendance(
                 "message": "Attendance record not found or already deleted"
             }
 
-        # 2️⃣ Authorization (optional: restrict to certain roles)
+        # Authorization (optional: restrict to certain roles)
         allowed_roles = [
             UserRole.SITE_ENGINEER,
             UserRole.PROJECT_MANAGER,
@@ -1440,11 +1443,11 @@ def delete_project_attendance(
                 "message": "Not authorized to delete project attendance"
             }
 
-        # 3️⃣ Soft delete
+        # Soft delete
         att.is_deleted = True
         db.commit()
 
-        # 4️⃣ Log action
+        # Log action
         db.add(Log(
             performed_by=current_user.uuid,
             action="PROJECT_DELETED",
@@ -1564,7 +1567,7 @@ def get_project_attendance_history(
                 no_of_labours=attendance.no_of_labours or 0,
                 attendance_date=attendance.attendance_date,
                 photo_path=constants.HOST_URL + "/" + attendance.photo_path if attendance.photo_path else None,
-                marked_at=attendance.marked_at,
+                marked_at=convert_to_ist(attendance.marked_at),
                 location=LocationData(
                     latitude=attendance.latitude or 0.0,
                     longitude=attendance.longitude or 0.0,

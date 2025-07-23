@@ -1,8 +1,9 @@
 from typing import Optional, Any, List
 from uuid import UUID
 from datetime import datetime, date
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from enum import Enum
+from src.app.utils.timezone_utils import convert_to_ist, format_ist_datetime, IST
 
 class AttendanceStatus(str, Enum):
     absent   = "absent"
@@ -73,7 +74,20 @@ class SelfAttendanceResponse(BaseModel):
     assigned_projects: List[ProjectInfo] = []
     status: AttendanceStatus
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda dt: format_ist_datetime(dt)
+        }
+    )
+    
+    @field_validator("punch_in_time", mode="before")
+    def validate_punch_in_time(cls, v):
+        return convert_to_ist(v) if v else v
+        
+    @field_validator("punch_out_time", mode="before")
+    def validate_punch_out_time(cls, v):
+        return convert_to_ist(v) if v else v
 
 
 class SelfAttendanceStatus(BaseModel):
@@ -87,7 +101,20 @@ class SelfAttendanceStatus(BaseModel):
     current_hours: Optional[str] = None
     status: Optional[AttendanceStatus] = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda dt: format_ist_datetime(dt)
+        }
+    )
+    
+    @field_validator("punch_in_time", mode="before")
+    def validate_punch_in_time(cls, v):
+        return convert_to_ist(v) if v else v
+        
+    @field_validator("punch_out_time", mode="before")
+    def validate_punch_out_time(cls, v):
+        return convert_to_ist(v) if v else v
 
 
 # Project Attendance Schemas
@@ -137,7 +164,12 @@ class ProjectAttendanceResponse(BaseModel):
     notes: Optional[str] = None
     wage_calculation: Optional[WageCalculationInfo] = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda dt: format_ist_datetime(dt)
+        }
+    )
 
 
 # Daily Wage Management Schemas

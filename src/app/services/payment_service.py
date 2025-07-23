@@ -2765,7 +2765,8 @@ def update_item(
     Returns 404 if item not found.
     """
     try:
-        item_record = db.query(Item).filter(Item.uuid == item_uuid).first()
+        from sqlalchemy import cast, String
+        item_record = db.query(Item).filter(cast(Item.uuid, String) == str(item_uuid)).first()
         if not item_record:
             return PaymentServiceResponse(
                 data=None,
@@ -2783,6 +2784,20 @@ def update_item(
                 status_code=403,
                 message="You are not authorized to update this item."
             ).model_dump()
+        
+        # Check for duplicate name (if name is being updated)
+        if payload.name and payload.name.strip().lower() != item_record.name.strip().lower():
+            normalized_name = payload.name.strip().lower()
+            duplicate_item = db.query(Item).filter(
+                func.lower(Item.name) == normalized_name,
+                Item.uuid != item_uuid  # exclude current item
+            ).first()
+            if duplicate_item:
+                return PaymentServiceResponse(
+                    data=None,
+                    message="Another item with this name already exists.",
+                    status_code=400
+                ).model_dump()
 
         # Update each field if given
         if payload.name is not None:
