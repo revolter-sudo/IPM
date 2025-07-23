@@ -7,6 +7,7 @@ import os
 import json
 import re
 import traceback
+from pytz import timezone
 from typing import Optional, List
 from uuid import UUID, uuid4
 from datetime import datetime, date, timedelta
@@ -229,7 +230,7 @@ def punch_in_self_attendance(
         new_att = SelfAttendance(
             user_id=current_user.uuid,
             attendance_date=today,
-            punch_in_time=datetime.now(),
+            punch_in_time=datetime.now(timezone("Asia/Kolkata")),
             punch_in_latitude=attendance_data.latitude,
             punch_in_longitude=attendance_data.longitude,
             punch_in_location_address=attendance_data.location_address,
@@ -325,7 +326,7 @@ def punch_out_self_attendance(
             ).to_dict()
 
         # Update attendance record with punch out details
-        attendance_record.punch_out_time = datetime.now()
+        attendance_record.punch_out_time = datetime.now(timezone("Asia/Kolkata")),
         attendance_record.punch_out_latitude = attendance_data.latitude
         attendance_record.punch_out_longitude = attendance_data.longitude
         attendance_record.punch_out_location_address = attendance_data.location_address
