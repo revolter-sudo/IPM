@@ -85,6 +85,7 @@ app.add_middleware(DBSessionMiddleware, db_url=settings.DATABASE_URL)
 
 from apscheduler.triggers.cron import CronTrigger
 import logging
+from pytz import timezone
 
 scheduler = BackgroundScheduler()
 
@@ -103,8 +104,12 @@ def run_auto_punch_out():
         db.close()
         logger.info("DB session closed after punch-out job")
 
-# ✅ TEST MODE: Run every 10 minutes
-scheduler.add_job(run_auto_punch_out, CronTrigger(minute="*/10"), id="auto_punch_out_job")
+# ✅ Run every 10 minutes in IST
+scheduler.add_job(
+    run_auto_punch_out,
+    CronTrigger(minute="*/10", timezone=timezone("Asia/Kolkata")),
+    id="auto_punch_out_job"
+)
 
 # 🟩 PRODUCTION MODE: Uncomment this later when you're ready for daily at 7:30 PM
 # scheduler.add_job(run_auto_punch_out, CronTrigger(hour=19, minute=30), id="auto_punch_out_job")

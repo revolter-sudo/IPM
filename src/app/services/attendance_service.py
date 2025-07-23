@@ -164,11 +164,14 @@ def get_current_hours_worked(punch_in: datetime) -> str:
 #     db.commit()
 #     return len(records)
 
+from pytz import timezone
+
 def auto_punch_out_users(db: Session) -> int:
     try:
         logger.info("Starting auto punch-out job...")
 
-        now = datetime.now()
+        ist = timezone("Asia/Kolkata")
+        now = datetime.now(ist)
         today = now.date()
 
         logger.info(f"Punch-out time set to: {now}")
