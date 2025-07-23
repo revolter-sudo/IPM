@@ -105,9 +105,15 @@ def run_auto_punch_out():
         logger.info("DB session closed after punch-out job")
 
 # ✅ Run every 10 minutes in IST
+# scheduler.add_job(
+#     run_auto_punch_out,
+#     CronTrigger(minute="*/10", timezone=timezone("Asia/Kolkata")),
+#     id="auto_punch_out_job"
+# )
+
 scheduler.add_job(
     run_auto_punch_out,
-    CronTrigger(minute="*/10", timezone=timezone("Asia/Kolkata")),
+    CronTrigger(hour=19, minute=30, timezone=timezone("Asia/Kolkata")),
     id="auto_punch_out_job"
 )
 

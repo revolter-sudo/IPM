@@ -1183,7 +1183,7 @@ def update_project_attendance(
     response: Response = None,
 ):
     try:
-        # 1️⃣ Fetch existing record
+        # Fetch existing record
         att = db.query(ProjectAttendance).filter(
             ProjectAttendance.uuid == attendance_id,
             ProjectAttendance.is_deleted.is_(False)
@@ -1196,7 +1196,7 @@ def update_project_attendance(
                 "message": "Attendance record not found"
             }
 
-        # 2️⃣ Parse update data
+        # Parse update data
         try:
             update_data = json.loads(attendance)
         except json.JSONDecodeError as e:
@@ -1207,7 +1207,7 @@ def update_project_attendance(
                 "details": str(e)
             }
 
-        # 3️⃣ Authorization checks
+        # Authorization checks
         allowed_roles = [
             UserRole.SITE_ENGINEER,
             UserRole.PROJECT_MANAGER,
@@ -1243,7 +1243,7 @@ def update_project_attendance(
                         "message": "Not assigned to the target project"
                     }
 
-        # 4️⃣ Validate updates
+        # Validate updates
         if "project_id" in update_data:
             project = db.query(Project).filter(
                 Project.uuid == UUID(update_data["project_id"]),
@@ -1275,7 +1275,7 @@ def update_project_attendance(
                     "message": "Invalid coordinates provided"
                 }
 
-        # 5️⃣ Handle photo update if provided
+        # Handle photo update if provided
         if attendance_photo:
             # Delete old photo if exists
             if att.photo_path and os.path.exists(att.photo_path):
@@ -1294,7 +1294,7 @@ def update_project_attendance(
                 buffer.write(attendance_photo.file.read())
             att.photo_path = photo_path
 
-        # 6️⃣ Update fields
+        # Update fields
         for key, value in update_data.items():
             if key in [
                 "project_id", "item_id", "sub_contractor_id"
@@ -1313,7 +1313,7 @@ def update_project_attendance(
             ]:
                 setattr(att, key, value)
 
-        # 7️⃣ Recalculate wages if labour count changed
+        # Recalculate wages if labour count changed
         if "no_of_labours" in update_data:
             # First, delete existing wage calculation if any
             existing_wages = db.query(ProjectAttendanceWage).filter(
@@ -1334,11 +1334,11 @@ def update_project_attendance(
                 db=db
             )
 
-        # 8️⃣ Save changes
+        # Save changes
         db.commit()
         db.refresh(att)
 
-        # 9️⃣ Log update
+        # Log update
         log_entry = Log(
             performed_by=current_user.uuid,
             action="PROJECT_UPDATED",
@@ -1348,7 +1348,7 @@ def update_project_attendance(
         db.add(log_entry)
         db.commit()
 
-        # 🔟 Prepare response
+        # Prepare response
         result = ProjectAttendanceResponse(
             uuid=att.uuid,
             project=ProjectInfo(uuid=att.project.uuid, name=att.project.name),
@@ -1416,7 +1416,7 @@ def delete_project_attendance(
     response: Response = None,
 ):
     try:
-        # 1️⃣ Fetch the record (make sure it’s not already deleted)
+        # Fetch the record (make sure it’s not already deleted)
         att = db.query(ProjectAttendance).filter(
             ProjectAttendance.uuid == attendance_id,
             ProjectAttendance.is_deleted.is_(False)
@@ -1429,7 +1429,7 @@ def delete_project_attendance(
                 "message": "Attendance record not found or already deleted"
             }
 
-        # 2️⃣ Authorization (optional: restrict to certain roles)
+        # Authorization (optional: restrict to certain roles)
         allowed_roles = [
             UserRole.SITE_ENGINEER,
             UserRole.PROJECT_MANAGER,
@@ -1443,11 +1443,11 @@ def delete_project_attendance(
                 "message": "Not authorized to delete project attendance"
             }
 
-        # 3️⃣ Soft delete
+        # Soft delete
         att.is_deleted = True
         db.commit()
 
-        # 4️⃣ Log action
+        # Log action
         db.add(Log(
             performed_by=current_user.uuid,
             action="PROJECT_DELETED",
