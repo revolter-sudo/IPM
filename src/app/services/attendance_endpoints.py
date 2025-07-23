@@ -1104,32 +1104,35 @@ def mark_project_attendance(
             db=db
         )
 
-        # 6️⃣ Build response
-        result = {
-            "uuid": str(att.uuid),
-            "project": {"uuid": str(project.uuid), "name": project.name},
-            "item": {"uuid": str(att.item_id), "name": att.item.name},
-            "sub_contractor": {"uuid": str(sub.uuid), "name": sub.name},
-            "no_of_labours": att.no_of_labours,
-            "attendance_date": att.attendance_date.isoformat(),
-            "marked_at": att.marked_at.isoformat(),
-            "location": {
-                "latitude": att.latitude,
-                "longitude": att.longitude,
-                "address": att.location_address
-            },
-            "notes": att.notes,
-            "photo_url": (
-                constants.HOST_URL + "/" + photo_path
-                if photo_path else None
-            ),
-            "wage_calculation": wage_calc and {
-                "uuid": str(wage_calc.uuid),
-                "daily_wage_rate": wage_calc.daily_wage_rate,
-                "total_wage_amount": wage_calc.total_wage_amount,
-                "wage_config_effective_date": wage_calc.project_daily_wage.effective_date,
-            }
-        }
+        # Build response using Pydantic model
+        location_data = LocationData(
+            latitude=att.latitude,
+            longitude=att.longitude,
+            address=att.location_address
+        )
+
+        wage_info = None
+        if wage_calc:
+            wage_info = WageCalculationInfo(
+                uuid=wage_calc.uuid,
+                daily_wage_rate=wage_calc.daily_wage_rate,
+                total_wage_amount=wage_calc.total_wage_amount,
+                wage_config_effective_date=wage_calc.project_daily_wage.effective_date
+            )
+
+        result = ProjectAttendanceResponse(
+            uuid=att.uuid,
+            project=ProjectInfo(uuid=project.uuid, name=project.name),
+            item=ItemListView(uuid=att.item_id, name=att.item.name),
+            sub_contractor=PersonInfo(uuid=sub.uuid, name=sub.name),
+            no_of_labours=att.no_of_labours,
+            attendance_date=att.attendance_date,
+            marked_at=convert_to_ist(att.marked_at),
+            location=location_data,
+            notes=att.notes,
+            photo_path=photo_path and f"{constants.HOST_URL}/{photo_path}",
+            wage_calculation=wage_info
+        )
 
         # Log action
         db.add(Log(
