@@ -35,10 +35,10 @@ from src.app.schemas.auth_service_schamas import (
     UserEdit,
     OutsideUserLogin,
     PersonWithRole,
-    RoleBasedPersonQueryRequest,
     RoleBasedPersonQueryResponse,
     UpdatePersonRoleRequest,
-    UpdatePersonRoleResponse
+    UpdatePersonRoleResponse,
+    RefreshTokenRequest
 )
 from src.app.notification.notification_service import (
     subscribe_news,
@@ -128,25 +128,58 @@ def create_access_token(data: dict, request_ip: str = None):
     # Always add JTI and IAT for security
     to_encode.update({
         "jti": jti,
-        "iat": iat
+        "iat": iat,
+        "type": "access"  # Token type for identification
     })
 
     # Environment-based token expiration
     if settings.ENVIRONMENT.upper() == "LOCAL":
         # No expiration for LOCAL environment
-        logger.info(f"Created LOCAL token with JTI: {jti} (no expiration)")
+        logger.info(f"Created LOCAL access token with JTI: {jti} (no expiration)")
     else:
         # Use configured expiration for other environments (DEV, STAGING, PROD)
         expire_minutes = settings.JWT_TOKEN_EXPIRE_MINUTES
         if expire_minutes > 0:
             expire = datetime.utcnow() + timedelta(minutes=expire_minutes)
             to_encode.update({"exp": expire})
-            logger.info(f"Created token with JTI: {jti}, expires in {expire_minutes} minutes")
+            logger.info(f"Created access token with JTI: {jti}, expires in {expire_minutes} minutes")
 
         # Optional: Add IP binding for extra security
         if request_ip and settings.ENABLE_IP_VALIDATION:
             to_encode.update({"ip": request_ip})
             logger.info(f"Token {jti} bound to IP: {request_ip}")
+
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def create_refresh_token(data: dict, request_ip: str = None):
+    """Create a refresh token with longer expiration"""
+    to_encode = data.copy()
+    jti = str(uuid4())  # Unique token identifier for blacklisting
+    iat = datetime.utcnow()  # Issued at timestamp
+
+    # Always add JTI and IAT for security
+    to_encode.update({
+        "jti": jti,
+        "iat": iat,
+        "type": "refresh"  # Token type for identification
+    })
+
+    # Environment-based token expiration
+    if settings.ENVIRONMENT.upper() == "LOCAL":
+        # No expiration for LOCAL environment
+        logger.info(f"Created LOCAL refresh token with JTI: {jti} (no expiration)")
+    else:
+        # Refresh tokens have longer expiration (7 days or 10x access token time)
+        expire_minutes = max(settings.JWT_TOKEN_EXPIRE_MINUTES * 10, 7 * 24 * 60)  # At least 7 days
+        expire = datetime.utcnow() + timedelta(minutes=expire_minutes)
+        to_encode.update({"exp": expire})
+        logger.info(f"Created refresh token with JTI: {jti}, expires in {expire_minutes} minutes")
+
+        # Optional: Add IP binding for extra security
+        if request_ip and settings.ENABLE_IP_VALIDATION:
+            to_encode.update({"ip": request_ip})
+            logger.info(f"Refresh token {jti} bound to IP: {request_ip}")
 
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -381,7 +414,12 @@ def register_user(
         person_to_return = new_person
 
     access_token = create_access_token(data={"sub": str(new_user.uuid)})
-    response = {"access_token": access_token, "token_type": "bearer"}
+    refresh_token = create_refresh_token(data={"sub": str(new_user.uuid)})
+    response = {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
     return AuthServiceResponse(
         data=response,
         message="User reginstered successfully",
@@ -426,7 +464,6 @@ def check_or_add_token(
 def login(
     login_data: UserLogin,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ) -> dict:
     db_user = (
         db.query(User)
@@ -462,7 +499,11 @@ def login(
         role=db_user.role,
         photo_path=db_user.photo_path
     ).to_dict()
+
+    # Create both access and refresh tokens
     access_token = create_access_token(data={"sub": str(db_user.uuid)})
+    refresh_token = create_refresh_token(data={"sub": str(db_user.uuid)})
+
     if login_data.fcm_token:
         check_or_add_token(
             user_id=db_user.uuid,
@@ -476,6 +517,7 @@ def login(
         )
     response = {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "user_data": user_data
     }
@@ -484,6 +526,96 @@ def login(
         message="User logged in successfully",
         status_code=201
     ).model_dump()
+
+
+@auth_router.post(
+    "/refresh",
+    status_code=status.HTTP_200_OK,
+    tags=["Users"]
+)
+def refresh_token(
+    request: RefreshTokenRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Refresh an expired access token using a valid refresh token.
+    Mobile apps should call this endpoint when they receive a 401 error.
+    """
+    try:
+        # Decode and validate the refresh token
+        payload = jwt.decode(request.refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_uuid = payload.get("sub")
+        jti = payload.get("jti")
+        token_type = payload.get("type")
+
+        if not user_uuid or token_type != "refresh":
+            return AuthServiceResponse(
+                data=None,
+                status_code=401,
+                message="Invalid refresh token"
+            ).model_dump()
+
+        # Check if refresh token is blacklisted
+        if jti and is_token_blacklisted(jti):
+            logger.warning(f"Blacklisted refresh token used: {jti}")
+            return AuthServiceResponse(
+                data=None,
+                status_code=401,
+                message="Refresh token has been revoked"
+            ).model_dump()
+
+        # Verify user still exists and is active
+        user = (
+            db.query(User)
+            .filter(
+                User.uuid == user_uuid,
+                User.is_deleted.is_(False),
+                User.is_active.is_(True),
+            )
+            .first()
+        )
+
+        if not user:
+            return AuthServiceResponse(
+                data=None,
+                status_code=404,
+                message="User not found or inactive"
+            ).model_dump()
+
+        # Create new access token
+        new_access_token = create_access_token(data={"sub": str(user.uuid)})
+
+        response = {
+            "access_token": new_access_token,
+            "token_type": "bearer"
+        }
+
+        logger.info(f"Access token refreshed for user: {user.uuid}")
+        return AuthServiceResponse(
+            data=response,
+            message="Token refreshed successfully",
+            status_code=200
+        ).model_dump()
+
+    except ExpiredSignatureError:
+        return AuthServiceResponse(
+            data=None,
+            status_code=401,
+            message="Refresh token has expired. Please login again."
+        ).model_dump()
+    except JWTError:
+        return AuthServiceResponse(
+            data=None,
+            status_code=401,
+            message="Invalid refresh token"
+        ).model_dump()
+    except Exception as e:
+        logger.error(f"Error in refresh_token: {str(e)}")
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message="An error occurred while refreshing token"
+        ).model_dump()
 
 
 @auth_router.put(

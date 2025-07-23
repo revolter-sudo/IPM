@@ -66,6 +66,10 @@ class Token(BaseModel):
     token_type: str
 
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
 class UserResponse(BaseModel):
     uuid: UUID
     name: str
