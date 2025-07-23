@@ -1084,7 +1084,7 @@ def mark_project_attendance(
             sub_contractor_id=attendance_data.sub_contractor_id,
             no_of_labours=attendance_data.no_of_labours,
             attendance_date=today,
-            marked_at=datetime.now(),
+            marked_at=get_ist_now(),
             latitude=attendance_data.latitude,
             longitude=attendance_data.longitude,
             location_address=attendance_data.location_address,
