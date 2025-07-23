@@ -11,7 +11,7 @@ import time
 class Settings(BaseSettings):
     DB_USERNAME: str
     DB_PASSWORD: str
-    DB_HOST: str 
+    DB_HOST: str
     DB_PORT: int = 5432
     DB_NAME: str
     UPLOADS_DIR: str
@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_DIR: str = "/app/logs"
 
+    # Environment and Authentication Configuration
+    ENVIRONMENT: str = "LOCAL"  # LOCAL, DEV, STAGING, PROD
+    JWT_TOKEN_EXPIRE_MINUTES: int = 15  # Token expiration in minutes (0 = no expiration)
+    ENABLE_IP_VALIDATION: bool = False  # Bind tokens to IP addresses
+    MAX_SESSIONS_PER_USER: int = 5  # Maximum concurrent sessions per user
 
     @property
     def DATABASE_URL(self) -> str:
@@ -53,21 +58,25 @@ engine = create_engine(
     pool_pre_ping=True  # Verify connections before using them
 )
 
+
 # Add database event listeners for logging
 @event.listens_for(engine, "connect")
 def receive_connect(dbapi_connection, connection_record):
     """Log database connections."""
     db_logger.info("Database connection established")
 
+
 @event.listens_for(engine, "checkout")
 def receive_checkout(dbapi_connection, connection_record, connection_proxy):
     """Log connection checkout from pool."""
     db_logger.debug("Database connection checked out from pool")
 
+
 @event.listens_for(engine, "checkin")
 def receive_checkin(dbapi_connection, connection_record):
     """Log connection checkin to pool."""
     db_logger.debug("Database connection checked in to pool")
+
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -75,6 +84,7 @@ Base = declarative_base()
 # Log database initialization
 db_logger.info("Database engine and session factory initialized")
 db_logger.info(f"Database URL: {settings.DATABASE_URL.split('@')[1] if '@' in settings.DATABASE_URL else 'configured'}")
+
 
 # DB Dependency with logging
 def get_db():

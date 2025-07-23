@@ -1,5 +1,5 @@
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timedelta
 from src.app.utils.logging_config import get_logger
 
 from fastapi import (
@@ -17,12 +17,12 @@ from fastapi.security import (
     HTTPBearer,
     OAuth2PasswordBearer,
 )
-from jose import JWTError, jwt
+from jose import JWTError, jwt, ExpiredSignatureError
 from passlib.context import CryptContext
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, joinedload
 from uuid import uuid4
-from src.app.database.database import get_db
+from src.app.database.database import get_db, settings
 from src.app.database.models import User, Log, Person, UserTokenMap , UserData
 from src.app.schemas.auth_service_schamas import (
     UserCreate,
@@ -46,10 +46,26 @@ from src.app.notification.notification_service import (
 )
 from src.app.schemas import constants
 import os
+import redis
 from typing import Optional
+from fastapi import Request
 
 # Initialize logger
 logger = get_logger(__name__)
+
+# Redis client for token blacklisting
+try:
+    redis_client = redis.Redis(
+        host=settings.REDIS_HOST,
+        port=int(settings.REDIS_PORT),
+        decode_responses=True
+    )
+    # Test connection
+    redis_client.ping()
+    logger.info("Redis client initialized for token blacklisting")
+except Exception as e:
+    logger.warning(f"Redis connection failed: {e}. Token blacklisting disabled.")
+    redis_client = None
 
 # Router Setup
 auth_router = APIRouter(prefix="/auth")
@@ -71,6 +87,30 @@ bearer_scheme = HTTPBearer()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
+# Token Blacklisting Functions
+def blacklist_token(jti: str, exp_timestamp: int):
+    """Add token to blacklist until its natural expiration"""
+    if redis_client:
+        try:
+            # Calculate TTL (time to live) until token expires
+            current_time = datetime.utcnow().timestamp()
+            ttl = max(int(exp_timestamp - current_time), 1)
+            redis_client.setex(f"blacklist:{jti}", ttl, "revoked")
+            logger.info(f"Token {jti} blacklisted for {ttl} seconds")
+        except Exception as e:
+            logger.error(f"Failed to blacklist token {jti}: {e}")
+
+
+def is_token_blacklisted(jti: str) -> bool:
+    """Check if token is blacklisted"""
+    if redis_client:
+        try:
+            return redis_client.exists(f"blacklist:{jti}")
+        except Exception as e:
+            logger.error(f"Failed to check blacklist for token {jti}: {e}")
+    return False
+
+
 # Utility Functions
 def get_password_hash(password):
     return pwd_context.hash(password)
@@ -80,8 +120,35 @@ def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(data: dict):
-    return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
+def create_access_token(data: dict, request_ip: str = None):
+    to_encode = data.copy()
+    jti = str(uuid4())  # Unique token identifier for blacklisting
+    iat = datetime.utcnow()  # Issued at timestamp
+
+    # Always add JTI and IAT for security
+    to_encode.update({
+        "jti": jti,
+        "iat": iat
+    })
+
+    # Environment-based token expiration
+    if settings.ENVIRONMENT.upper() == "LOCAL":
+        # No expiration for LOCAL environment
+        logger.info(f"Created LOCAL token with JTI: {jti} (no expiration)")
+    else:
+        # Use configured expiration for other environments (DEV, STAGING, PROD)
+        expire_minutes = settings.JWT_TOKEN_EXPIRE_MINUTES
+        if expire_minutes > 0:
+            expire = datetime.utcnow() + timedelta(minutes=expire_minutes)
+            to_encode.update({"exp": expire})
+            logger.info(f"Created token with JTI: {jti}, expires in {expire_minutes} minutes")
+
+        # Optional: Add IP binding for extra security
+        if request_ip and settings.ENABLE_IP_VALIDATION:
+            to_encode.update({"ip": request_ip})
+            logger.info(f"Token {jti} bound to IP: {request_ip}")
+
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
 def get_current_user(
@@ -92,13 +159,27 @@ def get_current_user(
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_uuid = payload.get("sub")
+        jti = payload.get("jti")  # Token identifier
 
         if not user_uuid:
-            return AuthServiceResponse(
-                data=None,
+            raise HTTPException(
                 status_code=401,
-                message="Invalid authentication token"
-            ).model_dump()
+                detail="Invalid authentication token"
+            )
+
+        # Check if token is blacklisted
+        if jti and is_token_blacklisted(jti):
+            logger.warning(f"Blacklisted token used: {jti}")
+            raise HTTPException(
+                status_code=401,
+                detail="Token has been revoked"
+            )
+
+        # Optional: Validate IP binding
+        if settings.ENABLE_IP_VALIDATION:
+            token_ip = payload.get("ip")
+            # Note: You'd need to get current request IP here
+            # This is a placeholder for IP validation logic
 
         user = (
             db.query(User)
@@ -111,20 +192,23 @@ def get_current_user(
         )
 
         if not user:
-            return AuthServiceResponse(
-                data=None,
+            raise HTTPException(
                 status_code=404,
-                message="User Not Found"
-            ).model_dump()
+                detail="User Not Found"
+            )
 
         return user
 
-    except JWTError:
-        return AuthServiceResponse(
-            data=None,
+    except ExpiredSignatureError:
+        raise HTTPException(
             status_code=401,
-            message="Invalid authentication"
-        ).model_dump()
+            detail="Token has expired"
+        )
+    except JWTError:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authentication"
+        )
 
 
 def superadmin_required(current_user: User = Depends(get_current_user)):
@@ -460,18 +544,27 @@ def delete_user(
 )
 def logout_user(
     user_data: UserLogout,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials = Security(bearer_scheme)
 ):
     try:
+        # Extract and blacklist the current token
+        token = credentials.credentials
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+
+            if jti and exp:
+                blacklist_token(jti, exp)
+                logger.info(f"Token {jti} blacklisted during logout")
+        except Exception as e:
+            logger.warning(f"Failed to blacklist token during logout: {e}")
+
         user = db.query(User).filter(
             User.uuid == user_data.user_id
         ).first()
-        # if not user:
-        #     return AuthServiceResponse(
-        #         data=None,
-        #         message="User Does not exist",
-        #         status_code=404
-        #     ).model_dump()
+
         user_token = db.query(UserTokenMap.fcm_token).filter(
             UserTokenMap.device_id == user_data.device_id
         ).first()
@@ -483,6 +576,7 @@ def logout_user(
             logger.info("User unsubscribed successfully.")
         else:
             logger.info("Issue in unsubscribing user.")
+
         return AuthServiceResponse(
             data=None,
             message="User Logged Out Successfully!",
