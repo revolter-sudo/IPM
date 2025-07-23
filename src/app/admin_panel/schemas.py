@@ -139,3 +139,8 @@ class SalaryResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+class PersonToUserCreate(BaseModel):
+    name: str = Field(..., max_length=50)
+    phone: str = Field(..., min_length=10, max_length=15)
+    password: str = Field(..., min_length=6)
+    role: str = Field(..., max_length=30)
