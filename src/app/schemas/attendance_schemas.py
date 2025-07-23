@@ -164,7 +164,12 @@ class ProjectAttendanceResponse(BaseModel):
     notes: Optional[str] = None
     wage_calculation: Optional[WageCalculationInfo] = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda dt: format_ist_datetime(dt)
+        }
+    )
 
 
 # Daily Wage Management Schemas
