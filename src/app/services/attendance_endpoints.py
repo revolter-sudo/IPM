@@ -1013,7 +1013,7 @@ def mark_project_attendance(
     response: Response = None,
 ):
     try:
-        # 1️⃣ Parse & validate JSON payload
+        # Parse & validate JSON payload
         try:
             payload = json.loads(attendance)
             attendance_data = ProjectAttendanceCreate(**payload)
@@ -1021,7 +1021,7 @@ def mark_project_attendance(
             response.status_code = 400
             return {"status_code":400, "message":"Invalid attendance data", "details": str(e)}
 
-        # 2️⃣ Authorization & business checks (as before)…
+        # Authorization & business checks (as before)…
         allowed_roles = [
             UserRole.SITE_ENGINEER,
             UserRole.PROJECT_MANAGER,
@@ -1064,7 +1064,7 @@ def mark_project_attendance(
             Person.uuid == attendance_data.sub_contractor_id
         ).first()
 
-        # 3️⃣ Handle photo upload
+        # Handle photo upload
         photo_path = None
         if attendance_photo:
             ext = os.path.splitext(attendance_photo.filename)[1]
@@ -1075,7 +1075,7 @@ def mark_project_attendance(
             with open(photo_path, "wb") as buffer:
                 buffer.write(attendance_photo.file.read())
 
-        # 4️⃣ Create & save attendance record
+        # Create & save attendance record
         today = date.today()
         att = ProjectAttendance(
             site_engineer_id=current_user.uuid,
@@ -1095,7 +1095,7 @@ def mark_project_attendance(
         db.commit(); 
         db.refresh(att)
 
-        # 5️⃣ Wage calculation & logging (same as before)…
+        # Wage calculation & logging (same as before)…
         wage_calc = calculate_and_save_wage(
             project_id=attendance_data.project_id,
             attendance_id=att.uuid,
@@ -1349,45 +1349,38 @@ def update_project_attendance(
         db.commit()
 
         # 🔟 Prepare response
-        result = {
-            "uuid": str(att.uuid),
-            "project": {
-                "uuid": str(att.project.uuid),
-                "name": att.project.name
-            },
-            "item": {
-                "uuid": str(att.item.uuid),
-                "name": att.item.name
-            } if att.item else None,
-            "sub_contractor": {
-                "uuid": str(att.sub_contractor.uuid),
-                "name": att.sub_contractor.name
-            } if att.sub_contractor else None,
-            "no_of_labours": att.no_of_labours,
-            "attendance_date": att.attendance_date.isoformat(),
-            "marked_at": att.marked_at.isoformat(),
-            "location": {
-                "latitude": att.latitude,
-                "longitude": att.longitude,
-                "address": att.location_address
-            },
-            "notes": att.notes,
-            "photo_url": (
-                constants.HOST_URL + "/" + att.photo_path
-                if att.photo_path else None
-            )
-        }
-
-        if att.wage_calculation:
-            result["wage_calculation"] = {
-                "uuid": str(att.wage_calculation.uuid),
-                "daily_wage_rate": att.wage_calculation.daily_wage_rate,
-                "total_wage_amount": att.wage_calculation.total_wage_amount,
-                "wage_config_effective_date": (
-                    att.wage_calculation.project_daily_wage.effective_date
-                    if att.wage_calculation.project_daily_wage else None
-                )
-            }
+        result = ProjectAttendanceResponse(
+            uuid=att.uuid,
+            project=ProjectInfo(uuid=att.project.uuid, name=att.project.name),
+            item=ItemListView(
+                uuid=att.item.uuid,
+                name=att.item.name,
+                category=att.item.category
+            ) if att.item else None,
+            sub_contractor=PersonInfo(
+                uuid=att.sub_contractor.uuid,
+                name=att.sub_contractor.name
+            ) if att.sub_contractor else None,
+            no_of_labours=att.no_of_labours,
+            attendance_date=att.attendance_date,
+            marked_at=convert_to_ist(att.marked_at),
+            location=LocationData(
+                latitude=att.latitude,
+                longitude=att.longitude,
+                address=att.location_address
+            ),
+            notes=att.notes,
+            photo_path=(
+                f"{constants.HOST_URL}/{att.photo_path}" if att.photo_path else None
+            ),
+            wage_calculation=WageCalculationInfo(
+                uuid=att.wage_calculation.uuid,
+                daily_wage_rate=att.wage_calculation.daily_wage_rate,
+                total_wage_amount=att.wage_calculation.total_wage_amount,
+                wage_config_effective_date=att.wage_calculation.project_daily_wage.effective_date
+                if att.wage_calculation and att.wage_calculation.project_daily_wage else None
+            ) if att.wage_calculation else None
+        )
 
         return {
             "status_code": 200,
@@ -1574,7 +1567,7 @@ def get_project_attendance_history(
                 no_of_labours=attendance.no_of_labours or 0,
                 attendance_date=attendance.attendance_date,
                 photo_path=constants.HOST_URL + "/" + attendance.photo_path if attendance.photo_path else None,
-                marked_at=attendance.marked_at,
+                marked_at=convert_to_ist(attendance.marked_at),
                 location=LocationData(
                     latitude=attendance.latitude or 0.0,
                     longitude=attendance.longitude or 0.0,
