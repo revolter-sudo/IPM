@@ -426,7 +426,7 @@ def check_or_add_token(
 def login(
     login_data: UserLogin,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    # current_user: User = Depends(get_current_user),
 ) -> dict:
     db_user = (
         db.query(User)
