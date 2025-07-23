@@ -1123,7 +1123,7 @@ def mark_project_attendance(
         result = ProjectAttendanceResponse(
             uuid=att.uuid,
             project=ProjectInfo(uuid=project.uuid, name=project.name),
-            item=ItemListView(uuid=att.item_id, name=att.item.name),
+            item=ItemListView(uuid=att.item_id, name=att.item.name, category=att.item.category),
             sub_contractor=PersonInfo(uuid=sub.uuid, name=sub.name),
             no_of_labours=att.no_of_labours,
             attendance_date=att.attendance_date,
