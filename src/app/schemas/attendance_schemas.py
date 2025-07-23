@@ -3,10 +3,7 @@ from uuid import UUID
 from datetime import datetime, date
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from enum import Enum
-from pytz import timezone
-
-# Configure default timezone
-ist = timezone("Asia/Kolkata")
+from src.app.utils.timezone_utils import convert_to_ist, format_ist_datetime, IST
 
 class AttendanceStatus(str, Enum):
     absent   = "absent"
@@ -80,21 +77,17 @@ class SelfAttendanceResponse(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
         json_encoders={
-            datetime: lambda dt: dt.astimezone(ist).isoformat() if dt.tzinfo else ist.localize(dt).isoformat()
+            datetime: lambda dt: format_ist_datetime(dt)
         }
     )
     
     @field_validator("punch_in_time", mode="before")
     def validate_punch_in_time(cls, v):
-        if v and not v.tzinfo:
-            return ist.localize(v)
-        return v
+        return convert_to_ist(v) if v else v
         
     @field_validator("punch_out_time", mode="before")
     def validate_punch_out_time(cls, v):
-        if v and not v.tzinfo:
-            return ist.localize(v)
-        return v
+        return convert_to_ist(v) if v else v
 
 
 class SelfAttendanceStatus(BaseModel):
@@ -111,21 +104,17 @@ class SelfAttendanceStatus(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
         json_encoders={
-            datetime: lambda dt: dt.astimezone(ist).isoformat() if dt.tzinfo else ist.localize(dt).isoformat()
+            datetime: lambda dt: format_ist_datetime(dt)
         }
     )
     
     @field_validator("punch_in_time", mode="before")
     def validate_punch_in_time(cls, v):
-        if v and not v.tzinfo:
-            return ist.localize(v)
-        return v
+        return convert_to_ist(v) if v else v
         
     @field_validator("punch_out_time", mode="before")
     def validate_punch_out_time(cls, v):
-        if v and not v.tzinfo:
-            return ist.localize(v)
-        return v
+        return convert_to_ist(v) if v else v
 
 
 # Project Attendance Schemas

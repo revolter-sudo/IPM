@@ -7,10 +7,10 @@ import os
 import json
 import re
 import traceback
-from pytz import timezone
 from typing import Optional, List
 from uuid import UUID, uuid4
 from datetime import datetime, date, timedelta
+from src.app.utils.timezone_utils import get_ist_now, convert_to_ist, format_ist_datetime, IST
 from src.app.schemas import constants
 from fastapi import (
     APIRouter,
@@ -142,14 +142,11 @@ def calculate_hours_worked(punch_in: datetime, punch_out: datetime) -> str:
         if not punch_out:
             return None
         
-        # Ensure both times are timezone-aware in IST
-        ist = timezone("Asia/Kolkata")
-        if punch_in.tzinfo is None:
-            punch_in = ist.localize(punch_in)
-        if punch_out.tzinfo is None:
-            punch_out = ist.localize(punch_out)
+        # Convert both times to IST timezone
+        punch_in_ist = convert_to_ist(punch_in)
+        punch_out_ist = convert_to_ist(punch_out)
             
-        time_diff = punch_out - punch_in
+        time_diff = punch_out_ist - punch_in_ist
         hours = time_diff.total_seconds() / 3600
         return f"{hours:.1f}"
     except Exception as e:
@@ -160,14 +157,10 @@ def calculate_hours_worked(punch_in: datetime, punch_out: datetime) -> str:
 def get_current_hours_worked(punch_in: datetime) -> str:
     """Calculate current hours worked since punch in"""
     try:
-        ist = timezone("Asia/Kolkata")
-        current_time = datetime.now(ist)
-        
-        # Ensure punch_in is timezone-aware in IST
-        if punch_in.tzinfo is None:
-            punch_in = ist.localize(punch_in)
+        current_time = get_ist_now()
+        punch_in_ist = convert_to_ist(punch_in)
             
-        time_diff = current_time - punch_in
+        time_diff = current_time - punch_in_ist
         hours = time_diff.total_seconds() / 3600
         return f"{hours:.1f}"
     except Exception as e:
@@ -243,7 +236,7 @@ def punch_in_self_attendance(
         new_att = SelfAttendance(
             user_id=current_user.uuid,
             attendance_date=today,
-            punch_in_time=datetime.now(timezone("Asia/Kolkata")),
+            punch_in_time=get_ist_now(),
             punch_in_latitude=attendance_data.latitude,
             punch_in_longitude=attendance_data.longitude,
             punch_in_location_address=attendance_data.location_address,
@@ -339,7 +332,7 @@ def punch_out_self_attendance(
             ).to_dict()
 
         # Update attendance record with punch out details
-        attendance_record.punch_out_time = datetime.now(timezone("Asia/Kolkata")),
+        attendance_record.punch_out_time = get_ist_now(),
         attendance_record.punch_out_latitude = attendance_data.latitude
         attendance_record.punch_out_longitude = attendance_data.longitude
         attendance_record.punch_out_location_address = attendance_data.location_address
