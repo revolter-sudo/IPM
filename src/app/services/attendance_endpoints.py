@@ -809,6 +809,85 @@ def get_self_attendance_history(
 
 
 
+# @attendance_router.get(
+#     "/self/status", 
+#     tags=["Self Attendance"]
+# )
+# def get_self_attendance_status(
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     """
+#     Get current self attendance status for today.
+#     Returns detailed status information including:
+#     - Present: When user has punched in
+#     - Off day: When user has marked the day as off
+#     - None: When no attendance record exists for today
+#     """
+#     try:
+#         today = date.today()
+#         attendance_record = db.query(SelfAttendance).filter(
+#             SelfAttendance.user_id == current_user.uuid,
+#             SelfAttendance.attendance_date == today,
+#             SelfAttendance.is_deleted.is_(False)
+#         ).first()
+
+#         if not attendance_record:
+#             # No record means absent
+#             response_data = SelfAttendanceStatus(
+#                 is_punched_in=False,
+#                 status=None,
+#                 user_id=current_user.uuid,
+#                 user_name=current_user.name,
+#                 attendance_date=today
+#             )
+#         else:
+#             current_hours = None
+#             if attendance_record.status == "off day":
+#                 # Handle off day status
+#                 response_data = SelfAttendanceStatus(
+#                     uuid=attendance_record.uuid,
+#                     user_id=current_user.uuid,
+#                     user_name=current_user.name,
+#                     attendance_date=attendance_record.attendance_date,
+#                     is_punched_in=False,
+#                     status=AttendanceStatus.off_day
+#                 )
+#             else:
+#                 # Handle present status with punch in/out details
+#                 if attendance_record.punch_in_time and attendance_record.punch_out_time:
+#                     hours = (attendance_record.punch_out_time - attendance_record.punch_in_time).total_seconds() / 3600
+#                     current_hours = f"{float(hours):.2f} hrs"
+#                 elif attendance_record.punch_in_time and not attendance_record.punch_out_time:
+#                     hours = get_current_hours_worked(attendance_record.punch_in_time)
+#                     current_hours = f"{float(hours):.2f} hrs" if hours is not None else None
+
+#                 response_data = SelfAttendanceStatus(
+#                     uuid=attendance_record.uuid,
+#                     user_id=current_user.uuid,
+#                     user_name=current_user.name,
+#                     attendance_date=attendance_record.attendance_date,
+#                     is_punched_in=attendance_record.punch_out_time is None,
+#                     punch_in_time=attendance_record.punch_in_time,
+#                     punch_out_time=attendance_record.punch_out_time,
+#                     current_hours=current_hours,
+#                     status=AttendanceStatus.present
+#                 )
+
+#         return AttendanceResponse(
+#             data=response_data.model_dump(),
+#             message="Current attendance status retrieved successfully",
+#             status_code=200
+#         ).to_dict()
+
+#     except Exception as e:
+#         logger.error(f"Error in get_self_attendance_status: {str(e)}")
+#         return AttendanceResponse(
+#             data=None,
+#             message=f"Internal server error: {str(e)}",
+#             status_code=500
+#         ).to_dict()
+
 @attendance_router.get(
     "/self/status", 
     tags=["Self Attendance"]
@@ -818,22 +897,21 @@ def get_self_attendance_status(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get current self attendance status for today.
-    Returns detailed status information including:
-    - Present: When user has punched in
-    - Off day: When user has marked the day as off
-    - None: When no attendance record exists for today
+    Get current self attendance status for today only.
+    After midnight (new date), no previous-day data will be shown.
     """
     try:
         today = date.today()
+
+        # Fetch record only if it's for today
         attendance_record = db.query(SelfAttendance).filter(
             SelfAttendance.user_id == current_user.uuid,
             SelfAttendance.attendance_date == today,
             SelfAttendance.is_deleted.is_(False)
         ).first()
 
+        # If no attendance exists for today, return null state
         if not attendance_record:
-            # No record means absent
             response_data = SelfAttendanceStatus(
                 is_punched_in=False,
                 status=None,
@@ -841,38 +919,48 @@ def get_self_attendance_status(
                 user_name=current_user.name,
                 attendance_date=today
             )
-        else:
-            current_hours = None
-            if attendance_record.status == "off day":
-                # Handle off day status
-                response_data = SelfAttendanceStatus(
-                    uuid=attendance_record.uuid,
-                    user_id=current_user.uuid,
-                    user_name=current_user.name,
-                    attendance_date=attendance_record.attendance_date,
-                    is_punched_in=False,
-                    status=AttendanceStatus.off_day
-                )
-            else:
-                # Handle present status with punch in/out details
-                if attendance_record.punch_in_time and attendance_record.punch_out_time:
-                    hours = (attendance_record.punch_out_time - attendance_record.punch_in_time).total_seconds() / 3600
-                    current_hours = f"{float(hours):.2f} hrs"
-                elif attendance_record.punch_in_time and not attendance_record.punch_out_time:
-                    hours = get_current_hours_worked(attendance_record.punch_in_time)
-                    current_hours = f"{float(hours):.2f} hrs" if hours is not None else None
+            return AttendanceResponse(
+                data=response_data.model_dump(),
+                message="No attendance marked for today",
+                status_code=200
+            ).to_dict()
 
-                response_data = SelfAttendanceStatus(
-                    uuid=attendance_record.uuid,
-                    user_id=current_user.uuid,
-                    user_name=current_user.name,
-                    attendance_date=attendance_record.attendance_date,
-                    is_punched_in=attendance_record.punch_out_time is None,
-                    punch_in_time=attendance_record.punch_in_time,
-                    punch_out_time=attendance_record.punch_out_time,
-                    current_hours=current_hours,
-                    status=AttendanceStatus.present
-                )
+        # If it's an OFF day
+        if attendance_record.status == AttendanceStatus.off_day:
+            response_data = SelfAttendanceStatus(
+                uuid=attendance_record.uuid,
+                user_id=current_user.uuid,
+                user_name=current_user.name,
+                attendance_date=today,
+                is_punched_in=False,
+                status=AttendanceStatus.off_day
+            )
+            return AttendanceResponse(
+                data=response_data.model_dump(),
+                message="Off day marked for today",
+                status_code=200
+            ).to_dict()
+
+        # Present status (punched in or out)
+        current_hours = None
+        if attendance_record.punch_in_time and attendance_record.punch_out_time:
+            hours = (attendance_record.punch_out_time - attendance_record.punch_in_time).total_seconds() / 3600
+            current_hours = f"{float(hours):.2f} hrs"
+        elif attendance_record.punch_in_time:
+            hours = get_current_hours_worked(attendance_record.punch_in_time)
+            current_hours = f"{float(hours):.2f} hrs" if hours is not None else None
+
+        response_data = SelfAttendanceStatus(
+            uuid=attendance_record.uuid,
+            user_id=current_user.uuid,
+            user_name=current_user.name,
+            attendance_date=today,
+            is_punched_in=attendance_record.punch_out_time is None,
+            punch_in_time=attendance_record.punch_in_time,
+            punch_out_time=attendance_record.punch_out_time,
+            current_hours=current_hours,
+            status=AttendanceStatus.present
+        )
 
         return AttendanceResponse(
             data=response_data.model_dump(),
