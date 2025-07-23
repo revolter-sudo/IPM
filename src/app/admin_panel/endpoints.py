@@ -136,7 +136,7 @@ admin_app.add_middleware(
     status_code=200,
     description="Get the current default configuration (admin amount and site expense item)"
 )
-def get_default_config():
+def get_default_config(current_user: User = Depends(get_current_user)):
     try:
         default_config = get_default_config_service()
         return AdminPanelResponse(
@@ -4461,6 +4461,7 @@ def view_project_items_for_user(
     project_id: UUID,
     user_id: UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     user = db.query(User).filter(User.uuid == user_id).first()
     if not user:
@@ -4541,7 +4542,8 @@ def view_project_items_for_user(
 def update_project_items(
     project_id: UUID, 
     payload: ProjectItemUpdateRequest, 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     updated_items = []
     for item in payload.items:

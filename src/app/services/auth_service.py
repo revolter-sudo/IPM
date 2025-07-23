@@ -268,7 +268,11 @@ def upload_user_photo(
 
 
 @auth_router.post("/forgot_password", tags=["Users"])
-def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+def forgot_password(
+    payload: ForgotPasswordRequest, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Resets a user's password, given a phone number and a new password.
     In production, you would typically verify OTP or email link, but
@@ -422,6 +426,7 @@ def check_or_add_token(
 def login(
     login_data: UserLogin,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
     db_user = (
         db.query(User)
@@ -545,6 +550,7 @@ def delete_user(
 def logout_user(
     user_data: UserLogout,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme)
 ):
     try:
@@ -705,7 +711,10 @@ def activate_user(
 
 
 @auth_router.get("/users", status_code=status.HTTP_200_OK, tags=["Users"])
-def list_all_active_users(db: Session = Depends(get_db)):
+def list_all_active_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     try:
         users = db.query(User).filter(
             User.is_active.is_(True),
@@ -798,7 +807,11 @@ def list_all_active_users(db: Session = Depends(get_db)):
 
 
 @auth_router.get("/user", tags=["Users"])
-def get_user_info(user_uuid: UUID, db: Session = Depends(get_db)):
+def get_user_info(
+    user_uuid: UUID, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     try:
         user = (
             db.query(User)
@@ -1053,7 +1066,8 @@ def get_persons(
 )
 def register_and_outside_user(
     data: OutsideUserLogin,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     phone = str(data.phone_number)
     existing = db.query(UserData).filter(UserData.phone_number == phone).first()

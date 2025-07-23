@@ -13,6 +13,8 @@ from src.app.services.inquiry_service import (
     get_inquiries_service,
     get_inquiry_by_uuid_service
 )
+from src.app.services.auth_service import get_current_user
+from src.app.database.models import User
 
 
 
@@ -32,7 +34,8 @@ inquiry_router = APIRouter(prefix="/inquiries", tags=["Inquiries"])
 def create_inquiry(
     inquiry_data: InquiryCreateRequest,
     response: Response,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Create a new inquiry with the following validations:
@@ -153,7 +156,8 @@ def get_inquiries(
 def get_inquiry_by_uuid(
     inquiry_uuid: UUID,
     response: Response,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get a specific inquiry by UUID.
@@ -199,7 +203,7 @@ def get_inquiry_by_uuid(
     summary="Get Available Project Types",
     description="Get list of all available project types"
 )
-def get_project_types(response: Response):
+def get_project_types(response: Response, current_user: User = Depends(get_current_user)):
     """
     Get all available project types for the inquiry form.
     """

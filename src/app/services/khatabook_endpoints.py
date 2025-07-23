@@ -73,7 +73,8 @@ def update_khatabook_entry(
     khatabook_uuid: UUID,
     data: str = Form(...),
     files: Optional[List[UploadFile]] = File(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     try:
         parsed_data = json.loads(data)

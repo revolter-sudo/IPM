@@ -138,7 +138,7 @@ def update_project_balance(
         tags=["Projects"],
         deprecated=True
     )
-def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db)):
+def get_project_balance(project_uuid: UUID, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
     try:
         project = (
             db.query(Project).filter(Project.uuid == project_uuid).first()
@@ -706,7 +706,7 @@ def list_all_projects(
 @project_router.get(
     "/project", status_code=status.HTTP_200_OK, tags=["Projects"]
 )
-def get_project_info(project_uuid: UUID, db: Session = Depends(get_db)):
+def get_project_info(project_uuid: UUID, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
     try:
         project = (
             db.query(Project)
@@ -994,7 +994,7 @@ def edit_bank(
 def get_bank_balance(
     bank_uuid: Optional[UUID] = None,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user)
 ):
     """
     If 'bank_uuid' is given, return that specific bank's details;
@@ -1671,6 +1671,7 @@ def view_project_items_for_user(
     project_id: UUID,
     user_id: UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     user = db.query(User).filter(User.uuid == user_id).first()
     if not user:
@@ -1755,7 +1756,7 @@ def view_project_items_for_user(
         tags=["Location"],
         description="Get a list of all Indian states", 
     )
-def get_all_states():
+def get_all_states(current_user: User = Depends(get_current_user)):
     states = list(LocationService._INDIA_STATES_CITIES.keys())
     return {
         "data": states,
@@ -1768,7 +1769,7 @@ def get_all_states():
         tags=["Location"],
         description="Get a list of cities for a given state",
     )
-def get_cities_by_state(state: str = Query(..., description="State name to get cities for")):
+def get_cities_by_state(state: str = Query(..., description="State name to get cities for"),current_user: User = Depends(get_current_user)):
     normalized_state = state.strip().lower()
     matched_state = None
 
@@ -1883,7 +1884,8 @@ def create_company_info(
     description="Fetches all company info entries including logo URL"
 )
 def get_all_company_info(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     try:
         companies = db.query(CompanyInfo).filter().all()
@@ -1923,7 +1925,8 @@ def get_all_company_info(
 )
 def get_company_info_by_uuid(
     uuid: UUID,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     try:
         company = db.query(CompanyInfo).filter(

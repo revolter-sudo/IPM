@@ -1980,6 +1980,7 @@ def decline_payment(
 def create_person(
     request_data: CreatePerson,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     try:
         if request_data.account_number:
@@ -2071,6 +2072,7 @@ def update_person(
     person_id: UUID,
     request_data: UpdatePerson,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Partially update a Person's details
@@ -2571,7 +2573,8 @@ def create_item(
     has_additional_info: bool,
     list_tag: Optional[ItemListTag] = None,
     category: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     try:
         normalized_name = name.strip().lower()
@@ -2675,7 +2678,8 @@ def list_items(
     list_tag: Optional[str] = None,
     category: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     try:
         query = db.query(Item).order_by(desc(Item.id))
@@ -2834,7 +2838,7 @@ def update_item(
 
 
 @payment_router.delete("/items/{item_uuid}", tags=["Items"], status_code=200)
-def delete_item(item_uuid: UUID, db: Session = Depends(get_db)):
+def delete_item(item_uuid: UUID, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
     try:
         item = db.query(Item).filter(Item.uuid == item_uuid).first()
 
@@ -2864,7 +2868,7 @@ def delete_item(item_uuid: UUID, db: Session = Depends(get_db)):
 
 
 @payment_router.post("/priority", status_code=201)
-def create_priority(priority_name: str, db: Session = Depends(get_db)):
+def create_priority(priority_name: str, db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
     new_priority = Priority(priority=priority_name)
     db.add(new_priority)
     db.commit()
@@ -2879,7 +2883,7 @@ def create_priority(priority_name: str, db: Session = Depends(get_db)):
 
 
 @payment_router.get("/priority", status_code=200)
-def list_priorities(db: Session = Depends(get_db)):
+def list_priorities(db: Session = Depends(get_db),current_user: User = Depends(get_current_user)):
     priorities = db.query(Priority).filter(
         Priority.is_deleted.is_(False)).all()
     response = [{"uuid": str(p.uuid), "priority": p.priority}
