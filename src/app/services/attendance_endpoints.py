@@ -142,6 +142,13 @@ def calculate_hours_worked(punch_in: datetime, punch_out: datetime) -> str:
         if not punch_out:
             return None
         
+        # Ensure both times are timezone-aware in IST
+        ist = timezone("Asia/Kolkata")
+        if punch_in.tzinfo is None:
+            punch_in = ist.localize(punch_in)
+        if punch_out.tzinfo is None:
+            punch_out = ist.localize(punch_out)
+            
         time_diff = punch_out - punch_in
         hours = time_diff.total_seconds() / 3600
         return f"{hours:.1f}"
@@ -153,7 +160,13 @@ def calculate_hours_worked(punch_in: datetime, punch_out: datetime) -> str:
 def get_current_hours_worked(punch_in: datetime) -> str:
     """Calculate current hours worked since punch in"""
     try:
-        current_time = datetime.now()
+        ist = timezone("Asia/Kolkata")
+        current_time = datetime.now(ist)
+        
+        # Ensure punch_in is timezone-aware in IST
+        if punch_in.tzinfo is None:
+            punch_in = ist.localize(punch_in)
+            
         time_diff = current_time - punch_in
         hours = time_diff.total_seconds() / 3600
         return f"{hours:.1f}"

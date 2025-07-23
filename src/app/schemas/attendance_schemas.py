@@ -1,8 +1,12 @@
 from typing import Optional, Any, List
 from uuid import UUID
 from datetime import datetime, date
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from enum import Enum
+from pytz import timezone
+
+# Configure default timezone
+ist = timezone("Asia/Kolkata")
 
 class AttendanceStatus(str, Enum):
     absent   = "absent"
@@ -73,7 +77,24 @@ class SelfAttendanceResponse(BaseModel):
     assigned_projects: List[ProjectInfo] = []
     status: AttendanceStatus
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda dt: dt.astimezone(ist).isoformat() if dt.tzinfo else ist.localize(dt).isoformat()
+        }
+    )
+    
+    @field_validator("punch_in_time", mode="before")
+    def validate_punch_in_time(cls, v):
+        if v and not v.tzinfo:
+            return ist.localize(v)
+        return v
+        
+    @field_validator("punch_out_time", mode="before")
+    def validate_punch_out_time(cls, v):
+        if v and not v.tzinfo:
+            return ist.localize(v)
+        return v
 
 
 class SelfAttendanceStatus(BaseModel):
@@ -87,7 +108,24 @@ class SelfAttendanceStatus(BaseModel):
     current_hours: Optional[str] = None
     status: Optional[AttendanceStatus] = None
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda dt: dt.astimezone(ist).isoformat() if dt.tzinfo else ist.localize(dt).isoformat()
+        }
+    )
+    
+    @field_validator("punch_in_time", mode="before")
+    def validate_punch_in_time(cls, v):
+        if v and not v.tzinfo:
+            return ist.localize(v)
+        return v
+        
+    @field_validator("punch_out_time", mode="before")
+    def validate_punch_out_time(cls, v):
+        if v and not v.tzinfo:
+            return ist.localize(v)
+        return v
 
 
 # Project Attendance Schemas
