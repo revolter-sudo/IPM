@@ -989,13 +989,13 @@ class ProjectAttendance(Base):
     sub_contractor_id = Column(UUID(as_uuid=True), ForeignKey("person.uuid"), nullable=False)
     no_of_labours = Column(Integer, nullable=False)
     attendance_date = Column(Date, nullable=False)
-    marked_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    marked_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
     location_address = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     is_deleted = Column(Boolean, nullable=False, default=False)
-    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
     photo_path = Column(String(255), nullable=True)
 
     # Relationships
