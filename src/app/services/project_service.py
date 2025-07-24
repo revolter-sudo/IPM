@@ -45,6 +45,7 @@ from src.app.schemas.project_service_schemas import (
 from src.app.services.location_service import LocationService
 from src.app.services.auth_service import get_current_user
 from datetime import datetime, timedelta
+import traceback
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -78,10 +79,10 @@ def create_project_balance_entry(
 
 
 @project_router.put(
-        "/update-balance",
-        tags=["Projects"],
-        deprecated=True
-    )
+    "/update-balance",
+    tags=["Projects"],
+    deprecated=True
+)
 def update_project_balance(
     project_uuid: UUID,
     new_balance: float,
@@ -89,21 +90,26 @@ def update_project_balance(
     current_user: User = Depends(get_current_user),
 ):
     try:
+
         project_balance = (
             db.query(ProjectBalance)
             .filter(ProjectBalance.project_id == project_uuid)
             .order_by(ProjectBalance.id.asc())
             .first()
         )
+
         if not project_balance:
+            logger.warning(f"[{current_user.username}] project balance not found for {project_uuid}")
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
                 message="Project balance not found"
             ).model_dump()
 
-        # Update project balance
+        # Update adjustment value
         project_balance.adjustment = new_balance
+
+        # Log the update action
         log_entry = Log(
             uuid=str(uuid4()),
             entity="Payment",
@@ -119,13 +125,19 @@ def update_project_balance(
             .filter(ProjectBalance.project_id == project_uuid)
             .scalar()
         ) or 0.0
+
+        logger.info(f"[{current_user.name}] updated balance for project {project_uuid}. New total: {total_balance}")
+
         return ProjectServiceResponse(
             data=total_balance,
             message="Project balance updated successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         db.rollback()
+        logger.error(f"[{current_user.name}] Error updating project balance for {project_uuid}: {str(e)}")
+        logger.error(traceback.format_exc())
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -215,43 +227,30 @@ def adjust_project_balance(
 
 
 @project_router.post(
-    "/create", status_code=status.HTTP_201_CREATED, tags=["Projects"],
+    "/create",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Projects"],
     description="""
-    Create a new project with optional PO document upload.
-
-    Request body should be sent as a form with 'request' field containing a JSON string with the following structure:
-    ```json
-    {
-        "name": "Project Name",
-        "description": "Project Description",
-        "location": "Project Location",
-        "start_date": "2025-06-04",
-        "end_date": "2026-06-04",
-        "estimated_balance": 1500.0,
-        "actual_balance": 500.0
-    }
-    ```
+    Create a new project.
     """
 )
 def create_project(
-    request: str = Form(..., description="JSON string containing project details (name, description, location, estimated_balance, actual_balance)"),
+    request: str = Form(..., description="JSON string containing project details"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     try:
-        # Parse the request data from form
         request_data = json.loads(request)
         project_request = ProjectCreateRequest(**request_data)
 
-        logger.info(f"Create project request received: {project_request}")
-        # Fix: current_user might be dict, access role accordingly
         user_role = current_user.role if hasattr(current_user, 'role') else current_user.get('role')
-        logger.info(f"Current user role: {user_role}")
+
         if user_role not in [
             UserRole.SUPER_ADMIN.value,
             UserRole.ADMIN.value,
             UserRole.PROJECT_MANAGER.value,
         ]:
+            logger.warning(f"[{current_user.name}] not authorized to create a project")
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
@@ -260,23 +259,7 @@ def create_project(
 
         project_uuid = str(uuid4())
 
-        # Handle PO document upload if provided
-        # po_document_path = None
-        # if po_document:
-        #     upload_dir = constants.UPLOAD_DIR
-        #     os.makedirs(upload_dir, exist_ok=True)
-
-        #     # Create a unique filename with UUID to avoid collisions
-        #     file_ext = os.path.splitext(po_document.filename)[1]
-        #     unique_filename = f"PO_{project_uuid}_{str(uuid4())}{file_ext}"
-        #     file_path = os.path.join(upload_dir, unique_filename)
-
-        #     # Save the file
-        #     with open(file_path, "wb") as buffer:
-        #         buffer.write(po_document.file.read())
-        #     po_document_path = file_path
-
-        # Create new project with all balance types
+        # Create Project
         new_project = Project(
             uuid=project_uuid,
             name=project_request.name,
@@ -290,20 +273,9 @@ def create_project(
         db.add(new_project)
         db.commit()
         db.refresh(new_project)
+        
 
-        # Initialize project balances with the given amounts
-        # PO Balance
-        # if project_request.po_balance > 0:
-        #     create_project_balance_entry(
-        #         db=db,
-        #         project_id=new_project.uuid,
-        #         adjustment=project_request.po_balance,
-        #         description="Initial PO balance",
-        #         current_user=current_user,
-        #         balance_type="po"
-        #     )
-
-        # Estimated Balance
+        # Create estimated balance entry
         if project_request.estimated_balance > 0:
             create_project_balance_entry(
                 db=db,
@@ -314,7 +286,7 @@ def create_project(
                 balance_type="estimated"
             )
 
-        # Actual Balance
+        # Create actual balance entry
         if project_request.actual_balance > 0:
             create_project_balance_entry(
                 db=db,
@@ -325,16 +297,18 @@ def create_project(
                 balance_type="actual"
             )
 
-        # Create a log entry for project creation
+        # Log the creation
         log_entry = Log(
             uuid=str(uuid4()),
             entity="Project",
             action="Create",
-            entity_id=project_uuid,
+            entity_id=new_project.uuid,
             performed_by=current_user.uuid,
         )
         db.add(log_entry)
         db.commit()
+
+        logger.info(f"Project created by [{current_user.name}]: project name [{new_project.name}]")
 
         return ProjectServiceResponse(
             data={
@@ -350,9 +324,11 @@ def create_project(
             message="Project Created Successfully",
             status_code=201
         ).model_dump()
+
     except Exception as e:
         db.rollback()
-        logger.error(f"Error in create_project API: {str(e)}")
+        logger.error(f"Error in create_project API by user [{current_user.name}]: {str(e)}")
+        logger.error(traceback.format_exc())
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1103,6 +1079,7 @@ def delete_project(
         )
 
         if not project:
+            logger.warning(f"[{project.name}] delete failed - project not found")
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
@@ -1110,6 +1087,7 @@ def delete_project(
             ).model_dump()
 
         if current_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
+            logger.warning(f"[{current_user.name}] not authorized to delete")
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
@@ -1150,6 +1128,7 @@ def delete_project(
         db.add(log_entry)
 
         db.commit()
+        logger.info(f"[{current_user.name}]: project deleted successfully[{project.name}]")
 
         return ProjectServiceResponse(
             data=None,
@@ -1243,6 +1222,7 @@ def add_project_po(
             Project.is_deleted.is_(False)
         ).first()
         if not project:
+            logger.warning(f"[{project.name}] not found.")
             return ProjectServiceResponse(
                 data=None,
                 status_code=404,
@@ -1256,6 +1236,7 @@ def add_project_po(
             UserRole.ADMIN.value,
             UserRole.PROJECT_MANAGER.value,
         ]:
+            logger.warning(f"[{current_user.name}] not authorized for creating po")
             return ProjectServiceResponse(
                 data=None,
                 status_code=403,
@@ -1310,6 +1291,8 @@ def add_project_po(
 
         db.commit()
         db.refresh(new_po)
+        
+        logger.info(f"PO created by [{current_user.name}]: PO-Number[{po_number}]")
 
         return ProjectServiceResponse(
             data={
@@ -1343,6 +1326,8 @@ def add_project_po(
 
     except Exception as e:
         db.rollback()
+        logger.error(f"Error in create_po API by user [{current_user.name}]: {str(e)}")
+        logger.error(traceback.format_exc())
         return ProjectServiceResponse(
             data=None,
             status_code=500,
@@ -1625,6 +1610,7 @@ def delete_project_po(
     po = db.query(ProjectPO).filter(ProjectPO.uuid == po_id).first()
 
     if not po:
+        logger.warning(f"[{po.po_number}] delete failed - po not found")
         return ProjectServiceResponse(
             data=None,
             status_code=404,
@@ -1638,6 +1624,7 @@ def delete_project_po(
         UserRole.ADMIN.value,
         UserRole.PROJECT_MANAGER.value,
     ]:
+        logger.warning(f"[{current_user.name}] not authorized to delete PO")
         return ProjectServiceResponse(
             data=None,
             status_code=403,
@@ -1647,6 +1634,8 @@ def delete_project_po(
     try:
         db.delete(po)
         db.commit()
+        logger.info(f"[{current_user.name}]: po delete [{po.po_number}]")
+        
         return ProjectServiceResponse(
             data={"uuid": str(po_id)},
             message="PO deleted successfully",

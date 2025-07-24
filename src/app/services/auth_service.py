@@ -49,6 +49,7 @@ import os
 import redis
 from typing import Optional
 from fastapi import Request
+import traceback
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -134,14 +135,13 @@ def create_access_token(data: dict, request_ip: str = None):
     # Environment-based token expiration
     if settings.ENVIRONMENT.upper() == "LOCAL":
         # No expiration for LOCAL environment
-        logger.info(f"Created LOCAL token with JTI: {jti} (no expiration)")
+        pass
     else:
         # Use configured expiration for other environments (DEV, STAGING, PROD)
         expire_minutes = settings.JWT_TOKEN_EXPIRE_MINUTES
         if expire_minutes > 0:
             expire = datetime.utcnow() + timedelta(minutes=expire_minutes)
             to_encode.update({"exp": expire})
-            logger.info(f"Created token with JTI: {jti}, expires in {expire_minutes} minutes")
 
         # Optional: Add IP binding for extra security
         if request_ip and settings.ENABLE_IP_VALIDATION:
@@ -232,25 +232,24 @@ def upload_user_photo(
     Returns the path/URL so the frontend can load it.
     """
     try:
-        # 1) Define your upload directory (following your pattern in payment_service.py)
-        upload_dir = os.path.join(constants.UPLOAD_DIR, "users")  # e.g. "uploads/payments/users"
+        # logger.info(f"[{current_user.name}] Uploading profile photo: {file.filename}")
+
+        upload_dir = os.path.join(constants.UPLOAD_DIR, "users")
         os.makedirs(upload_dir, exist_ok=True)
 
-        # 2) Create a unique filename or use the original filename
-        #    e.g. "abc1234_filename.jpg"
         file_ext = os.path.splitext(file.filename)[1]
         unique_filename = f"{str(uuid4())}{file_ext}"
         file_path = os.path.join(upload_dir, unique_filename)
 
-        # 3) Save the file to disk
         with open(file_path, "wb") as buffer:
             buffer.write(file.file.read())
 
-        # 4) Update user.photo_path with the URL that will be accessible through nginx
+        # Save URL path for NGINX/static use
         current_user.photo_path = f"{constants.HOST_URL}/uploads/payments/users/{unique_filename}"
-
         db.commit()
         db.refresh(current_user)
+
+        logger.info(f"[{current_user.name}] Photo uploaded successfully: {current_user.photo_path}")
 
         return AuthServiceResponse(
             data={"photo_path": current_user.photo_path},
@@ -260,11 +259,15 @@ def upload_user_photo(
 
     except Exception as e:
         db.rollback()
+        logger.error(f"[{current_user.name}] Failed to upload photo: {str(e)}")
+        logger.error(traceback.format_exc())
+
         return AuthServiceResponse(
             data=None,
             message=f"An error occurred: {str(e)}",
             status_code=500
         ).model_dump()
+
 
 
 @auth_router.post("/forgot_password", tags=["Users"])
@@ -278,37 +281,51 @@ def forgot_password(
     In production, you would typically verify OTP or email link, but
     here it's a simple, direct reset for demonstration.
     """
-    # 1) Find user by phone
-    user = (
-        db.query(User)
-        .filter(
-            User.phone == payload.phone,
-            User.is_deleted.is_(False)
+    try:
+
+        # 1) Find user by phone
+        user = (
+            db.query(User)
+            .filter(
+                User.phone == payload.phone,
+                User.is_deleted.is_(False)
+            )
+            .first()
         )
-        .first()
-    )
-    if not user:
+        if not user:
+            logger.warning(f"[{current_user.name}] Password reset failed - phone not found: {payload.phone}")
+            return AuthServiceResponse(
+                data=None,
+                status_code=404,
+                message="No user found with this phone number."
+            ).model_dump()
+
+        # 2) Hash and update password
+        hashed = pwd_context.hash(payload.new_password)
+        user.password_hash = hashed
+        db.commit()
+        db.refresh(user)
+
+        logger.info(f"[{current_user.name}] successfully reset password for user: {user.name} ({user.password_hash})")
+
         return AuthServiceResponse(
-            data=None,
-            status_code=404,
-            message="No user found with this phone number."
+            data={
+                "uuid": str(user.uuid),
+                "phone": user.phone
+            },
+            message="Password reset successfully",
+            status_code=200
         ).model_dump()
 
-    # 2) Hash and set new password
-    hashed = pwd_context.hash(payload.new_password)
-    user.password_hash = hashed
-    db.commit()
-    db.refresh(user)
-
-    # 3) Return success
-    return AuthServiceResponse(
-        data={
-            "uuid": str(user.uuid),
-            "phone": user.phone
-        },
-        message="Password reset successfully",
-        status_code=200
-    ).model_dump()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[{current_user.name}] Error during password reset for phone: {payload.phone} - {str(e)}")
+        logger.error(traceback.format_exc())
+        return AuthServiceResponse(
+            data=None,
+            message="An internal error occurred during password reset.",
+            status_code=500
+        ).model_dump()
 
 
 # Routes
@@ -322,71 +339,87 @@ def register_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(superadmin_required),
 ) -> dict:
-    db_user = (
-        db.query(User)
-        .filter(
-            and_(
-                User.phone == user.phone,
-                User.is_deleted.is_(False),
-                User.is_active.is_(True),
+    try:
+
+        db_user = (
+            db.query(User)
+            .filter(
+                and_(
+                    User.phone == user.phone,
+                    User.is_deleted.is_(False),
+                    User.is_active.is_(True),
+                )
             )
+            .first()
         )
-        .first()
-    )
-    if db_user:
-        return AuthServiceResponse(
+
+        if db_user:
+            logger.warning(f"[{current_user.name}] Registration failed - Phone already registered: {user.phone}")
+            return AuthServiceResponse(
                 data=None,
                 status_code=400,
                 message="Phone already registered"
             ).model_dump()
-    hashed_password = get_password_hash(user.password)
-    new_user = User(
-        name=user.name,
-        phone=user.phone,
-        password_hash=hashed_password,
-        role=user.role.value,
-        is_deleted=False,
-        is_active=True,
-    )
-    db.add(new_user)
-    db.flush()
 
-    # Try to find existing person by phone_number or account_number
-    existing_person = db.query(Person).filter(
-        (Person.phone_number == user.person.phone_number) &
-        (Person.account_number == user.person.account_number)
-    ).first()
-
-    if existing_person:
-        # Link existing person to new user
-        existing_person.user_id = new_user.uuid
-        db.add(existing_person)
-        db.commit()
-        db.refresh(new_user)
-        db.refresh(existing_person)
-        person_to_return = existing_person
-    else:
-        # Create new person as before
-        new_person = Person(
-            name=user.person.name,
-            phone_number=user.person.phone_number,
-            account_number=user.person.account_number,
-            ifsc_code=user.person.ifsc_code,
-            user_id=new_user.uuid
+        hashed_password = get_password_hash(user.password)
+        new_user = User(
+            name=user.name,
+            phone=user.phone,
+            password_hash=hashed_password,
+            role=user.role.value,
+            is_deleted=False,
+            is_active=True,
         )
-        db.add(new_person)
-        db.commit()
-        db.refresh(new_user)
-        db.refresh(new_person)
-        person_to_return = new_person
+        db.add(new_user)
+        db.flush()
 
-    access_token = create_access_token(data={"sub": str(new_user.uuid)})
-    response = {"access_token": access_token, "token_type": "bearer"}
-    return AuthServiceResponse(
-        data=response,
-        message="User reginstered successfully",
-        status_code=201
-    ).model_dump()
+        # Check for existing Person
+        existing_person = db.query(Person).filter(
+            (Person.phone_number == user.person.phone_number) &
+            (Person.account_number == user.person.account_number)
+        ).first()
+
+        if existing_person:
+            existing_person.user_id = new_user.uuid
+            db.add(existing_person)
+            db.commit()
+            db.refresh(new_user)
+            db.refresh(existing_person)
+            logger.info(f"[{current_user.name}] Linked existing person (ID: {existing_person.id}) to user: {new_user.uuid}")
+        else:
+            new_person = Person(
+                name=user.person.name,
+                phone_number=user.person.phone_number,
+                account_number=user.person.account_number,
+                ifsc_code=user.person.ifsc_code,
+                user_id=new_user.uuid
+            )
+            db.add(new_person)
+            db.commit()
+            db.refresh(new_user)
+            db.refresh(new_person)
+            logger.info(f"[{current_user.name}] Created new person (ID: {new_person.id}) for user: {new_user.uuid}")
+
+        access_token = create_access_token(data={"sub": str(new_user.uuid)})
+        response = {"access_token": access_token, "token_type": "bearer"}
+
+        logger.info(f"[{current_user.name}] Successfully registered user: {new_user.name} ({new_user.uuid})")
+
+        return AuthServiceResponse(
+            data=response,
+            message="User registered successfully",
+            status_code=201
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[{current_user.name}] Error during user registration for phone: {user.phone} - {str(e)}")
+        logger.error(traceback.format_exc())
+        return AuthServiceResponse(
+            data=None,
+            message="An internal error occurred during registration.",
+            status_code=500
+        ).model_dump()
 
 
 def check_or_add_token(
@@ -399,6 +432,7 @@ def check_or_add_token(
         data = db.query(UserTokenMap).filter(
             UserTokenMap.device_id == device_id
         ).first()
+
         if data:
             data.fcm_token = fcm_token
         else:
@@ -408,9 +442,14 @@ def check_or_add_token(
                 device_id=device_id,
             )
             db.add(user_token_data)
+
         db.commit()
+
     except Exception as e:
         db.rollback()
+        logger.error(f"Error while registering FCM token for user {user_id} on device {device_id}: {str(e)}")
+        logger.error(traceback.format_exc())
+
         return AuthServiceResponse(
             data=None,
             message=f"Error while check_or_add_token: {str(e)}",
@@ -426,7 +465,6 @@ def check_or_add_token(
 def login(
     login_data: UserLogin,
     db: Session = Depends(get_db),
-    # current_user: User = Depends(get_current_user),
 ) -> dict:
     db_user = (
         db.query(User)
@@ -438,22 +476,23 @@ def login(
         .first()
     )
 
-    if not db_user or not verify_password(
-        login_data.password, db_user.password_hash
-    ):
+    if not db_user:
+        logger.warning(f"Login failed - no active user found for phone: {login_data.phone}")
         return AuthServiceResponse(
-                data=None,
-                status_code=400,
-                message="Incorrect phone or password"
-            ).model_dump()
+            data=None,
+            status_code=400,
+            message="Incorrect phone or password"
+        ).model_dump()
 
-    # # Restrict login to only superadmin and admin roles
-    # if db_user.role not in [UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value]:
-    #     return AuthServiceResponse(
-    #         data=None,
-    #         status_code=403,
-    #         message="Only admin can access"
-    #     ).model_dump()
+    if not verify_password(login_data.password, db_user.password_hash):
+        logger.warning(f"Login failed - incorrect password for user: {db_user.name} ({db_user.uuid})")
+        return AuthServiceResponse(
+            data=None,
+            status_code=400,
+            message="Incorrect phone or password"
+        ).model_dump()
+
+    logger.info(f"Login: {db_user.name} (phone: {login_data.phone}, device: {login_data.device_id}) at {datetime.utcnow()}")
 
     user_data = UserResponse(
         uuid=db_user.uuid,
@@ -462,7 +501,9 @@ def login(
         role=db_user.role,
         photo_path=db_user.photo_path
     ).to_dict()
+
     access_token = create_access_token(data={"sub": str(db_user.uuid)})
+
     if login_data.fcm_token:
         check_or_add_token(
             user_id=db_user.uuid,
@@ -474,29 +515,31 @@ def login(
             tokens=login_data.fcm_token,
             topic=db_user.uuid
         )
+
     response = {
         "access_token": access_token,
         "token_type": "bearer",
         "user_data": user_data
     }
+
     return AuthServiceResponse(
         data=response,
         message="User logged in successfully",
         status_code=201
     ).model_dump()
 
-
 @auth_router.put(
-        "/delete",
-        status_code=status.HTTP_201_CREATED,
-        tags=["Users"]
-    )
+    "/delete",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Users"]
+)
 def delete_user(
     user_uuid: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(superadmin_required),
 ):
     try:
+
         user_data = (
             db.query(User)
             .filter(
@@ -508,15 +551,19 @@ def delete_user(
             )
             .first()
         )
+
         if not user_data:
+            logger.warning(f"[{current_user.name}] deletion failed - user not found")
             raise HTTPException(status_code=404, detail="User does not exist")
 
         if user_data.role == UserRole.SUPER_ADMIN:
+            logger.warning(f"[{current_user.name}] attempted to delete SUPER_ADMIN user")
             raise HTTPException(
                 status_code=403, detail="SuperAdmin user cannot be deleted."
             )
 
         user_data.is_deleted = True
+
         log_entry = Log(
             uuid=str(uuid4()),
             entity="User",
@@ -527,6 +574,9 @@ def delete_user(
         db.add(log_entry)
         db.commit()
         db.refresh(user_data)
+
+        logger.info(f"[{current_user.name}] deleted user: {user_data.name}")
+
         return AuthServiceResponse(
             data=None,
             message="User deleted successfully.",
@@ -534,7 +584,9 @@ def delete_user(
         ).model_dump()
 
     except Exception as e:
-        logger.error(f"Error in delete_user API: {str(e)}")
+        db.rollback()
+        logger.error(f"[{current_user.name}] Error while deleting user: {str(e)}")
+        logger.error(traceback.format_exc())
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -543,9 +595,9 @@ def delete_user(
 
 
 @auth_router.post(
-        "/logout",
-        status_code=status.HTTP_201_CREATED,
-        tags=["Users"]
+    "/logout",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Users"]
 )
 def logout_user(
     user_data: UserLogout,
@@ -554,7 +606,8 @@ def logout_user(
     credentials: HTTPAuthorizationCredentials = Security(bearer_scheme)
 ):
     try:
-        # Extract and blacklist the current token
+
+        # 1. Extract and blacklist the JWT token
         token = credentials.credentials
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -563,25 +616,24 @@ def logout_user(
 
             if jti and exp:
                 blacklist_token(jti, exp)
-                logger.info(f"Token {jti} blacklisted during logout")
+                logger.info(f"Token blacklisted for user {current_user.name} | JTI: {jti}")
+            else:
+                logger.warning(f"Missing JTI or EXP while decoding token for logout - user: {current_user.name}")
+
         except Exception as e:
-            logger.warning(f"Failed to blacklist token during logout: {e}")
+            logger.warning(f"Failed to decode or blacklist token during logout for user {current_user.name}: {str(e)}")
 
-        user = db.query(User).filter(
-            User.uuid == user_data.user_id
-        ).first()
-
+        # 2. Unsubscribe user from FCM
+        user = db.query(User).filter(User.uuid == user_data.user_id).first()
         user_token = db.query(UserTokenMap.fcm_token).filter(
             UserTokenMap.device_id == user_data.device_id
         ).first()
+
         if user_token:
-            unsubscribe_news(
-                tokens=user_token[0],
-                topic=str(user.uuid)
-            )
-            logger.info("User unsubscribed successfully.")
+            unsubscribe_news(tokens=user_token[0], topic=str(user.uuid))
+            logger.info(f"[{current_user.name}] unsubscribed from FCM topic.")
         else:
-            logger.info("Issue in unsubscribing user.")
+            logger.info(f"[{current_user.name}] no matching FCM token found for device {user_data.device_id}")
 
         return AuthServiceResponse(
             data=None,
@@ -590,12 +642,13 @@ def logout_user(
         ).model_dump()
 
     except Exception as e:
+        logger.error(f"[{current_user.name}] Error during logout: {str(e)}")
+        logger.error(traceback.format_exc())
         return AuthServiceResponse(
             data=None,
             message=f"Error in logout_user API: {str(e)}",
             status_code=200
         ).model_dump()
-
 
 @auth_router.put("/deactivate", status_code=status.HTTP_200_OK, tags=["Users"])
 def deactivate_user(
@@ -604,6 +657,7 @@ def deactivate_user(
     current_user: User = Depends(superadmin_required),
 ):
     try:
+
         user_data = (
             db.query(User)
             .filter(
@@ -615,7 +669,9 @@ def deactivate_user(
             )
             .first()
         )
+
         if not user_data:
+            logger.warning(f"[{current_user.name}] deactivation failed - user not found.")
             return AuthServiceResponse(
                 data=None,
                 status_code=404,
@@ -623,6 +679,7 @@ def deactivate_user(
             ).model_dump()
 
         if user_data.role == UserRole.SUPER_ADMIN:
+            logger.warning(f"[{current_user.name}] tried to deactivate SUPER_ADMIN.")
             return AuthServiceResponse(
                 data=None,
                 status_code=403,
@@ -640,13 +697,20 @@ def deactivate_user(
         db.add(log_entry)
         db.commit()
         db.refresh(user_data)
+
+        logger.info(f"[{current_user.name}] deactivated user: {user_data.name}.")
+
         return AuthServiceResponse(
             data=None,
             message="User deactivated successfully.",
             status_code=200
         ).model_dump()
+
     except Exception as e:
-        logger.error(f"Error in deactivate_user API: {str(e)}")
+        db.rollback()
+        logger.error(f"[{current_user.name}] Error in deactivate_user API for user: {str(e)}")
+        logger.error(traceback.format_exc())
+
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -661,6 +725,7 @@ def activate_user(
     current_user: User = Depends(superadmin_required),
 ):
     try:
+
         user_data = (
             db.query(User)
             .filter(
@@ -671,7 +736,9 @@ def activate_user(
             )
             .first()
         )
+
         if not user_data:
+            logger.warning(f"[{current_user.name}] activation failed - user not found.")
             return AuthServiceResponse(
                 data=None,
                 status_code=404,
@@ -679,6 +746,7 @@ def activate_user(
             ).model_dump()
 
         if user_data.role == UserRole.SUPER_ADMIN:
+            logger.warning(f"[{current_user.name}] tried to activate SUPER_ADMIN.")
             return AuthServiceResponse(
                 data=None,
                 status_code=403,
@@ -696,13 +764,19 @@ def activate_user(
         db.add(log_entry)
         db.commit()
         db.refresh(user_data)
+
+        logger.info(f"[{current_user.name}] activated user: {user_data.name}.")
+
         return AuthServiceResponse(
             data=None,
             message="User activated successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
-        logger.error(f"Error in activate_user API: {str(e)}")
+        db.rollback()
+        logger.error(f"[{current_user.name}] Error in activate_user API for user: {str(e)}")
+        logger.error(traceback.format_exc())
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -716,6 +790,7 @@ def list_all_active_users(
     current_user: User = Depends(get_current_user),
 ):
     try:
+
         users = db.query(User).filter(
             User.is_active.is_(True),
             User.is_deleted.is_(False)
@@ -742,13 +817,17 @@ def list_all_active_users(
                 "person": person_data
             })
 
+        logger.info(f"[{current_user.name}] fetched {len(user_response_data)} active users successfully")
+
         return AuthServiceResponse(
             data=user_response_data,
             message="All users fetched successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
-        logger.error(f"Error in list_all_active_users API: {str(e)}")
+        logger.error(f"[{current_user.name}] Error in list_all_active_users API: {str(e)}")
+        logger.error(traceback.format_exc())
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -813,24 +892,25 @@ def get_user_info(
     current_user: User = Depends(get_current_user),
 ):
     try:
+
         user = (
             db.query(User)
             .filter(
                 User.uuid == user_uuid,
                 User.is_active.is_(True),
-                User.is_deleted.is_(False)  # <- optionally ensure not deleted
+                User.is_deleted.is_(False)
             )
             .first()
         )
 
         if not user:
+            logger.warning(f"[{current_user.name}] attempted to fetch non-existent user.")
             return AuthServiceResponse(
                 data=None,
                 status_code=404,
                 message="User does not exist"
             ).model_dump()
 
-        # If user has a linked Person row, gather its data (including children)
         person_data = None
         if user.person:
             person_record = user.person
@@ -864,6 +944,8 @@ def get_user_info(
             "person": person_data
         }
 
+        logger.info(f"[{current_user.name}] successfully fetched info for user: {user.name}")
+
         return AuthServiceResponse(
             data=user_response,
             message="User info fetched successfully",
@@ -872,6 +954,8 @@ def get_user_info(
 
     except Exception as e:
         db.rollback()
+        logger.error(f"[{current_user.name}] Error fetching user info - {str(e)}")
+        logger.error(traceback.format_exc())
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -895,25 +979,24 @@ def edit_user(
     Only superadmin can edit users.
     """
     try:
-        # Find the user
+
         user = db.query(User).filter(
             User.uuid == user_uuid,
             User.is_deleted.is_(False)
         ).first()
 
         if not user:
+            logger.warning(f"[{current_user.name}] edit failed - user not found")
             return AuthServiceResponse(
                 data=None,
                 status_code=404,
                 message="User not found"
             ).model_dump()
 
-        # Update user fields if provided
         if user_data.name:
             user.name = user_data.name
 
         if user_data.phone:
-            # Check if phone is already used by another user
             existing_user = db.query(User).filter(
                 User.phone == user_data.phone,
                 User.uuid != user_uuid,
@@ -921,6 +1004,7 @@ def edit_user(
             ).first()
 
             if existing_user:
+                logger.warning(f"[{current_user.name}] edit failed - phone number already in use")
                 return AuthServiceResponse(
                     data=None,
                     status_code=400,
@@ -932,37 +1016,26 @@ def edit_user(
         if user_data.role:
             user.role = user_data.role.value
 
-        # Update person data if provided
         if user_data.person:
-            # Get or create person record
             person = user.person
-
             if not person:
-                # Create new person if it doesn't exist
                 person = Person(user_id=user.uuid)
                 db.add(person)
                 db.flush()
 
-            # Update person fields
             if user_data.person.name:
                 person.name = user_data.person.name
-
             if user_data.person.account_number:
                 person.account_number = user_data.person.account_number
-
             if user_data.person.ifsc_code:
                 person.ifsc_code = user_data.person.ifsc_code
-
             if user_data.person.phone_number:
                 person.phone_number = user_data.person.phone_number
-
             if user_data.person.upi_number:
                 person.upi_number = user_data.person.upi_number
-
             if user_data.person.parent_id:
                 person.parent_id = user_data.person.parent_id
 
-        # Create log entry
         log_entry = Log(
             uuid=str(uuid4()),
             entity="User",
@@ -972,11 +1045,11 @@ def edit_user(
         )
         db.add(log_entry)
 
-        # Commit changes
         db.commit()
         db.refresh(user)
 
-        # Prepare response
+        logger.info(f"[{current_user.name}] successfully edited user: {user.name}")
+
         person_data = None
         if user.person:
             person_data = {
@@ -1003,7 +1076,8 @@ def edit_user(
 
     except Exception as e:
         db.rollback()
-        logger.error(f"Error in edit_user API: {str(e)}")
+        logger.error(f"[{current_user.name}] Error in edit_user API for user: {str(e)}")
+        logger.error(traceback.format_exc())
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -1023,41 +1097,42 @@ def get_persons(
     of persons for frontend dropdowns and selections.
     """
     try:
-        query = db.query(Person).filter(
-            Person.is_deleted.is_(False),
-        )
 
-        # Apply filters if provided
+        query = db.query(Person).filter(Person.is_deleted.is_(False))
+
         if name:
             query = query.filter(Person.name.ilike(f"%{name}%"))
         if phone:
             query = query.filter(Person.phone_number == phone)
 
         persons = query.all()
-        persons_data = []
 
-        for person in persons:
-            persons_data.append({
-                "uuid": str(person.uuid),
-                "name": person.name,
-                "phone_number": person.phone_number,
-                "account_number": person.account_number,
-                "ifsc_code": person.ifsc_code,
-                "upi_number": person.upi_number
-            })
+        persons_data = [{
+            "uuid": str(person.uuid),
+            "name": person.name,
+            "phone_number": person.phone_number,
+            "account_number": person.account_number,
+            "ifsc_code": person.ifsc_code,
+            "upi_number": person.upi_number
+        } for person in persons]
+
+        logger.info(f"[{current_user.name}] fetched {len(persons_data)} persons successfully")
 
         return AuthServiceResponse(
             data=persons_data,
             message="Persons fetched successfully",
             status_code=200
         ).model_dump()
+
     except Exception as e:
         db.rollback()
-        logger.error(f"Error in get_persons API: {str(e)}")
+        logger.error(f"[{current_user.name}] Error in get_persons API: {str(e)}")
+        logger.error(traceback.format_exc())
         return AuthServiceResponse(
             data=None,
             status_code=500,
-            message=f"Error fetching persons: {str(e)}")
+            message=f"Error fetching persons: {str(e)}"
+        ).model_dump()
     
 
 @auth_router.post(
@@ -1070,33 +1145,44 @@ def register_and_outside_user(
     current_user: User = Depends(get_current_user),
 ):
     phone = str(data.phone_number)
-    existing = db.query(UserData).filter(UserData.phone_number == phone).first()
-    if existing:
-        return AuthServiceResponse(
-            data=None,
-            message=(
-                "You’ve already submitted a request with this number, "
-                "our team is looking into it and will reach out shortly."
-            ),
-            status_code=200
-        )
+
     try:
+
+        existing = db.query(UserData).filter(UserData.phone_number == phone).first()
+        if existing:
+            logger.warning(f"[{current_user.name}] registration blocked - phone already submitted: {phone}")
+            return AuthServiceResponse(
+                data=None,
+                message=(
+                    "You’ve already submitted a request with this number, "
+                    "our team is looking into it and will reach out shortly."
+                ),
+                status_code=200
+            )
+
         user_data = UserData(
             name=data.name,
             email=data.email,
-            phone_number=str(data.phone_number),
+            phone_number=phone,
             password=data.password
         )
         db.add(user_data)
         db.commit()
         db.refresh(user_data)
+
+        logger.info(f"[{current_user.name}] successfully registered external user: {data.name}")
+
         return AuthServiceResponse(
             data=None,
             message="We have received your request, our team will reach out to you soon.",
             status_code=201
         )
+
     except Exception as e:
         db.rollback()
+        logger.error(f"[{current_user.name}] Error registering outside user- {str(e)}")
+        logger.error(traceback.format_exc())
+
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -1118,6 +1204,7 @@ def list_outside_users(
     Only accessible by SuperAdmin users.
     """
     try:
+
         outside_users = db.query(UserData).all()
 
         outside_users_data = []
@@ -1131,6 +1218,8 @@ def list_outside_users(
                 "created_at": user.created_at.isoformat() if user.created_at else None
             })
 
+        logger.info(f"[{current_user.name}] fetched {len(outside_users_data)} outside users successfully")
+
         return AuthServiceResponse(
             data=outside_users_data,
             message="Outside users fetched successfully",
@@ -1138,7 +1227,9 @@ def list_outside_users(
         ).model_dump()
 
     except Exception as e:
-        logger.error(f"Error in list_outside_users API: {str(e)}")
+        logger.error(f"[{current_user.name}] Error in list_outside_users API: {str(e)}")
+        logger.error(traceback.format_exc())
+
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -1152,74 +1243,48 @@ def get_persons_by_role(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Get all persons with a specific role from two sources:
-    1. Person records that have the specified role directly assigned
-    2. Person records linked to Users who have the specified role
-
-    Results are combined and deduplicated to avoid returning the same Person twice.
-    Access is restricted to Admin, Super Admin, and Project Manager roles.
-
-    Args:
-        role: UserRole enum value to filter persons by
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        JSON response with list of PersonWithRole objects
-
-    Raises:
-        403: If user doesn't have required permissions
-        400: If invalid role is provided
-        500: If database error occurs
-    """
     try:
-        # Validate current user
+
+        # Validate user role
         if not current_user or not hasattr(current_user, 'role'):
+            logger.warning("Invalid session in get_persons_by_role")
             return AuthServiceResponse(
                 data=None,
                 message="Invalid user session",
                 status_code=401
             ).model_dump()
 
-        # Check if current user has permission to access this endpoint
         if current_user.role not in [
             UserRole.ADMIN.value,
             UserRole.SUPER_ADMIN.value,
             UserRole.PROJECT_MANAGER.value,
         ]:
+            logger.warning(f"Access denied for user [{current_user.name}] to /persons/by-role")
             return AuthServiceResponse(
                 data=None,
                 message="Access denied. Admin, Super Admin, or Project Manager privileges required.",
                 status_code=403
             ).model_dump()
 
-        # Validate role parameter
-        if not role:
-            return AuthServiceResponse(
-                data=None,
-                message="Role parameter is required",
-                status_code=400
-            ).model_dump()
-
-        # Convert role enum to string value for database query
         role_value = role.value
 
-        # Query 1: Get persons with the role directly assigned
+        # Query persons with direct role
         try:
             persons_with_direct_role = db.query(Person).filter(
                 Person.role == role_value,
                 Person.is_deleted.is_(False)
             ).all()
+            logger.info(f"[{current_user.name}] found {len(persons_with_direct_role)} persons with direct role: {role_value}")
         except Exception as e:
-            logger.error(f"Error querying persons with direct role '{role_value}': {str(e)}")
+            logger.error(f"DB error querying persons with direct role '{role_value}': {str(e)}")
+            logger.error(traceback.format_exc())
             return AuthServiceResponse(
                 data=None,
                 message="Error retrieving persons with direct role assignment",
                 status_code=500
             ).model_dump()
 
-        # Query 2: Get persons linked to users with the specified role
+        # Query persons linked to users with this role
         try:
             persons_with_user_role = db.query(Person).join(
                 User, Person.user_id == User.uuid
@@ -1229,25 +1294,24 @@ def get_persons_by_role(
                 User.is_active.is_(True),
                 Person.is_deleted.is_(False)
             ).all()
+            logger.info(f"[{current_user.name}] found {len(persons_with_user_role)} persons with linked user role: {role_value}")
         except Exception as e:
-            logger.error(f"Error querying persons with user role '{role_value}': {str(e)}")
+            logger.error(f"DB error querying persons with user role '{role_value}': {str(e)}")
+            logger.error(traceback.format_exc())
             return AuthServiceResponse(
                 data=None,
                 message="Error retrieving persons with user role assignment",
                 status_code=500
             ).model_dump()
 
-        # Combine results and deduplicate by person UUID
         combined_persons = {}
 
-        # Add persons with direct role
+        # Process direct role persons
         try:
             for person in persons_with_direct_role:
                 if not person or not hasattr(person, 'uuid'):
-                    logger.warning(f"Invalid person object found in direct role query")
                     continue
-
-                person_data = PersonWithRole(
+                combined_persons[str(person.uuid)] = PersonWithRole(
                     uuid=person.uuid,
                     name=person.name or "",
                     phone_number=person.phone_number or "",
@@ -1258,77 +1322,62 @@ def get_persons_by_role(
                     role_source="person",
                     user_id=person.user_id
                 )
-                combined_persons[str(person.uuid)] = person_data
         except Exception as e:
-            logger.error(f"Error processing persons with direct role: {str(e)}")
+            logger.error(f"Error processing direct role persons: {str(e)}")
+            logger.error(traceback.format_exc())
             return AuthServiceResponse(
                 data=None,
-                message="Error processing persons with direct role assignment",
+                message="Error processing direct role persons",
                 status_code=500
             ).model_dump()
 
-        # Add persons with user role (only if not already added)
+        # Process linked user-role persons
         try:
             for person in persons_with_user_role:
-                if not person or not hasattr(person, 'uuid'):
-                    logger.warning(f"Invalid person object found in user role query")
+                pid = str(person.uuid)
+                if pid in combined_persons:
                     continue
 
-                person_uuid_str = str(person.uuid)
-                if person_uuid_str not in combined_persons:
-                    # Get the user's role for this person
-                    user = None
-                    if person.user_id:
-                        try:
-                            user = db.query(User).filter(User.uuid == person.user_id).first()
-                        except Exception as e:
-                            logger.warning(f"Error fetching user for person {person.uuid}: {str(e)}")
+                user = db.query(User).filter(User.uuid == person.user_id).first() if person.user_id else None
 
-                    person_data = PersonWithRole(
-                        uuid=person.uuid,
-                        name=person.name or "",
-                        phone_number=person.phone_number or "",
-                        account_number=person.account_number,
-                        ifsc_code=person.ifsc_code,
-                        upi_number=person.upi_number,
-                        role=user.role if user else role_value,
-                        role_source="user",
-                        user_id=person.user_id
-                    )
-                    combined_persons[person_uuid_str] = person_data
+                combined_persons[pid] = PersonWithRole(
+                    uuid=person.uuid,
+                    name=person.name or "",
+                    phone_number=person.phone_number or "",
+                    account_number=person.account_number,
+                    ifsc_code=person.ifsc_code,
+                    upi_number=person.upi_number,
+                    role=user.role if user else role_value,
+                    role_source="user",
+                    user_id=person.user_id
+                )
         except Exception as e:
-            logger.error(f"Error processing persons with user role: {str(e)}")
+            logger.error(f"Error processing user-linked role persons: {str(e)}")
+            logger.error(traceback.format_exc())
             return AuthServiceResponse(
                 data=None,
                 message="Error processing persons with user role assignment",
                 status_code=500
             ).model_dump()
 
-        # Convert to list and sort by name
+        # Sort and prepare response
         try:
-            result_persons = list(combined_persons.values())
-            result_persons.sort(key=lambda x: x.name if x.name else "")
+            result_persons = sorted(combined_persons.values(), key=lambda x: x.name or "")
         except Exception as e:
-            logger.error(f"Error sorting results: {str(e)}")
+            logger.warning(f"Sorting failed: {str(e)}")
             result_persons = list(combined_persons.values())
 
-        # Create response
-        try:
-            return RoleBasedPersonQueryResponse(
-                data=result_persons,
-                message=f"Persons with role '{role_value}' fetched successfully. Found {len(result_persons)} persons.",
-                status_code=200
-            ).to_dict()
-        except Exception as e:
-            logger.error(f"Error creating response: {str(e)}")
-            return AuthServiceResponse(
-                data=None,
-                message="Error formatting response data",
-                status_code=500
-            ).model_dump()
+        logger.info(f"[{current_user.name}] total deduplicated persons fetched: {len(result_persons)}")
+
+        return RoleBasedPersonQueryResponse(
+            data=result_persons,
+            message=f"Persons with role '{role_value}' fetched successfully. Found {len(result_persons)} persons.",
+            status_code=200
+        ).to_dict()
 
     except Exception as e:
-        logger.error(f"Error in get_persons_by_role API: {str(e)}")
+        logger.error(f"Unhandled error in get_persons_by_role: {str(e)}")
+        logger.error(traceback.format_exc())
         return AuthServiceResponse(
             data=None,
             status_code=500,
@@ -1343,66 +1392,43 @@ def update_person_role(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    Add or update role for an existing person.
-
-    This endpoint allows authorized users to assign or remove roles from persons.
-    Setting role to null will remove the role assignment.
-
-    Access is restricted to Admin and Super Admin roles only.
-
-    Args:
-        person_id: UUID of the person to update
-        request_data: UpdatePersonRoleRequest containing the role to assign
-        db: Database session
-        current_user: Current authenticated user
-
-    Returns:
-        JSON response with updated person information
-
-    Raises:
-        400: If person not found or invalid role
-        401: If user session is invalid
-        403: If user doesn't have required permissions
-        500: If database error occurs
-    """
     try:
-        # Validate current user
+
         if not current_user or not hasattr(current_user, 'role'):
+            logger.warning(f"Invalid session while updating person {person_id}")
             return AuthServiceResponse(
                 data=None,
                 message="Invalid user session",
                 status_code=401
             ).model_dump()
 
-        # Check if current user has permission to update person roles
-        # Only Admin and Super Admin can assign roles to persons
         if current_user.role not in [
             UserRole.ADMIN.value,
             UserRole.SUPER_ADMIN.value,
         ]:
+            logger.warning(f"Access denied - [{current_user.name}] tried to update person {person_id}")
             return AuthServiceResponse(
                 data=None,
                 message="Access denied. Admin or Super Admin privileges required.",
                 status_code=403
             ).model_dump()
 
-        # Validate person_id parameter
         if not person_id:
+            logger.warning(f"Missing person_id in request by [{current_user.name}]")
             return AuthServiceResponse(
                 data=None,
                 message="Person ID is required",
                 status_code=400
             ).model_dump()
 
-        # Find the person to update
         try:
             person = db.query(Person).filter(
                 Person.uuid == person_id,
                 Person.is_deleted.is_(False)
             ).first()
         except Exception as e:
-            logger.error(f"Error querying person {person_id}: {str(e)}")
+            logger.error(f"DB error querying person {person_id}: {str(e)}")
+            logger.error(traceback.format_exc())
             return AuthServiceResponse(
                 data=None,
                 message="Error retrieving person data",
@@ -1410,31 +1436,31 @@ def update_person_role(
             ).model_dump()
 
         if not person:
+            logger.warning(f"Person not found or deleted: {person_id}")
             return AuthServiceResponse(
                 data=None,
                 message="Person not found or has been deleted",
                 status_code=404
             ).model_dump()
 
-        # Get the role value (can be None to remove role)
         role_value = request_data.role.value if request_data.role else None
 
-        # Update the person's role
         try:
             old_role = person.role
             person.role = role_value
             db.commit()
             db.refresh(person)
+            logger.info(f"[{current_user.name}] updated role for person {person_id} from '{old_role}' to '{role_value}'")
         except Exception as e:
             db.rollback()
-            logger.error(f"Error updating person role for {person_id}: {str(e)}")
+            logger.error(f"DB error updating role for person {person_id}: {str(e)}")
+            logger.error(traceback.format_exc())
             return AuthServiceResponse(
                 data=None,
                 message="Error updating person role",
                 status_code=500
             ).model_dump()
 
-        # Prepare response data
         try:
             response_data = {
                 "person_id": str(person.uuid),
@@ -1446,7 +1472,7 @@ def update_person_role(
                 "updated_at": datetime.now().isoformat()
             }
 
-            message = f"Person role updated successfully."
+            message = "Person role updated successfully."
             if role_value:
                 message += f" Role set to '{role_value}'."
             else:
@@ -1457,8 +1483,10 @@ def update_person_role(
                 message=message,
                 status_code=200
             ).to_dict()
+
         except Exception as e:
-            logger.error(f"Error creating response for person {person_id}: {str(e)}")
+            logger.error(f"Error formatting response for person {person_id}: {str(e)}")
+            logger.error(traceback.format_exc())
             return AuthServiceResponse(
                 data=None,
                 message="Error formatting response data",
@@ -1466,7 +1494,8 @@ def update_person_role(
             ).model_dump()
 
     except Exception as e:
-        logger.error(f"Error in update_person_role API: {str(e)}")
+        logger.error(f"Unexpected error in update_person_role for person {person_id}: {str(e)}")
+        logger.error(traceback.format_exc())
         return AuthServiceResponse(
             data=None,
             status_code=500,

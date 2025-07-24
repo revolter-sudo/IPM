@@ -1558,6 +1558,8 @@ def delete_payment(
         ).update({PaymentEditHistory.is_deleted: True})
 
         db.commit()
+        
+        logger.info(f"[{current_user.name}] successfully delete [{payment.uuid}]")
 
         return PaymentServiceResponse(
             data=None,
@@ -2186,6 +2188,7 @@ def create_person(
         generated_uuid = new_person.uuid
 
         db.commit()
+        logger.info(f"[{current_user.name}] Successfully Create Person [{new_person.name}]")
         return PaymentServiceResponse(
             data=str(generated_uuid),
             message="Person created successfully.",
@@ -2739,6 +2742,8 @@ def create_item(
         db.add(new_item)
         db.commit()
         db.refresh(new_item)
+        
+        logger.info(f"[{current_user.name}] Successfully Create Item [{new_item.name}]")
 
         return PaymentServiceResponse(
             data={"item_uuid": str(new_item.uuid)},
@@ -2990,6 +2995,8 @@ def delete_item(item_uuid: UUID, db: Session = Depends(get_db),current_user: Use
 
         db.delete(item)
         db.commit()
+        
+        logger.info(f"[{current_user.name}] successfully delete[{item.name}]")
 
         return PaymentServiceResponse(
             data={"deleted_item_uuid": str(item_uuid)},
@@ -3012,6 +3019,7 @@ def create_priority(priority_name: str, db: Session = Depends(get_db),current_us
     db.add(new_priority)
     db.commit()
     db.refresh(new_priority)
+    logger.info(f"[{current_user.name}] Successfully Created Priority")
     response = {"priority_uuid": str(
         new_priority.uuid), "priority": new_priority.priority}
     return PaymentServiceResponse(
@@ -3084,6 +3092,8 @@ def create_item_category(
         db.add(new_category)
         db.commit()
         db.refresh(new_category)
+        
+        logger.info(f"[{current_user.name}] Successfully Created New Category[{new_category.category}]")
 
         return PaymentServiceResponse(
             data={
@@ -3224,6 +3234,8 @@ def delete_item_category(
         category.is_deleted = True
         category.updated_by = current_user.uuid  # log who deleted it
         db.commit()
+        
+        logger.info(f"[{current_user.name}] successfully delete [{category.category}]")
 
         return PaymentServiceResponse(
             data={
@@ -3300,6 +3312,8 @@ def create_item_group(
         db.add(new_group)
         db.commit()
         db.refresh(new_group)
+        
+        logger.info(f"[{current_user.name}] Successfully Created ItemGroup[{new_group.item_groups}]")
 
         return PaymentServiceResponse(
             data={
@@ -3455,6 +3469,8 @@ def delete_item_group(
         # group.updated_by = current_user.uuid
 
         db.commit()
+        
+        logger.info(f"[{current_user.name}] successfully delete item group [{group.item_groups}]")
 
         return PaymentServiceResponse(
             data={
