@@ -13,8 +13,10 @@ from fastapi import (
     Query,
     UploadFile,
     Form,
-    Body
+    Body,
+    BackgroundTasks
 )
+from functools import wraps
 from fastapi import status as h_status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, and_, case, desc, func
@@ -119,35 +121,185 @@ def notify_create_payment(amount: int, user: User, db: Session):
             status_code=500
         ).model_dump()
 
+def notify_after_payment(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        background_tasks: BackgroundTasks = kwargs.get("background_tasks")
+        db: Session = kwargs.get("db")
+        current_user = kwargs.get("current_user")
+        request_str = kwargs.get("request")
+
+        payment_request = None
+        if request_str:
+            try:
+                payment_request = CreatePaymentRequest(**json.loads(request_str))
+                logger.info(f"[notify_after_payment] ✅ Parsed payment request for user={current_user.name}")
+            except Exception as e:
+                logger.warning(f"[notify_after_payment] ⚠️ Failed to parse request for notification: {e}")
+
+        # Execute the main route logic
+        response = func(*args, **kwargs)
+
+        # Schedule background notification
+        if all([background_tasks, db, current_user, payment_request]):
+            logger.info(f"[notify_after_payment] ⏳ Scheduling background notification for user={current_user.name}, amount={payment_request.amount}")
+            background_tasks.add_task(
+                notify_create_payment,
+                amount=payment_request.amount,
+                user=current_user,
+                db=db
+            )
+        else:
+            logger.warning("[notify_after_payment] ❌ Notification not scheduled due to missing dependencies")
+
+        return response
+    return wrapper
+
+# @payment_router.post("", tags=["Payments"], status_code=201)
+# def create_payment(
+#     request: str = Form(...),
+#     files: Optional[List[UploadFile]] = File(None),
+#     db: Session = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     """
+#     Creates a new Payment record in the database.
+#     If self_payment=True, automatically sets Payment.person to current_user's Person UUID.
+#     Otherwise, uses the person field from the request if supplied.
+#     Links items, uploads files, creates PaymentStatusHistory, and adjusts project balance.
+#     """
+#     try:
+#         request_data = json.loads(request)
+#         payment_request = CreatePaymentRequest(**request_data)
+
+#         # Validate Project
+#         project = db.query(Project).filter(
+#             Project.uuid == payment_request.project_id).first()
+#         if not project:
+#             return PaymentServiceResponse(
+#                 status_code=404,
+#                 data=None,
+#                 message="Project not found."
+#             ).model_dump()
+
+#         # Create Payment
+#         new_payment = Payment(
+#             amount=payment_request.amount,
+#             description=payment_request.description,
+#             project_id=payment_request.project_id,
+#             status='requested',
+#             remarks=payment_request.remarks,
+#             created_by=current_user.uuid,
+#             person=payment_request.person,            # might be overwritten for self_payment
+#             self_payment=payment_request.self_payment,  # store the flag
+#             latitude=payment_request.latitude,
+#             longitude=payment_request.longitude,
+#             priority_id=payment_request.priority_id,
+#         )
+#         db.add(new_payment)
+#         db.flush()  # flush so new_payment.uuid is available
+#         current_payment_uuid = new_payment.uuid
+
+#         # Create Payment status history
+#         db.add(
+#             PaymentStatusHistory(
+#                 payment_id=new_payment.uuid,
+#                 status='requested',
+#                 created_by=current_user.uuid
+#             )
+#         )
+#         db.flush()
+
+#         # Link items if provided
+#         if payment_request.item_uuids:
+#             db.add_all([
+#                 PaymentItem(payment_id=new_payment.uuid, item_id=item_id)
+#                 for item_id in payment_request.item_uuids
+#             ])
+
+#         # Update project balance
+#         create_project_balance_entry(
+#             db=db,
+#             project_id=payment_request.project_id,
+#             adjustment=-payment_request.amount,
+#             description="Payment deduction",
+#             current_user=current_user
+#         )
+
+#         # Handle file uploads
+#         if files:
+#             upload_dir = constants.UPLOAD_DIR
+#             os.makedirs(upload_dir, exist_ok=True)
+#             for file in files:
+#                 # Create a unique filename to avoid collisions
+#                 file_ext = os.path.splitext(file.filename)[1]
+#                 unique_filename = f"{str(uuid4())}{file_ext}"
+#                 file_path = os.path.join(upload_dir, unique_filename)
+
+#                 # Save the file
+#                 with open(file_path, "wb") as buffer:
+#                     buffer.write(file.file.read())
+
+#                 # Store the relative path in the database
+#                 db.add(PaymentFile(
+#                     payment_id=new_payment.uuid,
+#                     file_path=file_path
+#                 ))
+
+#         db.commit()
+#         notification = notify_create_payment(
+#             amount=payment_request.amount,
+#             user=current_user,
+#             db=db
+#         )
+#         if not notification:
+#             logger.error(
+#                 "Something went wrong while sending create payment notification")
+#         return PaymentServiceResponse(
+#             data={"payment_uuid": current_payment_uuid},
+#             message="Payment created successfully.",
+#             status_code=201
+#         ).model_dump()
+
+#     except Exception as e:
+#         traceback.print_exc()
+#         db.rollback()
+#         return PaymentServiceResponse(
+#             status_code=500,
+#             data=None,
+#             message=f"An error occurred: {str(e)}"
+#         ).model_dump()
 
 @payment_router.post("", tags=["Payments"], status_code=201)
+@notify_after_payment
 def create_payment(
+    background_tasks: BackgroundTasks,
     request: str = Form(...),
     files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Creates a new Payment record in the database.
-    If self_payment=True, automatically sets Payment.person to current_user's Person UUID.
-    Otherwise, uses the person field from the request if supplied.
-    Links items, uploads files, creates PaymentStatusHistory, and adjusts project balance.
     """
+    logger.info(f"[create_payment] 🧾 Initiating payment creation for user={current_user.name}")
+    
     try:
         request_data = json.loads(request)
         payment_request = CreatePaymentRequest(**request_data)
+        logger.info(f"[create_payment] ✅ Parsed payment request for project={payment_request.project_id}, amount={payment_request.amount}")
 
-        # Validate Project
-        project = db.query(Project).filter(
-            Project.uuid == payment_request.project_id).first()
+        # Validate project
+        project = db.query(Project).filter(Project.uuid == payment_request.project_id).first()
         if not project:
+            logger.warning(f"[create_payment] ❌ Project not found: {payment_request.project_id}")
             return PaymentServiceResponse(
                 status_code=404,
                 data=None,
                 message="Project not found."
             ).model_dump()
 
-        # Create Payment
+        # Create payment
         new_payment = Payment(
             amount=payment_request.amount,
             description=payment_request.description,
@@ -155,34 +307,34 @@ def create_payment(
             status='requested',
             remarks=payment_request.remarks,
             created_by=current_user.uuid,
-            person=payment_request.person,            # might be overwritten for self_payment
-            self_payment=payment_request.self_payment,  # store the flag
+            person=payment_request.person,
+            self_payment=payment_request.self_payment,
             latitude=payment_request.latitude,
             longitude=payment_request.longitude,
             priority_id=payment_request.priority_id,
         )
         db.add(new_payment)
-        db.flush()  # flush so new_payment.uuid is available
-        current_payment_uuid = new_payment.uuid
-
-        # Create Payment status history
-        db.add(
-            PaymentStatusHistory(
-                payment_id=new_payment.uuid,
-                status='requested',
-                created_by=current_user.uuid
-            )
-        )
         db.flush()
+        current_payment_uuid = new_payment.uuid
+        logger.info(f"[create_payment] 💾 Payment record created: {current_payment_uuid}")
 
-        # Link items if provided
+        # Add status history
+        db.add(PaymentStatusHistory(
+            payment_id=current_payment_uuid,
+            status='requested',
+            created_by=current_user.uuid
+        ))
+        logger.info(f"[create_payment] 🕘 Status history logged for payment {current_payment_uuid}")
+
+        # Link items
         if payment_request.item_uuids:
             db.add_all([
-                PaymentItem(payment_id=new_payment.uuid, item_id=item_id)
+                PaymentItem(payment_id=current_payment_uuid, item_id=item_id)
                 for item_id in payment_request.item_uuids
             ])
+            logger.info(f"[create_payment] 🔗 Linked {len(payment_request.item_uuids)} items to payment {current_payment_uuid}")
 
-        # Update project balance
+        # Adjust balance
         create_project_balance_entry(
             db=db,
             project_id=payment_request.project_id,
@@ -190,36 +342,23 @@ def create_payment(
             description="Payment deduction",
             current_user=current_user
         )
+        logger.info(f"[create_payment] 📉 Project balance adjusted for project {payment_request.project_id}")
 
-        # Handle file uploads
+        # Save files
         if files:
-            upload_dir = constants.UPLOAD_DIR
-            os.makedirs(upload_dir, exist_ok=True)
+            os.makedirs(constants.UPLOAD_DIR, exist_ok=True)
             for file in files:
-                # Create a unique filename to avoid collisions
-                file_ext = os.path.splitext(file.filename)[1]
-                unique_filename = f"{str(uuid4())}{file_ext}"
-                file_path = os.path.join(upload_dir, unique_filename)
-
-                # Save the file
-                with open(file_path, "wb") as buffer:
-                    buffer.write(file.file.read())
-
-                # Store the relative path in the database
-                db.add(PaymentFile(
-                    payment_id=new_payment.uuid,
-                    file_path=file_path
-                ))
+                ext = os.path.splitext(file.filename)[1]
+                filename = f"{uuid4()}{ext}"
+                path = os.path.join(constants.UPLOAD_DIR, filename)
+                with open(path, "wb") as f:
+                    f.write(file.file.read())
+                db.add(PaymentFile(payment_id=current_payment_uuid, file_path=path))
+            logger.info(f"[create_payment] 📎 {len(files)} file(s) uploaded and linked to payment")
 
         db.commit()
-        notification = notify_create_payment(
-            amount=payment_request.amount,
-            user=current_user,
-            db=db
-        )
-        if not notification:
-            logger.error(
-                "Something went wrong while sending create payment notification")
+        logger.info(f"[create_payment] ✅ Payment committed successfully: {current_payment_uuid}")
+
         return PaymentServiceResponse(
             data={"payment_uuid": current_payment_uuid},
             message="Payment created successfully.",
@@ -227,14 +366,14 @@ def create_payment(
         ).model_dump()
 
     except Exception as e:
-        traceback.print_exc()
         db.rollback()
+        logger.error(f"[create_payment] ❌ Error occurred while creating payment: {str(e)}")
+        traceback.print_exc()
         return PaymentServiceResponse(
             status_code=500,
             data=None,
             message=f"An error occurred: {str(e)}"
         ).model_dump()
-
 
 @payment_router.patch("/{payment_uuid}")
 def update_payment_amount(

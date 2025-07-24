@@ -1153,7 +1153,7 @@ def delete_project(
 
         return ProjectServiceResponse(
             data=None,
-            message="Project and related data soft deleted successfully",
+            message="Project and related data deleted successfully",
             status_code=200
         ).model_dump()
 
