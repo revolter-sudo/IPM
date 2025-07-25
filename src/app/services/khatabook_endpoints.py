@@ -24,6 +24,9 @@ from src.app.services.khatabook_service import (
 from src.app.database.models import User, Khatabook, KhatabookBalance
 from src.app.services.auth_service import get_current_user
 from src.app.schemas import constants
+from src.app.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 khatabook_router = APIRouter(prefix="/khatabook", tags=["Khatabook"])
 
@@ -54,7 +57,17 @@ async def create_khatabook_entry(
     try:
         parsed_data = json.loads(data)
         file_paths = [save_uploaded_file(f) for f in files] if files else []
-        create_khatabook_entry_service(db=db, data=parsed_data, file_paths=file_paths, user_id=current_user.uuid, current_user=current_user.uuid)
+        # Capture the created Khatabook entry
+        khatabook_entry = create_khatabook_entry_service(
+            db=db,
+            data=parsed_data,
+            file_paths=file_paths,
+            user_id=current_user.uuid,
+            current_user=current_user.uuid
+        )
+        
+        logger.info(f"[{current_user.name}] have created khatabook entry [{khatabook_entry.uuid}] with amount [{khatabook_entry.amount}]")
+        
         return AuthServiceResponse(
             data=None,
             status_code=201,
@@ -80,6 +93,7 @@ def update_khatabook_entry(
         parsed_data = json.loads(data)
         file_paths = [save_uploaded_file(f) for f in files] if files else []
         entry = update_khatabook_entry_service(db, khatabook_uuid, parsed_data, file_paths)
+        
         if not entry:
             return AuthServiceResponse(
                 data=None,
@@ -180,6 +194,8 @@ def mark_suspicious(
             kb_uuid=khatabook_uuid,
             is_suspicious=request.is_suspicious
         )
+        
+        logger.info(f"[{current_user.name}] have marked is suspicious for [{khatabook_uuid}]")
 
         if not entry:
             return KhatabookServiceResponse(
@@ -516,7 +532,9 @@ def hard_delete_khatabook_entry(
         result = hard_delete_khatabook_entry_service(
             db=db, kb_uuid=khatabook_uuid
         )
-
+        
+        logger.info(f"[{current_user.name}] have deleted khatabook entry [{khatabook_uuid}]")
+        
         if not result:
             return KhatabookServiceResponse(
                 data=None,
@@ -562,6 +580,8 @@ def soft_delete_khatabook_entry(
 
         # Perform soft delete
         result = soft_delete_khatabook_entry_service(db=db, kb_uuid=khatabook_uuid)
+        
+        logger.info(f"[{current_user.name}] have deleted khatabook entry [{khatabook_uuid}]")
 
         if not result:
             return KhatabookServiceResponse(

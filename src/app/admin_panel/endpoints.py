@@ -407,6 +407,8 @@ def map_multiple_users_to_project(
                 project_id=project_id,
                 user_ids=user_ids
             )
+            
+            logger.info(f"[{current_user.name}] have map users[{user_ids}] to project[{project.name}]")
 
             return ProjectServiceResponse(
                 data={
@@ -594,6 +596,8 @@ def map_multiple_items_to_project(
                 item_data_list=items_data,
                 project_id=project_id
             )
+            
+            logger.info(f"[{current_user.name}] map items[{items_data}] to project[{project.name}]")
 
             return ProjectServiceResponse(
                 data={
@@ -846,6 +850,8 @@ def remove_item_from_project(
 
         # Remove the mapping
         result = remove_project_item_mapping(db=db, item_id=item_id, project_id=project_id)
+        
+        logger.info(f"[{current_user.name}] Removed item {item.name} from project {project.name}")
 
         if not result:
             return ProjectServiceResponse(
@@ -912,6 +918,8 @@ def remove_user_from_project(
 
         # Remove the mapping
         result = remove_project_user_mapping(db=db, user_id=user_id, project_id=project_id)
+        
+        logger.info(f"[{current_user.name}] removed user {user.name} from project {project.name}")
 
         if not result:
             return ProjectServiceResponse(
@@ -978,6 +986,8 @@ def remove_item_from_user(
 
         # Remove the mapping
         result = remove_user_item_mapping(db=db, user_id=user_id, item_id=item_id)
+        
+        logger.info(f"[{current_user.name}] Removed item {item.name} from user {user.name}")
 
         if not result:
             return ProjectServiceResponse(
@@ -1936,6 +1946,8 @@ def upload_single_invoice_for_po(
         ))
 
         db.commit()
+        
+        logger.info(f"[{current_user.name}] have created invoice. invoice number=[{invoice_number}]")
 
         # Success—201 status remains default (set in decorator)
         return ProjectServiceResponse(
@@ -2197,6 +2209,8 @@ def upload_multiple_invoices_for_po(
             })
 
         db.commit()
+        
+        logger.info(f"[{current_user.name}] have created invoice. invoice number=[{invoice_number}]")
 
         return ProjectServiceResponse(
             data={"invoices": created_invoices},
@@ -2650,6 +2664,8 @@ def delete_invoice(
         )
         db.add(log_entry)
         db.commit()
+        
+        logger.info(f"[{current_user.name}] deleted invoice {invoice_id}")
 
         return ProjectServiceResponse(
             data={"deleted_invoice_id": str(invoice_id)},
@@ -3319,6 +3335,8 @@ def delete_invoice_payment(
         )
         db.add(log_entry)
         db.commit()
+        
+        logger.info(f"[{current_user.name}] deleted invoice payment {payment_id}")
 
         return ProjectServiceResponse(
             data={
@@ -4360,6 +4378,14 @@ def sync_project_user_item_map(
             user_id=payload.user_id,
             item_ids=payload.item_ids
         )
+        
+        project = db.query(Project).filter(Project.uuid == payload.project_id).first()
+        user = db.query(User).filter(User.uuid == payload.user_id).first()
+        item = None
+        if payload.item_ids:
+            item = db.query(Item).filter(Item.uuid == payload.item_ids[0]).first()
+        
+        logger.info(f"[{current_user.name}] have map projet [{project.name}] user [{user.name}] and item [{item.name}].")
 
         return {
             "status_code": 200,
@@ -4916,6 +4942,11 @@ def map_items_to_item_group(
                 added += 1
 
         db.commit()
+        
+        logger.info(
+            f"[{current_user.name}] mapped {len(items_data)} items to item group '{group.uuid}' "
+            f"(UUID: {group.uuid}) – Added: {added}, Updated: {updated}"
+        )
 
         return PaymentServiceResponse(
             data={
@@ -5145,6 +5176,8 @@ def unmap_item_from_group(
         # Perform soft delete
         mapping.is_deleted = True
         db.commit()
+        
+        logger.info(f"[{current_user.name}] Unmapped item {item_uuid} from group {group_uuid}")
 
         return PaymentServiceResponse(
             data={
@@ -5213,6 +5246,8 @@ def create_salary(
         db.add(salary)
         db.commit()
         db.refresh(salary)
+        
+        logger.info(f"[{current_user.name}] created salary for user {user.name} in project {project.name}")
 
         return ProjectServiceResponse(
             data=SalaryResponse(
@@ -5397,6 +5432,8 @@ def delete_salary_record(
         # 🗑️ Soft delete
         salary.is_deleted = True
         db.commit()
+        
+        logger.info(f"[{current_user.name}] deleted salary record {salary_id}")
 
         return {
             "data": None,
@@ -5483,6 +5520,8 @@ def upgrade_person_to_user(
     db.commit()
     db.refresh(person)
     db.refresh(new_user)
+    
+    logger.info(f"[{current_user.name}] have update person {person.name} to user {new_user.name} with uuid {new_user.uuid}")
 
     return {
         "status": "success",

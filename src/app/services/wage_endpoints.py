@@ -55,6 +55,7 @@ from src.app.services.wage_service import (
     calculate_and_save_wage
 )
 from src.app.utils.logging_config import get_logger
+from src.app.utils.timezone_utils import get_ist_now
 
 logger = get_logger(__name__)
 
@@ -74,6 +75,7 @@ def configure_daily_wage_rate(
     Only Admin, Project Manager, and Super Admin can configure wage rates.
     """
     try:
+        current_time = get_ist_now()
         # Check permissions
         if not check_wage_configuration_permission(current_user.role):
             return WageResponse(
@@ -123,6 +125,8 @@ def configure_daily_wage_rate(
         db.add(new_wage_config)
         db.commit()
         db.refresh(new_wage_config)
+        
+        logger.info(f"[{current_user.name}] have created wage for [{project_id}] at [{current_time}]")
         
         # Prepare response
         response_data = WageConfigurationResponse(

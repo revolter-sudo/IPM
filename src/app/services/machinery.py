@@ -12,6 +12,7 @@ from fastapi import (
     UploadFile,
     Form
 )
+from src.app.utils.timezone_utils import get_ist_now
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, func
 from src.app.database.database import get_db
@@ -149,6 +150,10 @@ def punch_in_machine(
                 db.add(photo_obj)
                 photo_paths.append(photo_path)
             db.commit()  # Commit photo entries
+            
+            
+            
+            
 
 
 
@@ -173,6 +178,10 @@ def punch_in_machine(
         )
         db.add(log_entry)
         db.commit()
+        
+        current_time = get_ist_now()
+        logger.info(f"[{current_user.name}] have started machine at [{current_time}]")
+        
 
         return APIResponse(
             data=resp_data,  # resp_data is already a dictionary, no need for model_dump()
@@ -306,6 +315,9 @@ def punch_out_machine(
         )
         db.add(log_entry)
         db.commit()
+        
+        current_time = get_ist_now()
+        logger.info(f"[{current_user.name}] have stopped machine at [{current_time}]")
 
         return APIResponse(
             data=resp_data,  # resp_data is already a dictionary
@@ -364,6 +376,8 @@ def delete_machine_log(
         #soft delete the machinery log
         machinery.is_deleted = True
         db.commit()
+        
+        logger.info(f"[{current_user.name}] have delete machine logs of [{uuid}]")
 
         # Log the action
         log_entry = Log(

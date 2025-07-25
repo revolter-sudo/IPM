@@ -2188,7 +2188,9 @@ def create_person(
         generated_uuid = new_person.uuid
 
         db.commit()
+        
         logger.info(f"[{current_user.name}] Successfully Create Person [{new_person.name}]")
+        
         return PaymentServiceResponse(
             data=str(generated_uuid),
             message="Person created successfully.",

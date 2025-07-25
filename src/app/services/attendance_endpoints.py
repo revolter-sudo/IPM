@@ -223,6 +223,7 @@ def punch_in_self_attendance(
             SelfAttendance.is_deleted.is_(False)
         ).first()
         if existing:
+            logger.warning(f"For [{current_user.name}] Attendance already marked for today")
             return AttendanceResponse(
                 data=None,
                 message="Attendance already marked for today",
@@ -272,6 +273,8 @@ def punch_in_self_attendance(
         )
         db.add(log_entry)
         db.commit()
+        
+        logger.info(f"[{current_user.name}] did punch in at [{new_att.punch_in_time}]")
 
         return AttendanceResponse(
             data=response_data.model_dump(),
@@ -318,6 +321,7 @@ def punch_out_self_attendance(
         ).first()
 
         if not attendance_record:
+            logger.warning(f"No punch in record found for [{current_user.name}]")
             return AttendanceResponse(
                 data=None,
                 message="No punch in record found for today",
@@ -325,6 +329,7 @@ def punch_out_self_attendance(
             ).to_dict()
 
         if attendance_record.punch_out_time:
+            logger.warning(f"[{current_user.name}] Already punched out for today")
             return AttendanceResponse(
                 data=None,
                 message="Already punched out for today",
@@ -387,6 +392,8 @@ def punch_out_self_attendance(
         )
         db.add(log_entry)
         db.commit()
+        
+        logger.info(f"[{current_user.name}] did punch out at [{attendance_record.punch_out_time}]")
 
         return AttendanceResponse(
             data=response_data.model_dump(),
@@ -482,6 +489,9 @@ def mark_day_off(
         db.add(new_entry)
         db.commit()
         db.refresh(new_entry)
+        
+        current_time = get_ist_now()
+        logger.info(f"[{current_user.name}] Marked as Day Off successfully at [{current_time}].")
 
         return AttendanceResponse(
             data={"uuid": str(new_entry.uuid), "date": str(date_off)},
@@ -528,7 +538,7 @@ def cancel_self_punch_in(
             ).to_dict()
 
         # Time check: allow cancel only within 5 minutes
-        current_time = datetime.now()
+        current_time = get_ist_now()
         punch_in_time = punch_record.punch_in_time
 
         if (current_time - punch_in_time) > timedelta(minutes=5):
@@ -556,6 +566,8 @@ def cancel_self_punch_in(
         # Soft delete
         punch_record.is_deleted = True
         db.commit()
+        
+        logger.info(f"[{current_user.name}] have cancelled punch-in.[{current_time}]")
 
         # Log cancellation
         log_entry = Log(
@@ -634,6 +646,9 @@ def cancel_self_day_off(
         # Soft delete
         off_record.is_deleted = True
         db.commit()
+        
+        current_time = get_ist_now()
+        logger.info(f"[{current_user.name}] did cancelled day off at [{current_time}]")
 
         # Log cancellation
         log_entry = Log(
@@ -1094,6 +1109,8 @@ def mark_project_attendance(
         db.add(att); 
         db.commit(); 
         db.refresh(att)
+        
+        logger.info(f"[{current_user.name}] have marked attendance for [{project.name}] labors [{att.no_of_labours}]")
 
         # Wage calculation & logging (same as before)…
         wage_calc = calculate_and_save_wage(
@@ -1183,6 +1200,8 @@ def update_project_attendance(
     response: Response = None,
 ):
     try:
+        current_time = get_ist_now()
+        
         # Fetch existing record
         att = db.query(ProjectAttendance).filter(
             ProjectAttendance.uuid == attendance_id,
@@ -1337,6 +1356,8 @@ def update_project_attendance(
         # Save changes
         db.commit()
         db.refresh(att)
+        
+        # logger.info(f"[{current_user.name}] have access at [{current_time}]")
 
         # Log update
         log_entry = Log(
@@ -1446,6 +1467,8 @@ def delete_project_attendance(
         # Soft delete
         att.is_deleted = True
         db.commit()
+        
+        logger.info(f"[{current_user.name}] have deleted project attendance records [{attendance_id}]")
 
         # Log action
         db.add(Log(
