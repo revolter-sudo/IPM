@@ -18,7 +18,8 @@ from src.app.services.khatabook_service import (
     get_all_khatabook_entries_service,
     update_khatabook_entry_service,
     hard_delete_khatabook_entry_service,
-    mark_khatabook_entry_suspicious
+    mark_khatabook_entry_suspicious,
+    soft_delete_khatabook_entry_service
 )
 from src.app.database.models import User, Khatabook, KhatabookBalance
 from src.app.services.auth_service import get_current_user
@@ -108,14 +109,7 @@ def get_all_khatabook_entries(
         return current_user
 
     try:
-        # Get the current balance directly from KhatabookBalance table
-        # This is the source of truth that includes self payments
-        user_balance_record = db.query(KhatabookBalance).filter(
-            KhatabookBalance.user_uuid == current_user.uuid
-        ).first()
-
-        current_balance = user_balance_record.balance if user_balance_record else 0.0
-
+        # Get all entries for the user
         entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
 
         # Calculate total spent (only debit entries - manual expenses)
@@ -123,10 +117,21 @@ def get_all_khatabook_entries(
             entry["amount"] for entry in entries
             if entry.get("entry_type") == "Debit"
         ) if entries else 0.0
-        remaining_balance = current_balance - total_spent
+
+        # Calculate user_available_balance from transferred self-payments
+        from src.app.database.models import Payment
+        transferred_self_payments = db.query(Payment).filter(
+            Payment.created_by == current_user.uuid,
+            Payment.self_payment == True,
+            Payment.status == "transferred",
+            Payment.is_deleted == False
+        ).all()
+
+        user_available_balance = sum(payment.amount for payment in transferred_self_payments)
+        remaining_balance = user_available_balance - total_spent
 
         response_data = {
-            "remaining_balance": remaining_balance,  # Current balance from KhatabookBalance table
+            "remaining_balance": remaining_balance,  # Available balance after expenses
             "total_amount": total_spent,  # Total manual expenses (debit entries)
             "entries": entries
         }
@@ -258,6 +263,7 @@ def export_khatabook_data(
             # Import datetime here to avoid circular imports
             from datetime import datetime
             from sqlalchemy.orm import joinedload
+            from sqlalchemy import and_
             from src.app.database.models import (
                 KhatabookItem, KhatabookFile, Person, Project
             )
@@ -267,11 +273,17 @@ def export_khatabook_data(
                 db.query(Khatabook)
                 .outerjoin(
                     KhatabookItem,
-                    Khatabook.uuid == KhatabookItem.khatabook_id
+                    and_(
+                        Khatabook.uuid == KhatabookItem.khatabook_id,
+                        KhatabookItem.is_deleted.is_(False)
+                    )
                 )
                 .outerjoin(
                     KhatabookFile,
-                    Khatabook.uuid == KhatabookFile.khatabook_id
+                    and_(
+                        Khatabook.uuid == KhatabookFile.khatabook_id,
+                        KhatabookFile.is_deleted.is_(False)
+                    )
                 )
                 .outerjoin(User, Khatabook.created_by == User.uuid)  # Uncommented User join
                 .outerjoin(Person, Khatabook.person_id == Person.uuid)
@@ -346,11 +358,11 @@ def export_khatabook_data(
 
             entries = []
             for entry in khatabook_entries:
-                # Process items
+                # Process items (only non-deleted items)
                 items_data = []
                 if entry.items:
                     for khatabook_item in entry.items:
-                        if khatabook_item.item:
+                        if not khatabook_item.is_deleted and khatabook_item.item:
                             items_data.append({
                                 "item": {
                                     "name": khatabook_item.item.name
@@ -376,7 +388,7 @@ def export_khatabook_data(
                     "expense_date": (
                         entry.expense_date.isoformat()
                         if entry.expense_date else ""
-                    ), 
+                    ),
                     "amount": entry.amount,
                     "remarks": entry.remarks,
                     "person": person_info,
@@ -384,7 +396,8 @@ def export_khatabook_data(
                     "items": items_data,
                     "payment_mode": entry.payment_mode,
                     "balance_after_entry": entry.balance_after_entry,
-                    "is_suspicious": entry.is_suspicious
+                    "is_suspicious": entry.is_suspicious,
+                    "entry_type": entry.entry_type  # Add missing entry_type field
                 })
         else:
             # Regular user or admin without filters - use existing service
@@ -395,46 +408,43 @@ def export_khatabook_data(
         # Create a DataFrame from the entries
         df_data = []
         for entry in entries:
-            person_name = (
-                entry.get("person", {}).get("name", "")
-                if isinstance(entry.get("person"), dict) else ""
-            )
-            
-            # Handle created_by_user information consistently
-            user_name = ""
-            created_by_user = entry.get("created_by_user", {})
-            if isinstance(created_by_user, dict):
-                user_name = created_by_user.get("name", "")
-            
-            # Fix for item extraction - handle different item structures
+            person = entry.get("person")
+            created_by = entry.get("created_by_user")
+
+            person_name = person.get("name") if isinstance(person, dict) and person else ""
+            user_name = created_by.get("name") if isinstance(created_by, dict) and created_by else ""
+            # remarks = entry.get("remarks", "").lower().strip()
+
+            # Safe item extraction
             items_list = []
             for item in entry.get("items", []):
                 if isinstance(item, dict):
-                    # Direct dictionary with name
                     if "name" in item:
                         items_list.append(item["name"])
-                    # Dictionary with nested item structure
-                    elif ("item" in item and
-                          isinstance(item["item"], dict) and
-                          "name" in item["item"]):
-                        items_list.append(item["item"]["name"])
+                    elif isinstance(item.get("item"), dict):
+                        items_list.append(item["item"].get("name", ""))
 
             items = ", ".join(items_list)
 
+            # Determine credit/debit
+            amount = entry.get("amount", 0)
+            entry_type = entry.get("entry_type", "").strip().lower()
+             
+            # Append data to DataFrame
             df_data.append({
-                "Date": entry.get("created_at", ""),
-                "Expense Date": entry.get("expense_date", ""),
-                "Amount": entry.get("amount", 0),
-                "Remarks": entry.get("remarks", ""),
-                "Person": person_name,
-                "Created By": user_name,
-                "Items": items,
-                "Payment Mode": entry.get("payment_mode", ""),
-                "Balance After Entry": entry.get("balance_after_entry", 0),
-                "Suspicious": (
-                    "Yes" if entry.get("is_suspicious", False) else "No"
-                )
+                "Date": entry.get("created_at", None),
+                "Expense Date": entry.get("expense_date", None),
+                "Credit Amount": amount if entry_type == "credit" else None,
+                "Debit Amount": amount if entry_type == "debit" else None,
+                "Remarks": entry.get("remarks", "-"),
+                "Person": person_name or None,
+                "Created By": user_name or None,
+                "Items": items or None,
+                "Payment Mode": entry.get("payment_mode", None),
+                "Balance After Entry": entry.get("balance_after_entry", None),
+                "Suspicious": "Yes" if entry.get("is_suspicious", False) else "No"
             })
+
 
         # Create DataFrame
         df = pd.DataFrame(df_data)
@@ -524,4 +534,51 @@ def hard_delete_khatabook_entry(
             data=None,
             status_code=500,
             message=f"Error: {str(e)}"
+        ).model_dump()
+
+@khatabook_router.delete("/{khatabook_uuid}/soft-delete")
+def soft_delete_khatabook_entry(
+    khatabook_uuid: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Soft delete a khatabook entry.
+    Only ADMIN and SUPER_ADMIN users can perform this action.
+    """
+    # Handle unauthorized user
+    if isinstance(current_user, dict):
+        return current_user
+
+    try:
+        # Check user role
+        if current_user.role not in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]:
+            return KhatabookServiceResponse(
+                data=None,
+                status_code=403,
+                message="Only admin and super admin can soft delete entries"
+            ).model_dump()
+
+        # Perform soft delete
+        result = soft_delete_khatabook_entry_service(db=db, kb_uuid=khatabook_uuid)
+
+        if not result:
+            return KhatabookServiceResponse(
+                data=None,
+                status_code=404,
+                message="Khatabook entry not found"
+            ).model_dump()
+
+        return KhatabookServiceResponse(
+            data=None,
+            status_code=200,
+            message="Khatabook entry soft deleted successfully"
+        ).model_dump()
+
+    except Exception as e:
+        db.rollback()
+        return KhatabookServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"An error occurred while soft deleting the entry: {str(e)}"
         ).model_dump()

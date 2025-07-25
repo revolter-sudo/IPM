@@ -1,4 +1,5 @@
 from uuid import UUID
+from datetime import datetime
 from src.app.utils.logging_config import get_logger
 
 from fastapi import (
@@ -18,8 +19,8 @@ from fastapi.security import (
 )
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from sqlalchemy import and_
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_
+from sqlalchemy.orm import Session, joinedload
 from uuid import uuid4
 from src.app.database.database import get_db
 from src.app.database.models import User, Log, Person, UserTokenMap , UserData
@@ -32,7 +33,12 @@ from src.app.schemas.auth_service_schamas import (
     ForgotPasswordRequest,
     UserLogout,
     UserEdit,
-    OutsideUserLogin
+    OutsideUserLogin,
+    PersonWithRole,
+    RoleBasedPersonQueryRequest,
+    RoleBasedPersonQueryResponse,
+    UpdatePersonRoleRequest,
+    UpdatePersonRoleResponse
 )
 from src.app.notification.notification_service import (
     subscribe_news,
@@ -1029,4 +1035,332 @@ def list_outside_users(
             data=None,
             status_code=500,
             message=f"Error fetching outside users: {str(e)}"
+        ).model_dump()
+
+
+@auth_router.get("/persons/by-role", status_code=status.HTTP_200_OK, tags=["Persons"])
+def get_persons_by_role(
+    role: UserRole = Query(..., description="Role to filter persons by"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get all persons with a specific role from two sources:
+    1. Person records that have the specified role directly assigned
+    2. Person records linked to Users who have the specified role
+
+    Results are combined and deduplicated to avoid returning the same Person twice.
+    Access is restricted to Admin, Super Admin, and Project Manager roles.
+
+    Args:
+        role: UserRole enum value to filter persons by
+        db: Database session
+        current_user: Current authenticated user
+
+    Returns:
+        JSON response with list of PersonWithRole objects
+
+    Raises:
+        403: If user doesn't have required permissions
+        400: If invalid role is provided
+        500: If database error occurs
+    """
+    try:
+        # Validate current user
+        if not current_user or not hasattr(current_user, 'role'):
+            return AuthServiceResponse(
+                data=None,
+                message="Invalid user session",
+                status_code=401
+            ).model_dump()
+
+        # Check if current user has permission to access this endpoint
+        if current_user.role not in [
+            UserRole.ADMIN.value,
+            UserRole.SUPER_ADMIN.value,
+            UserRole.PROJECT_MANAGER.value,
+        ]:
+            return AuthServiceResponse(
+                data=None,
+                message="Access denied. Admin, Super Admin, or Project Manager privileges required.",
+                status_code=403
+            ).model_dump()
+
+        # Validate role parameter
+        if not role:
+            return AuthServiceResponse(
+                data=None,
+                message="Role parameter is required",
+                status_code=400
+            ).model_dump()
+
+        # Convert role enum to string value for database query
+        role_value = role.value
+
+        # Query 1: Get persons with the role directly assigned
+        try:
+            persons_with_direct_role = db.query(Person).filter(
+                Person.role == role_value,
+                Person.is_deleted.is_(False)
+            ).all()
+        except Exception as e:
+            logger.error(f"Error querying persons with direct role '{role_value}': {str(e)}")
+            return AuthServiceResponse(
+                data=None,
+                message="Error retrieving persons with direct role assignment",
+                status_code=500
+            ).model_dump()
+
+        # Query 2: Get persons linked to users with the specified role
+        try:
+            persons_with_user_role = db.query(Person).join(
+                User, Person.user_id == User.uuid
+            ).filter(
+                User.role == role_value,
+                User.is_deleted.is_(False),
+                User.is_active.is_(True),
+                Person.is_deleted.is_(False)
+            ).all()
+        except Exception as e:
+            logger.error(f"Error querying persons with user role '{role_value}': {str(e)}")
+            return AuthServiceResponse(
+                data=None,
+                message="Error retrieving persons with user role assignment",
+                status_code=500
+            ).model_dump()
+
+        # Combine results and deduplicate by person UUID
+        combined_persons = {}
+
+        # Add persons with direct role
+        try:
+            for person in persons_with_direct_role:
+                if not person or not hasattr(person, 'uuid'):
+                    logger.warning(f"Invalid person object found in direct role query")
+                    continue
+
+                person_data = PersonWithRole(
+                    uuid=person.uuid,
+                    name=person.name or "",
+                    phone_number=person.phone_number or "",
+                    account_number=person.account_number,
+                    ifsc_code=person.ifsc_code,
+                    upi_number=person.upi_number,
+                    role=person.role or role_value,
+                    role_source="person",
+                    user_id=person.user_id
+                )
+                combined_persons[str(person.uuid)] = person_data
+        except Exception as e:
+            logger.error(f"Error processing persons with direct role: {str(e)}")
+            return AuthServiceResponse(
+                data=None,
+                message="Error processing persons with direct role assignment",
+                status_code=500
+            ).model_dump()
+
+        # Add persons with user role (only if not already added)
+        try:
+            for person in persons_with_user_role:
+                if not person or not hasattr(person, 'uuid'):
+                    logger.warning(f"Invalid person object found in user role query")
+                    continue
+
+                person_uuid_str = str(person.uuid)
+                if person_uuid_str not in combined_persons:
+                    # Get the user's role for this person
+                    user = None
+                    if person.user_id:
+                        try:
+                            user = db.query(User).filter(User.uuid == person.user_id).first()
+                        except Exception as e:
+                            logger.warning(f"Error fetching user for person {person.uuid}: {str(e)}")
+
+                    person_data = PersonWithRole(
+                        uuid=person.uuid,
+                        name=person.name or "",
+                        phone_number=person.phone_number or "",
+                        account_number=person.account_number,
+                        ifsc_code=person.ifsc_code,
+                        upi_number=person.upi_number,
+                        role=user.role if user else role_value,
+                        role_source="user",
+                        user_id=person.user_id
+                    )
+                    combined_persons[person_uuid_str] = person_data
+        except Exception as e:
+            logger.error(f"Error processing persons with user role: {str(e)}")
+            return AuthServiceResponse(
+                data=None,
+                message="Error processing persons with user role assignment",
+                status_code=500
+            ).model_dump()
+
+        # Convert to list and sort by name
+        try:
+            result_persons = list(combined_persons.values())
+            result_persons.sort(key=lambda x: x.name if x.name else "")
+        except Exception as e:
+            logger.error(f"Error sorting results: {str(e)}")
+            result_persons = list(combined_persons.values())
+
+        # Create response
+        try:
+            return RoleBasedPersonQueryResponse(
+                data=result_persons,
+                message=f"Persons with role '{role_value}' fetched successfully. Found {len(result_persons)} persons.",
+                status_code=200
+            ).to_dict()
+        except Exception as e:
+            logger.error(f"Error creating response: {str(e)}")
+            return AuthServiceResponse(
+                data=None,
+                message="Error formatting response data",
+                status_code=500
+            ).model_dump()
+
+    except Exception as e:
+        logger.error(f"Error in get_persons_by_role API: {str(e)}")
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error fetching persons by role: {str(e)}"
+        ).model_dump()
+
+
+@auth_router.put("/persons/{person_id}/role", status_code=status.HTTP_200_OK, tags=["Persons"])
+def update_person_role(
+    person_id: UUID,
+    request_data: UpdatePersonRoleRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Add or update role for an existing person.
+
+    This endpoint allows authorized users to assign or remove roles from persons.
+    Setting role to null will remove the role assignment.
+
+    Access is restricted to Admin and Super Admin roles only.
+
+    Args:
+        person_id: UUID of the person to update
+        request_data: UpdatePersonRoleRequest containing the role to assign
+        db: Database session
+        current_user: Current authenticated user
+
+    Returns:
+        JSON response with updated person information
+
+    Raises:
+        400: If person not found or invalid role
+        401: If user session is invalid
+        403: If user doesn't have required permissions
+        500: If database error occurs
+    """
+    try:
+        # Validate current user
+        if not current_user or not hasattr(current_user, 'role'):
+            return AuthServiceResponse(
+                data=None,
+                message="Invalid user session",
+                status_code=401
+            ).model_dump()
+
+        # Check if current user has permission to update person roles
+        # Only Admin and Super Admin can assign roles to persons
+        if current_user.role not in [
+            UserRole.ADMIN.value,
+            UserRole.SUPER_ADMIN.value,
+        ]:
+            return AuthServiceResponse(
+                data=None,
+                message="Access denied. Admin or Super Admin privileges required.",
+                status_code=403
+            ).model_dump()
+
+        # Validate person_id parameter
+        if not person_id:
+            return AuthServiceResponse(
+                data=None,
+                message="Person ID is required",
+                status_code=400
+            ).model_dump()
+
+        # Find the person to update
+        try:
+            person = db.query(Person).filter(
+                Person.uuid == person_id,
+                Person.is_deleted.is_(False)
+            ).first()
+        except Exception as e:
+            logger.error(f"Error querying person {person_id}: {str(e)}")
+            return AuthServiceResponse(
+                data=None,
+                message="Error retrieving person data",
+                status_code=500
+            ).model_dump()
+
+        if not person:
+            return AuthServiceResponse(
+                data=None,
+                message="Person not found or has been deleted",
+                status_code=404
+            ).model_dump()
+
+        # Get the role value (can be None to remove role)
+        role_value = request_data.role.value if request_data.role else None
+
+        # Update the person's role
+        try:
+            old_role = person.role
+            person.role = role_value
+            db.commit()
+            db.refresh(person)
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error updating person role for {person_id}: {str(e)}")
+            return AuthServiceResponse(
+                data=None,
+                message="Error updating person role",
+                status_code=500
+            ).model_dump()
+
+        # Prepare response data
+        try:
+            response_data = {
+                "person_id": str(person.uuid),
+                "name": person.name,
+                "phone_number": person.phone_number,
+                "old_role": old_role,
+                "new_role": role_value,
+                "updated_by": str(current_user.uuid),
+                "updated_at": datetime.now().isoformat()
+            }
+
+            message = f"Person role updated successfully."
+            if role_value:
+                message += f" Role set to '{role_value}'."
+            else:
+                message += " Role removed."
+
+            return UpdatePersonRoleResponse(
+                data=response_data,
+                message=message,
+                status_code=200
+            ).to_dict()
+        except Exception as e:
+            logger.error(f"Error creating response for person {person_id}: {str(e)}")
+            return AuthServiceResponse(
+                data=None,
+                message="Error formatting response data",
+                status_code=500
+            ).model_dump()
+
+    except Exception as e:
+        logger.error(f"Error in update_person_role API: {str(e)}")
+        return AuthServiceResponse(
+            data=None,
+            status_code=500,
+            message=f"Error updating person role: {str(e)}"
         ).model_dump()

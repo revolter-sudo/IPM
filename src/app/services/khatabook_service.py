@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 from uuid import UUID
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
-from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Item, Project
+from src.app.database.models import Khatabook, KhatabookFile, KhatabookItem, Item, Project, Payment, PaymentStatusHistory, PaymentItem
 import os
 import shutil
 from src.app.database.models import KhatabookBalance
@@ -11,6 +11,83 @@ from sqlalchemy import and_
 from sqlalchemy.orm import joinedload
 from src.app.schemas import constants
 from src.app.schemas.constants import KHATABOOK_ENTRY_TYPE_DEBIT
+from src.app.utils.logging_config import get_database_logger
+
+# Initialize logger
+db_logger = get_database_logger()
+
+
+def create_payment_from_khatabook_entry(
+    db: Session,
+    khatabook_entry: Khatabook,
+    user_id: UUID
+) -> Optional[Payment]:
+    """
+    Creates a payment record from a khatabook entry when both project and person are specified.
+
+    Args:
+        db: Database session
+        khatabook_entry: The khatabook entry that was created
+        user_id: UUID of the user who created the khatabook entry
+
+    Returns:
+        Payment object if created successfully, None otherwise
+    """
+    try:
+        # Only create payment if both project_id and person_id are specified
+        if not khatabook_entry.project_id or not khatabook_entry.person_id:
+            db_logger.info(f"Skipping payment creation for khatabook entry {khatabook_entry.uuid}: missing project_id or person_id")
+            return None
+
+        db_logger.info(f"Creating payment record for khatabook entry {khatabook_entry.uuid}")
+
+        # Create payment record with khatabook status
+        payment = Payment(
+            amount=khatabook_entry.amount,
+            description=f"Auto-generated from khatabook entry - {khatabook_entry.remarks}" if khatabook_entry.remarks else "Auto-generated from khatabook entry",
+            project_id=khatabook_entry.project_id,
+            created_by=user_id,
+            status="khatabook",
+            person=khatabook_entry.person_id,
+            self_payment=False,  # Khatabook entries are not self payments
+            latitude=0.0,  # Default values for required fields
+            longitude=0.0
+        )
+
+        db.add(payment)
+        db.flush()  # Get the payment UUID
+
+        # Create payment status history entry
+        payment_status = PaymentStatusHistory(
+            payment_id=payment.uuid,
+            status="khatabook",
+            created_by=user_id
+        )
+        db.add(payment_status)
+
+        # Map khatabook items to payment items
+        khatabook_items = db.query(KhatabookItem).filter(
+            KhatabookItem.khatabook_id == khatabook_entry.uuid
+        ).all()
+
+        if khatabook_items:
+            db_logger.info(f"Creating {len(khatabook_items)} payment items for payment {payment.uuid}")
+            for kb_item in khatabook_items:
+                payment_item = PaymentItem(
+                    payment_id=payment.uuid,
+                    item_id=kb_item.item_id
+                )
+                db.add(payment_item)
+            db_logger.info(f"Successfully created payment items for payment {payment.uuid}")
+        else:
+            db_logger.info(f"No items to map for khatabook entry {khatabook_entry.uuid}")
+
+        db_logger.info(f"Successfully created payment {payment.uuid} from khatabook entry {khatabook_entry.uuid}")
+        return payment
+
+    except Exception as e:
+        db_logger.error(f"Failed to create payment from khatabook entry {khatabook_entry.uuid}: {str(e)}")
+        raise
 
 
 def create_khatabook_entry_service(
@@ -35,22 +112,8 @@ def create_khatabook_entry_service(
     try:
         amount = float(data.get("amount", 0.0))
 
-        # Get the user's total received amount
-        user_balance_record = db.query(KhatabookBalance).filter(
-            KhatabookBalance.user_uuid == current_user
-        ).first()
-
-        if not user_balance_record:
-            user_balance_record = KhatabookBalance(
-                user_uuid=current_user,
-                balance=0.0
-            )
-            db.add(user_balance_record)
-            db.flush()
-
-        # entries = get_all_khatabook_entries_service(user_id=current_user.uuid, db=db)
+        # Get existing entries to calculate total spent
         entries = get_all_khatabook_entries_service(user_id=current_user, db=db)
-
 
         # Calculate total spent (only debit entries - manual expenses)
         total_spent = sum(
@@ -58,12 +121,17 @@ def create_khatabook_entry_service(
             if entry.get("entry_type") == "Debit"
         ) if entries else 0.0
 
-        # Calculate available balance
-        current_available_balance = user_balance_record.balance - total_spent
-        new_available_balance = current_available_balance - amount
+        # Calculate user_available_balance from transferred self-payments
+        transferred_self_payments = db.query(Payment).filter(
+            Payment.created_by == current_user,
+            Payment.self_payment == True,
+            Payment.status == "transferred",
+            Payment.is_deleted == False
+        ).all()
 
-        # ✅ DON'T update user_balance_record.balance - it should only track received amounts
-        # user_balance_record.balance stays the same!
+        user_available_balance = sum(payment.amount for payment in transferred_self_payments)
+        current_available_balance = user_available_balance - total_spent
+        new_available_balance = current_available_balance - amount
 
         # Create the Khatabook entry with the new available balance
         kb_entry = Khatabook(
@@ -96,7 +164,18 @@ def create_khatabook_entry_service(
             new_file = KhatabookFile(khatabook_id=kb_entry.uuid, file_path=f)
             db.add(new_file)
 
-        # 6. Commit all changes
+        # 6. Create payment record if both project and person are specified
+        payment_created = None
+        try:
+            payment_created = create_payment_from_khatabook_entry(db, kb_entry, user_id)
+            if payment_created:
+                db_logger.info(f"Payment {payment_created.uuid} created for khatabook entry {kb_entry.uuid}")
+        except Exception as e:
+            db_logger.error(f"Failed to create payment for khatabook entry {kb_entry.uuid}: {str(e)}")
+            # Don't fail the entire khatabook creation if payment creation fails
+            # Just log the error and continue
+
+        # 7. Commit all changes
         db.commit()
         db.refresh(kb_entry)
         return kb_entry
@@ -125,7 +204,11 @@ def update_khatabook_entry_service(
     # If item_ids key is present, replace items
     if "item_ids" in data:
         item_ids = data["item_ids"]
-        db.query(KhatabookItem).filter(KhatabookItem.khatabook_id == kb_entry.uuid).delete()
+        # Soft delete existing items instead of hard delete
+        db.query(KhatabookItem).filter(
+            KhatabookItem.khatabook_id == kb_entry.uuid,
+            KhatabookItem.is_deleted.is_(False)
+        ).update({KhatabookItem.is_deleted: True})
         db.flush()
         for item_uuid in item_ids:
             item_obj = db.query(Item).filter(Item.uuid == item_uuid).first()
@@ -137,7 +220,11 @@ def update_khatabook_entry_service(
                 db.add(new_kb_item)
 
     if files:
-        db.query(KhatabookFile).filter(KhatabookFile.khatabook_id == kb_entry.uuid).delete()
+        # Soft delete existing files instead of hard delete
+        db.query(KhatabookFile).filter(
+            KhatabookFile.khatabook_id == kb_entry.uuid,
+            KhatabookFile.is_deleted.is_(False)
+        ).update({KhatabookFile.is_deleted: True})
         db.flush()
         for f in files:
             file_path = save_uploaded_file(f, "khatabook_files")
@@ -199,6 +286,85 @@ def hard_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
     db.commit()
     return result > 0
 
+# def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
+
+#     """
+#     Soft delete a khatabook entry by setting is_deleted to True.
+
+#     Args:
+#         db: Database session
+#         kb_uuid: UUID of the khatabook entry
+
+#     Returns:
+#         True if the entry was deleted, False if the entry doesn't exist
+#     """
+#     kb_entry = db.query(Khatabook).filter(
+#         Khatabook.uuid == kb_uuid,
+#         Khatabook.is_deleted.is_(False)
+#     ).first()
+#     if not kb_entry:
+#         return False
+
+#     kb_entry.is_deleted = True
+#     db.commit()
+#     return True
+
+def soft_delete_khatabook_entry_service(db: Session, kb_uuid: UUID) -> bool:
+    """
+    Soft delete a khatabook entry by setting is_deleted=True.
+    Also soft deletes related files and item mappings.
+
+    This function ensures data integrity by properly marking all related
+    entities as deleted while preserving the data for audit purposes.
+
+    Args:
+        db: Database session
+        kb_uuid: UUID of the khatabook entry
+
+    Returns:
+        True if the entry was marked as deleted, False if the entry doesn't exist
+    """
+    try:
+        # Fetch the khatabook entry
+        khatabook = db.query(Khatabook).filter(
+            Khatabook.uuid == kb_uuid,
+            Khatabook.is_deleted.is_(False)
+        ).first()
+
+        if not khatabook:
+            db_logger.warning(f"Khatabook entry {kb_uuid} not found or already deleted")
+            return False
+
+        db_logger.info(f"Soft deleting khatabook entry {kb_uuid}")
+
+        # Mark related files as deleted
+        files_updated = db.query(KhatabookFile).filter(
+            KhatabookFile.khatabook_id == kb_uuid,
+            KhatabookFile.is_deleted.is_(False)
+        ).update({KhatabookFile.is_deleted: True})
+
+        db_logger.info(f"Marked {files_updated} files as deleted for khatabook {kb_uuid}")
+
+        # Mark related item mappings as deleted
+        items_updated = db.query(KhatabookItem).filter(
+            KhatabookItem.khatabook_id == kb_uuid,
+            KhatabookItem.is_deleted.is_(False)
+        ).update({KhatabookItem.is_deleted: True})
+
+        db_logger.info(f"Marked {items_updated} items as deleted for khatabook {kb_uuid}")
+
+        # Mark the main khatabook as deleted
+        khatabook.is_deleted = True
+
+        db.commit()
+        db_logger.info(f"Successfully soft deleted khatabook entry {kb_uuid}")
+        return True
+
+    except Exception as e:
+        db.rollback()
+        db_logger.error(f"Error soft deleting khatabook entry {kb_uuid}: {str(e)}")
+        raise
+
 
 def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
     entries = (
@@ -214,7 +380,7 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
             Khatabook.is_deleted.is_(False),
             Khatabook.created_by == user_id
         )
-        .order_by(Khatabook.id.desc())
+        .order_by(Khatabook.expense_date.desc())
         .all()
     )
 
@@ -223,14 +389,17 @@ def get_all_khatabook_entries_service(user_id: UUID, db: Session) -> List[dict]:
         file_urls = []
         if entry.files:
             for f in entry.files:
-                filename = os.path.basename(f.file_path)
-                file_url = f"{constants.HOST_URL}/uploads/khatabook_files/{filename}"
-                file_urls.append(file_url)
+                # Only include non-deleted files
+                if not f.is_deleted:
+                    filename = os.path.basename(f.file_path)
+                    file_url = f"{constants.HOST_URL}/uploads/khatabook_files/{filename}"
+                    file_urls.append(file_url)
 
         items_data = []
         if entry.items:
             for khatabook_item in entry.items:
-                if khatabook_item.item:
+                # Only include non-deleted items
+                if not khatabook_item.is_deleted and khatabook_item.item:
                     items_data.append({
                         "uuid": str(khatabook_item.item.uuid),
                         "name": khatabook_item.item.name,
