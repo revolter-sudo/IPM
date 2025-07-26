@@ -426,19 +426,18 @@ def mark_day_off(
     current_user: User = Depends(get_current_user),
 ):
     """
-    - **SuperAdmin/Admin** may pass `user_id` to mark someone else’s day off.
-    - **All other roles** must not pass `user_id` (they’ll be blocked).
+    - **SuperAdmin/Admin** may pass `user_id` to mark someone else's day off.
+    - **All other roles** must not pass `user_id` (they'll be blocked).
     - Role-based date rules (past/future/today) still apply to whichever user is targeted.
     """
     try:
         today = date.today()
-
         # figure out whose record we're touching
         if user_id:
             if current_user.role not in {UserRole.ADMIN, UserRole.SUPER_ADMIN}:
                 return AttendanceResponse(
                     data=None,
-                    message="Only Admin/SuperAdmin may manage other users’ days off",
+                    message="Only Admin/SuperAdmin may manage other users' days off",
                     status_code=403
                 ).to_dict()
             target_user_id = user_id
@@ -536,14 +535,13 @@ def cancel_self_punch_in(
                 message="Punch-in record not found",
                 status_code=404
             ).to_dict()
-
         # Time check: allow cancel only within 5 minutes
         current_time = get_ist_now()
         punch_in_time = punch_record.punch_in_time
-        
+
         # ensure punch_in_time is also timezone-aware (assume UTC if naive)
-        if punch_in_time.tzinfo is None:
-            punch_in_time = punch_in_time.replace(tzinfo=timezone.utc)
+        if punch_in_time.tzinfo is not None:
+            punch_in_time = punch_in_time.astimezone(IST).replace(tzinfo=None)
 
         if (current_time - punch_in_time) > timedelta(minutes=5):
             return AttendanceResponse(
