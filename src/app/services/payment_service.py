@@ -344,16 +344,28 @@ def create_payment(
         )
         logger.info(f"[create_payment] 📉 Project balance adjusted for project {payment_request.project_id}")
 
-        # Save files
+        # Save files - Optimized with bulk operations
         if files:
             os.makedirs(constants.UPLOAD_DIR, exist_ok=True)
+            payment_files = []
             for file in files:
+                # Read file content immediately to avoid file object lifecycle issues
+                file_content = file.file.read()
                 ext = os.path.splitext(file.filename)[1]
                 filename = f"{uuid4()}{ext}"
                 path = os.path.join(constants.UPLOAD_DIR, filename)
+                
+                # Write file content synchronously
                 with open(path, "wb") as f:
-                    f.write(file.file.read())
-                db.add(PaymentFile(payment_id=current_payment_uuid, file_path=path))
+                    f.write(file_content)
+                
+                payment_files.append(PaymentFile(
+                    payment_id=current_payment_uuid, 
+                    file_path=path
+                ))
+            
+            # Bulk add all payment files to database
+            db.add_all(payment_files)
             logger.info(f"[create_payment] 📎 {len(files)} file(s) uploaded and linked to payment")
 
         db.commit()
@@ -1060,13 +1072,13 @@ def get_all_payments(
     from_uuid: Optional[UUID] = Query(None, description="UUID of the user who created the payment"),
     to_uuid: Optional[UUID] = Query(None, description="UUID of the person receiving the payment"),
     pending_request: Optional[bool] = Query(False, description="If true, show only role‑specific pending payments."),
-    page: Optional[int] = Query(None, ge=1, description="Page number (10 rows per page, omit/null = all)"),
+    page: Optional[int] = Query(None, ge=1, description="Page number (10 rows per page, omit/null = all)"),
 ):
     """
     Three modes:
-    1) recent=True            → last 5 payments (excl. transferred / declined) newest‑first
+    1) recent=True            → last 5 payments (excl. transferred / declined) newest-first
     2) pending_request=True   → role queue:   approved → verified → requested
-    3) default                → full list, newest‑first
+    3) default                → full list, newest-first
 
     In every mode we:
       • build an *ordered* list of UUIDs (with pagination)
@@ -1259,7 +1271,7 @@ def get_all_payments(
         # Apply role-based restrictions
         base = apply_role_restrictions(base, current_user, db)
 
-        # accountants ≤10 000
+        # accountants ≤10 000
         if current_user.role == UserRole.ACCOUNTANT.value:
             base = base.filter(Payment.amount <= 10_000)
 
@@ -1336,7 +1348,7 @@ def get_all_payments(
             status_code=200
         ).model_dump()
 
-    # ------------------------------------------------------------------ 2) PENDING‑REQUEST MODE
+    # ------------------------------------------------------------------ 2) PENDING-REQUEST MODE
     if pending_request:
         role_status_map = {
             UserRole.ACCOUNTANT.value:  ["approved", "verified", "requested"],
@@ -1360,11 +1372,11 @@ def get_all_payments(
         # Apply role-based restrictions
         base = apply_role_restrictions(base, current_user, db)
 
-        # accountants ≤10 000 in queue view
+        # accountants ≤10 000 in queue view
         if current_user.role == UserRole.ACCOUNTANT.value:
             base = base.filter(Payment.amount <= 10_000)
 
-        # user‑supplied filters (“normal” section reused):
+        # user-supplied filters ("normal" section reused):
         if amount is not None:
             base = base.filter(Payment.amount == amount)
         if project_id is not None:
@@ -1447,7 +1459,7 @@ def get_all_payments(
     # Apply role-based restrictions
     base = apply_role_restrictions(base, current_user, db)
 
-    # --- same user‑supplied filters as above ---
+    # --- same user-supplied filters as above ---
     if amount is not None:
         base = base.filter(Payment.amount == amount)
     if project_id is not None:
@@ -1784,7 +1796,7 @@ def approve_payment(
         )
         db.add(payment_status)
 
-        # 5) Only update payment table’s 'status' if `status` is ahead of the current payment.status
+        # 5) Only update payment table's 'status' if `status` is ahead of the current payment.status
         status_order_map = {
             "requested": 1,
             "verified": 2,

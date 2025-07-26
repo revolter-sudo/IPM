@@ -74,8 +74,8 @@ def create_project_balance_entry(
     #         performed_by=current_user.uuid,
     #     )
     # db.add(log_entry)
-    db.commit()
-    db.refresh(balance_entry)
+    # Removed db.commit() and db.refresh() to allow caller to handle transaction
+    # This eliminates redundant commits and improves performance
 
 
 @project_router.put(
