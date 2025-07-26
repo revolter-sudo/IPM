@@ -10,7 +10,7 @@ from src.app.database.models import (
 import os
 import shutil
 from src.app.database.models import KhatabookBalance
-from sqlalchemy import and_
+from sqlalchemy import and_, func
 from sqlalchemy.orm import joinedload
 from src.app.schemas import constants
 from src.app.schemas.constants import KHATABOOK_ENTRY_TYPE_DEBIT
@@ -123,14 +123,45 @@ def create_khatabook_entry_service(
     try:
         amount = float(data.get("amount", 0.0))
 
-        # Get existing entries to calculate total spent
-        entries = get_all_khatabook_entries_service(user_id=current_user, db=db)
+        # --- Duplicate Entry Logging Logic ---
+        from datetime import datetime, timedelta
+        import os
+        # --- Optimized Duplicate Entry Detection ---
+        today = datetime.now().date()
+        today_start = datetime.combine(today, datetime.min.time())
+        today_end = datetime.combine(today, datetime.max.time())
+        duplicate_exists = db.query(Khatabook).filter(
+            Khatabook.created_by == current_user,
+            Khatabook.amount == amount,
+            Khatabook.created_at >= today_start,
+            Khatabook.created_at <= today_end,
+            Khatabook.is_deleted == False
+        ).first() is not None
+        if duplicate_exists:
+            # Get user name for logging
+            user_name = None
+            try:
+                from src.app.database.models import User
+                user_obj = db.query(User).filter(User.uuid == current_user).first()
+                user_name = getattr(user_obj, "name", str(current_user)) if user_obj else str(current_user)
+            except Exception:
+                user_name = str(current_user)
+            log_dir = os.path.join(os.getcwd(), "logs")
+            os.makedirs(log_dir, exist_ok=True)
+            log_file = os.path.join(log_dir, "khatabook_logs.txt")
+            log_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_msg = f"user {user_name} created duplicate khatabook entry for {amount} amount at {log_time}\n"
+            with open(log_file, "a") as f:
+                f.write(log_msg)
+        # --- End Optimized Duplicate Entry Detection ---
 
-        # Calculate total spent (only debit entries - manual expenses)
-        total_spent = sum(
-            entry["amount"] for entry in entries
-            if entry.get("entry_type") == "Debit"
-        ) if entries else 0.0
+        # --- Optimized Total Spent Calculation ---
+        total_spent = db.query(func.sum(Khatabook.amount)).filter(
+            Khatabook.created_by == current_user,
+            Khatabook.entry_type == "Debit",
+            Khatabook.is_deleted == False
+        ).scalar() or 0.0
+        # --- End Optimized Total Spent Calculation ---
 
         # Calculate user_available_balance from transferred self-payments
         transferred_self_payments = db.query(Payment).filter(
