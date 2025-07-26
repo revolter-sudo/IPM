@@ -2808,8 +2808,9 @@ def update_item(
             item_record.name = payload.name
         if payload.category is not None:
             item_record.category = payload.category
-        if payload.list_tag is not None:
-            item_record.list_tag = payload.list_tag
+        # Special handling for list_tag - explicitly allow null values
+        if hasattr(payload, 'list_tag'):
+            item_record.list_tag = None if (payload.list_tag is None or payload.list_tag.lower() in ['none', '']) else payload.list_tag
         if payload.has_additional_info is not None:
             item_record.has_additional_info = payload.has_additional_info
 

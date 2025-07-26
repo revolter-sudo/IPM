@@ -17,6 +17,7 @@ class PaymentStatus(str, Enum):
 class ItemListTag(str, Enum):
     khatabook = "khatabook"
     payment = "payment"
+    none = None  # Allow None as a valid value
 
 
 class UpdateItemSchema(BaseModel):
