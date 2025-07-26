@@ -4,6 +4,7 @@ from datetime import datetime, date
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 from enum import Enum
 from src.app.utils.timezone_utils import convert_to_ist, format_ist_datetime, IST
+import json
 
 class AttendanceStatus(str, Enum):
     absent   = "absent"
@@ -34,11 +35,12 @@ class AttendanceResponse(BaseModel):
     status_code: int
 
     def to_dict(self):
-        return {
-            "data": self.data,
-            "message": self.message,
-            "status_code": self.status_code
-        }
+        return json.loads(self.model_dump_json())
+        # return {
+        #     "data": self.data,
+        #     "message": self.message,
+        #     "status_code": self.status_code
+        # }
 
 
 # Self Attendance Schemas
@@ -77,7 +79,7 @@ class SelfAttendanceResponse(BaseModel):
     model_config = ConfigDict(
         from_attributes=True,
         json_encoders={
-            datetime: lambda dt: format_ist_datetime(dt)
+            datetime: lambda dt: format_ist_datetime(dt) if dt else None
         }
     )
     
@@ -100,11 +102,12 @@ class SelfAttendanceStatus(BaseModel):
     punch_out_time: Optional[datetime] = None
     current_hours: Optional[str] = None
     status: Optional[AttendanceStatus] = None
+    marked_day_off_at: Optional[datetime] = None
 
     model_config = ConfigDict(
         from_attributes=True,
         json_encoders={
-            datetime: lambda dt: format_ist_datetime(dt)
+            datetime: lambda dt: format_ist_datetime(dt) if dt else None
         }
     )
     

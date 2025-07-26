@@ -9,7 +9,7 @@ import re
 import traceback
 from typing import Optional, List
 from uuid import UUID, uuid4
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from src.app.utils.timezone_utils import get_ist_now, convert_to_ist, format_ist_datetime, IST
 from src.app.schemas import constants
 from fastapi import (
@@ -277,7 +277,7 @@ def punch_in_self_attendance(
         logger.info(f"[{current_user.name}] did punch in at [{new_att.punch_in_time}]")
 
         return AttendanceResponse(
-            data=response_data.model_dump(),
+            data=response_data.model_dump(mode="json", exclude_none=False),
             message="Punch in successful",
             status_code=201
         ).to_dict()
@@ -396,7 +396,7 @@ def punch_out_self_attendance(
         logger.info(f"[{current_user.name}] did punch out at [{attendance_record.punch_out_time}]")
 
         return AttendanceResponse(
-            data=response_data.model_dump(),
+            data=response_data.model_dump(mode="json", exclude_none=False),
             message="Punch out successful",
             status_code=200
         ).to_dict()
@@ -540,6 +540,10 @@ def cancel_self_punch_in(
         # Time check: allow cancel only within 5 minutes
         current_time = get_ist_now()
         punch_in_time = punch_record.punch_in_time
+        
+        # ensure punch_in_time is also timezone-aware (assume UTC if naive)
+        if punch_in_time.tzinfo is None:
+            punch_in_time = punch_in_time.replace(tzinfo=timezone.utc)
 
         if (current_time - punch_in_time) > timedelta(minutes=5):
             return AttendanceResponse(
@@ -939,7 +943,8 @@ def get_self_attendance_status(
                 status=None,
                 user_id=current_user.uuid,
                 user_name=current_user.name,
-                attendance_date=today
+                attendance_date=today,
+                marked_day_off_at=None
             )
             return AttendanceResponse(
                 data=response_data.model_dump(),
@@ -955,10 +960,11 @@ def get_self_attendance_status(
                 user_name=current_user.name,
                 attendance_date=today,
                 is_punched_in=False,
-                status=AttendanceStatus.off_day
+                status=AttendanceStatus.off_day,
+                marked_day_off_at=attendance_record.created_at
             )
             return AttendanceResponse(
-                data=response_data.model_dump(),
+                data=response_data.model_dump(mode="json", exclude_none=False),
                 message="Off day marked for today",
                 status_code=200
             ).to_dict()
@@ -981,11 +987,12 @@ def get_self_attendance_status(
             punch_in_time=attendance_record.punch_in_time,
             punch_out_time=attendance_record.punch_out_time,
             current_hours=current_hours,
-            status=AttendanceStatus.present
+            status=AttendanceStatus.present,
+            mark_day_off_at=None
         )
 
         return AttendanceResponse(
-            data=response_data.model_dump(),
+            data=response_data.model_dump(mode="json", exclude_none=False),
             message="Current attendance status retrieved successfully",
             status_code=200
         ).to_dict()
